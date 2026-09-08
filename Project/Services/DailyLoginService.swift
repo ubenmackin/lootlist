@@ -22,7 +22,7 @@ enum DailyLoginStatus: Equatable, Sendable {
 @Observable
 final class DailyLoginService {
     private let cloudKitService: any CloudKitServiceProtocol
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DailyLogin")
+    private let logger = Logger(category: "DailyLogin")
 
     var cacheService: CacheService?
     var appState: AppState?
@@ -116,6 +116,30 @@ final class DailyLoginService {
 
     // MARK: - Claim guard
 
+    /// Deterministic daily-login ledger ID for a profile/event key.
+    private func dailyLedgerID(for profile: Profile, eventKey: String) -> CKRecord.ID {
+        GemLedger.deterministicRecordID(
+            profileRecordName: profile.id.recordName,
+            eventKey: eventKey,
+            source: "dailyLogin",
+            zoneID: profile.id.zoneID
+        )
+    }
+
+    /// Fetches a daily-login ledger row by event key.
+    private func dailyLedger(eventKey: String, profile: Profile, familyRecordName: String) -> GemLedgerCache? {
+        let id = dailyLedgerID(for: profile, eventKey: eventKey)
+        return cacheService?.fetchGemLedger(recordName: id.recordName, family: familyRecordName)
+    }
+
+    /// WHY suffix-array: `daily-{day}` and the `-v2` re-mint for legacy UTC collisions share one ID+freshness check.
+    private func isLedgerClaimedToday(eventKey: String, profile: Profile, familyRecordName: String) -> Bool {
+        guard let ledger = dailyLedger(eventKey: eventKey, profile: profile, familyRecordName: familyRecordName) else {
+            return false
+        }
+        return WeekMath.isToday(ledger.createdAt, calendar: calendar)
+    }
+
     /// Checks if a daily reward has genuinely been claimed today, accounting for
     /// legacy UTC claims that may have stamped today's date on a prior calendar day.
     private func hasClaimedToday(profile: Profile) -> Bool {
@@ -128,35 +152,15 @@ final class DailyLoginService {
             return true
         }
 
-        let profileRecordName = profile.id.recordName
         let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
 
-        let standardLedgerID = GemLedger.deterministicRecordID(
-            profileRecordName: profileRecordName,
-            eventKey: "daily-\(today)",
-            source: "dailyLogin",
-            zoneID: profile.id.zoneID
-        )
-        if let standardLedger = cacheService.fetchGemLedger(recordName: standardLedgerID.recordName, family: familyRecordName) {
-            if WeekMath.isToday(standardLedger.createdAt, calendar: calendar) {
-                return true
-            }
-        }
-
-        let v2LedgerID = GemLedger.deterministicRecordID(
-            profileRecordName: profileRecordName,
-            eventKey: "daily-\(today)-v2",
-            source: "dailyLogin",
-            zoneID: profile.id.zoneID
-        )
-        if let v2Ledger = cacheService.fetchGemLedger(recordName: v2LedgerID.recordName, family: familyRecordName) {
-            if WeekMath.isToday(v2Ledger.createdAt, calendar: calendar) {
-                return true
-            }
+        let eventKeys = ["", "-v2"].map { "daily-\(today)\($0)" }
+        if eventKeys.contains(where: { isLedgerClaimedToday(eventKey: $0, profile: profile, familyRecordName: familyRecordName) }) {
+            return true
         }
 
         let allLedgers = cacheService.fetchGemLedgers(
-            profileRecordName: profileRecordName,
+            profileRecordName: profile.id.recordName,
             family: familyRecordName
         )
         let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
@@ -184,15 +188,7 @@ final class DailyLoginService {
 
         let today = todayString()
         let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
-        let ledgerID = GemLedger.deterministicRecordID(
-            profileRecordName: profile.id.recordName,
-            eventKey: "daily-\(today)",
-            source: "dailyLogin",
-            zoneID: profile.id.zoneID
-        )
-        if let cachedLedger = cacheService?.fetchGemLedger(recordName: ledgerID.recordName, family: familyRecordName),
-           WeekMath.isToday(cachedLedger.createdAt, calendar: calendar)
-        {
+        if isLedgerClaimedToday(eventKey: "daily-\(today)", profile: profile, familyRecordName: familyRecordName) {
             return .claimedToday
         }
 
@@ -275,13 +271,7 @@ final class DailyLoginService {
         // If a prior-day legacy ledger with eventKey "daily-\(today)" exists, suffix the eventKey
         // so the new credit creates a fresh ledger rather than deduplicating against the old one.
         let familyRecordName = appState.family?.id.recordName ?? profile.family.recordID.recordName
-        let legacyLedgerID = GemLedger.deterministicRecordID(
-            profileRecordName: profile.id.recordName,
-            eventKey: "daily-\(today)",
-            source: "dailyLogin",
-            zoneID: profile.id.zoneID
-        )
-        let hasPriorDayLedger = (cacheService?.fetchGemLedger(recordName: legacyLedgerID.recordName, family: familyRecordName))
+        let hasPriorDayLedger = dailyLedger(eventKey: "daily-\(today)", profile: profile, familyRecordName: familyRecordName)
             .map { !WeekMath.isToday($0.createdAt, calendar: calendar) } ?? false
         let creditEventKey = hasPriorDayLedger ? "daily-\(today)-v2" : "daily-\(today)"
 

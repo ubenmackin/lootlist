@@ -67,13 +67,9 @@ final class GemLedgerCache: FamilyScopedCache, CacheMergeable {
             amount: entry.amount,
             source: entry.source,
             sourceDetail: entry.sourceDetail,
-            createdAt: entry.createdAt,
-            changeTag: entry.changeTag,
-            encodedSystemFields: entry.encodedSystemFields,
-            sourceZoneName: entry.id.zoneID.zoneName,
-            sourceZoneOwnerName: entry.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: entry.id.zoneID)
+            createdAt: entry.createdAt
         )
+        applySystemFields(from: entry)
     }
 
     // MARK: - CacheMergeable
@@ -85,13 +81,7 @@ final class GemLedgerCache: FamilyScopedCache, CacheMergeable {
         source = entry.source
         sourceDetail = entry.sourceDetail
         createdAt = entry.createdAt
-        changeTag = entry.changeTag
-        sourceZoneName = entry.id.zoneID.zoneName
-        sourceZoneOwnerName = entry.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: entry.id.zoneID)
-        if isServerSync, entry.encodedSystemFields != nil {
-            encodedSystemFields = entry.encodedSystemFields
-        }
+        applySystemFields(from: entry, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<GemLedgerCache> {
@@ -107,5 +97,27 @@ final class GemLedgerCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<GemLedgerCache> {
         FetchDescriptor<GemLedgerCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<GemLedgerCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+profile to the store instead of scanning.
+    static func profilePredicate(familyRecordName: String, profileRecordName: String) -> Predicate<GemLedgerCache> {
+        let targetFamily = familyRecordName
+        let targetProfile = profileRecordName
+        return #Predicate<GemLedgerCache> {
+            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
+        }
+    }
+
+    /// WHY fail-closed: empty scope returns zero rows via the index, never an unscoped scan.
+    static func emptyPredicate() -> Predicate<GemLedgerCache> {
+        #Predicate<GemLedgerCache> { $0.familyRecordName == "__empty__" }
     }
 }

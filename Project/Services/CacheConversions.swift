@@ -10,10 +10,7 @@ import Foundation
 import os
 import SwiftData
 
-private let cacheConversionsLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-    category: "CacheConversions"
-)
+private let cacheConversionsLogger = Logger(category: "CacheConversions")
 
 /// Returns private/shared from zone owner — private zones use default owner or non-underscore names
 /// (tests), shared zones start with "_".
@@ -382,10 +379,9 @@ extension FamilyCache {
         domain(zoneID: zoneID) { zid in
             Family(
                 name: name,
-                createdBy: CKRecord.ID(recordName: createdByRecordName, zoneID: zid),
+                creatorUserRecordName: creatorUserRecordName ?? createdByRecordName,
                 payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
                 payoutDay: PayoutDay(rawValue: payoutDay) ?? .sunday,
-                creatorUserRecordName: creatorUserRecordName,
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)
             )
         }

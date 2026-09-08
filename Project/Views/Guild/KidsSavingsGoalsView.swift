@@ -10,7 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct KidsSavingsGoalsView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "KidsSavingsGoalsView")
+    private static let logger = Logger(category: "KidsSavingsGoalsView")
 
     private let familyRecordName: String?
     private let focusedProfileRecordName: String?
@@ -31,9 +31,9 @@ struct KidsSavingsGoalsView: View {
         self.focusedProfileRecordName = focusedProfileRecordName
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "KidsSavingsGoalsView")
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
         _goalCaches = Query(filter: goalFilter, sort: \GoalCache.createdAt)
         _profileCaches = Query(filter: profileFilter, sort: \ProfileCache.displayName)
         _ledgerCaches = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
@@ -199,7 +199,6 @@ struct KidsSavingsGoalsView: View {
         let fraction = min(max(Double(savedPennies) / Double(targetPennies), 0), 1)
         let percent = Int((fraction * 100).rounded())
         let remainingPennies = max(targetPennies - savedPennies, 0)
-        let remainingDollars = Double(remainingPennies) / 100.0
         let isCompleted = goal.completedAt != nil || savedPennies >= goal.targetAmountPennies
         let pacing = GoalPacingCalculator.calculatePacing(
             targetAmountPennies: goal.targetAmountPennies,
@@ -220,7 +219,7 @@ struct KidsSavingsGoalsView: View {
                 pacing: pacing,
                 isCompleted: isCompleted,
                 percent: percent,
-                remainingDollars: remainingDollars,
+                remainingPennies: remainingPennies,
                 accent: accent
             )
         }
@@ -233,7 +232,7 @@ struct KidsSavingsGoalsView: View {
             goalCardContextMenu(goal: goal)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingDollars: remainingDollars))
+        .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingPennies: remainingPennies))
         .accessibilityIdentifier("kidsGoals.goalCard-\(goal.recordName)")
     }
 
@@ -288,7 +287,7 @@ struct KidsSavingsGoalsView: View {
         pacing: GoalPacingCalculator.PacingSummary?,
         isCompleted: Bool,
         percent: Int,
-        remainingDollars: Double,
+        remainingPennies: Int64,
         accent: Color
     ) -> some View {
         HStack(spacing: 6) {
@@ -299,7 +298,7 @@ struct KidsSavingsGoalsView: View {
                 .accessibilityLabel("\(percent) percent earned")
             Text("·")
                 .foregroundStyle(.secondary)
-            Text("\(CurrencyFormatter.string(remainingDollars)) Remaining")
+            Text("\(CurrencyFormatter.string(remainingPennies)) Remaining")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -349,8 +348,8 @@ struct KidsSavingsGoalsView: View {
         profileCaches.first { $0.recordName == profileRecordName }?.displayName ?? "Hero"
     }
 
-    private func accessibilityLabel(goal: GoalCache, hero: ProfileCache, percent: Int, remainingDollars: Double) -> String {
-        "\(hero.displayName)'s \(goal.name), \(percent) percent earned, \(CurrencyFormatter.string(remainingDollars)) remaining"
+    private func accessibilityLabel(goal: GoalCache, hero: ProfileCache, percent: Int, remainingPennies: Int64) -> String {
+        "\(hero.displayName)'s \(goal.name), \(percent) percent earned, \(CurrencyFormatter.string(remainingPennies)) remaining"
     }
 
     private func accentColor(for hero: ProfileCache) -> Color {

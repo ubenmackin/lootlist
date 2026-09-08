@@ -29,7 +29,7 @@ struct EditAvatarSheet: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(\.dismiss) private var dismiss
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "EditAvatarSheet")
+    private let logger = Logger(category: "EditAvatarSheet")
 
     @State private var selectedClass: AvatarClass?
     @State private var selectedPresetID: String?
@@ -97,7 +97,7 @@ struct EditAvatarSheet: View {
                     guard let newItem else { return }
                     do {
                         guard let data = try await newItem.loadTransferable(type: Data.self) else { return }
-                        customData = AvatarService.resizeImageData(data, maxDimension: 400)
+                        customData = await AvatarService.resizeImageData(data, maxDimension: 400)
                     } catch is CancellationError {
                         // user cancelled picker — no log/toast
                     } catch {

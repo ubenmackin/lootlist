@@ -19,7 +19,7 @@ struct PayoutChartHeader: View {
                 ForEach(data) { datum in
                     BarMark(
                         x: .value("Week", datum.weekStart, unit: .weekOfYear),
-                        y: .value("Earned", datum.amount)
+                        y: .value("Earned", Double(datum.amount))
                     )
                     .foregroundStyle(datum.isPaid ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.pendingAmber))
                     .cornerRadius(4)

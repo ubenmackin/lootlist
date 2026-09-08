@@ -14,7 +14,7 @@ import Testing
 struct TransferSaveFailureDiagnosticsTests {
     let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
 
-    private func transferRecord(recordName: String, amount: Double) -> CKRecord {
+    private func transferRecord(recordName: String, amount: Int64) -> CKRecord {
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let profileRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none)
         let entry = LedgerEntry(

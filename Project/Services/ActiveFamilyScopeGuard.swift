@@ -14,7 +14,7 @@ import os
 /// Central validation for mutation paths: ensures the record being mutated belongs to the currently
 /// active family/zone/database scope.
 enum ActiveFamilyScopeGuard {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ScopeGuard")
+    private static let logger = Logger(category: "ScopeGuard")
 
     /// Validates that a mutation targets the profile bound to the authenticated
     /// session. Profile IDs supplied by callers are not an authorization

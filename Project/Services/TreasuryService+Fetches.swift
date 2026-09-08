@@ -13,36 +13,7 @@ import os
 
 extension TreasuryService {
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
-        let family = Family(
-            name: "",
-            createdBy: profile.family.recordID,
-            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
-        )
-        return try await CacheFirst.cacheFirst(
-            type: .ledgerEntry,
-            family: family,
-            cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profile] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
-            },
-            map: { [profile] cache in
-                cache.toLedgerEntry(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            },
-            sortedBy: { $0.date > $1.date }
-        )
+        try await resolvedLedgerService.fetchAllLedgerEntries(profile: profile)
     }
 
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
@@ -87,42 +58,7 @@ extension TreasuryService {
     }
 
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
-        let family = Family(
-            name: "",
-            createdBy: profile.family.recordID,
-            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
-        )
-        return try await CacheFirst.cacheFirst(
-            type: .ledgerEntry,
-            family: family,
-            cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profile, dateRange] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
-                    .filter { dateRange.contains($0.date) }
-            },
-            map: { [profile] cache in
-                cache.toLedgerEntry(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile, dateRange] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(
-                    format: "profile == %@ AND date >= %@ AND date < %@",
-                    profileRef as CVarArg,
-                    dateRange.lowerBound as CVarArg,
-                    dateRange.upperBound as CVarArg
-                )
-                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            },
-            sortedBy: { $0.date > $1.date }
-        )
+        try await resolvedLedgerService.fetchLedgerEntries(profile: profile, in: dateRange)
     }
 
     func fetchQuestLogs(profile: Profile,
@@ -131,7 +67,7 @@ extension TreasuryService {
     {
         let family = Family(
             name: "",
-            createdBy: profile.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
         let all = try await CacheFirst.cacheFirst(
@@ -288,35 +224,27 @@ extension TreasuryService {
 
     // MARK: - Gold Aggregation
 
-    // WHY: Bespoke multi-step cache aggregation with missing-key patching — intentionally inline, not a single-type CacheFirst flow.
     func fetchQuestsForGold(family: Family, logs: [QuestCompletion]) async throws -> [Quest] {
         guard !logs.isEmpty else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
         let familyName = family.id.recordName
         let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let isAuthoritative = cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope)
-        if isAuthoritative {
-            let zoneID = family.id.zoneID
-            let cached = cacheService.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
-            var map = Dictionary(uniqueKeysWithValues: cached.map { ($0.id.recordName, $0) })
-            let missing = needed.filter { map[$0] == nil }
-            if missing.isEmpty {
-                return cached.filter { needed.contains($0.id.recordName) }
+        let zoneID = family.id.zoneID
+        let cache = cacheService
+        // WHY shared stitch: missing-key patch rides CacheFirst so payout
+        // and log paths cannot drift; no cache writes, ingest() untouched.
+        return try await CacheFirst.resolveWithCache(
+            needed: needed,
+            isAuthoritative: isAuthoritative,
+            fetchCached: { cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) } },
+            fetchMissing: { [self] missingNames in
+                try await self.fetchMissingQuestsForGold(
+                    missingNames: missingNames,
+                    family: family,
+                    logs: logs
+                )
             }
-            let fetched = try await fetchMissingQuestsForGold(
-                missingNames: Array(missing),
-                family: family,
-                logs: logs
-            )
-            for quest in fetched {
-                map[quest.id.recordName] = quest
-            }
-            return Array(map.values).filter { needed.contains($0.id.recordName) }
-        }
-        return try await fetchMissingQuestsForGold(
-            missingNames: Array(needed),
-            family: family,
-            logs: logs
         )
     }
 
@@ -336,13 +264,13 @@ extension TreasuryService {
         for logs: [QuestCompletion],
         quests: [Quest],
         templatesByID: [String: QuestTemplate]
-    ) -> Double {
+    ) -> Int64 {
         // WHY day count wins: stale targetCount under-counts specific-days split rewards.
-        GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: templatesByID)
+        GoldCalculation.totalCreditPennies(for: quests, logs: logs, templatesByID: templatesByID)
     }
 
-    func sumGold(for logs: [QuestCompletion], quests: [Quest], family: Family) -> Double {
-        GoldCalculation.totalCredit(
+    func sumGold(for logs: [QuestCompletion], quests: [Quest], family: Family) -> Int64 {
+        GoldCalculation.totalCreditPennies(
             for: quests,
             logs: logs,
             templatesByID: SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)

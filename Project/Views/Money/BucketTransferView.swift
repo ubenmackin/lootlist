@@ -37,7 +37,7 @@ struct BucketTransferView: View {
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "BucketTransferView")
         // WHY predicate pushdown: per-profile query keeps store indexed (family, profile) — avoids loading N× ledgers for family with many heroes. Self-ownership gated (acting.id
         // == profile.id) requires profile scope.
-        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let filter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _ledgerCaches = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
     }
 
@@ -57,9 +57,9 @@ struct BucketTransferView: View {
         appState.family
     }
 
-    private var balances: [BucketKind: Double] {
+    private var balances: [BucketKind: Int64] {
         // WHY no mid-thread profile filter: ledgerCaches already predicate-pushed to family+profile at store level.
-        var result: [BucketKind: Double] = [:]
+        var result: [BucketKind: Int64] = [:]
         for entry in ledgerCaches {
             BucketService.applyBucketAttribution(entry, to: &result)
         }
@@ -76,9 +76,9 @@ struct BucketTransferView: View {
         BucketKind.allCases.filter { $0 != fromBucket }
     }
 
-    private var parsedAmount: Double? {
-        guard let value = CurrencyFormatter.decimalDouble(from: amountText),
-              value.isFinite, value > 0
+    private var parsedAmount: Int64? {
+        guard let value = CurrencyFormatter.pennies(from: amountText),
+              value > 0
         else { return nil }
         return value
     }
@@ -87,7 +87,7 @@ struct BucketTransferView: View {
         parsedAmount != nil && fromBucket != toBucket && profile != nil && family != nil
     }
 
-    private var sourceAvailable: Double {
+    private var sourceAvailable: Int64 {
         balances[fromBucket] ?? 0
     }
 
@@ -238,7 +238,7 @@ struct BucketTransferView: View {
     }
 
     private var formattedConfirmAmount: String {
-        guard let amount = parsedAmount else { return CurrencyFormatter.string(0.0) }
+        guard let amount = parsedAmount else { return CurrencyFormatter.string(0) }
         return CurrencyFormatter.string(amount)
     }
 

@@ -18,8 +18,8 @@ extension AppLifecycleCoordinator {
     /// Call from the app root `.task` modifier only.
     func performInitialBootstrap() async {
         guard tryEnterBootstrap() else {
-            let completed = state.withLock { $0.hasCompletedInitialBootstrap }
-            let phase = state.withLock { $0.phase }
+            let completed = syncGate.hasCompletedInitialBootstrap
+            let phase = syncGate.phase
             logger.info("Bootstrap skipped: phase=\(String(describing: phase)), completed=\(completed)")
             return
         }
@@ -93,7 +93,7 @@ extension AppLifecycleCoordinator {
 
         await evaluateTrophiesCatchup()
 
-        state.withLock { $0.hasCompletedInitialBootstrap = true }
+        syncGate.markBootstrapComplete()
         logger.info("Initial bootstrap sequence completed successfully")
     }
 
@@ -121,12 +121,7 @@ extension AppLifecycleCoordinator {
             }
             return false
         }()
-        let shouldInitialize: Bool = state.withLock { flags in
-            guard flags.lastSynchronizedScopeKey != scopeKey || enginesNeedInitialization else {
-                return false
-            }
-            return true
-        }
+        let shouldInitialize: Bool = syncGate.lastSynchronizedScopeKey != scopeKey || enginesNeedInitialization
         guard shouldInitialize else {
             return true
         }
@@ -140,18 +135,11 @@ extension AppLifecycleCoordinator {
         await reconcileCacheFromCloudKit()
         await evaluateTrophiesCatchup()
 
-        let wrappedZoneID = (zoneName: zoneID.zoneName, ownerName: zoneID.ownerName)
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator, concrete.syncError == nil {
-            state.withLock { flags in
-                flags.lastSynchronizedScopeKey = scopeKey
-                flags.lastObservedZoneID = wrappedZoneID
-            }
+            syncGate.setSynchronizedScope(key: scopeKey, zoneName: zoneID.zoneName, ownerName: zoneID.ownerName)
         } else if syncCoordinator is CKSyncEngineCoordinator == false {
             // Test doubles have no syncError — stamp on success.
-            state.withLock { flags in
-                flags.lastSynchronizedScopeKey = scopeKey
-                flags.lastObservedZoneID = wrappedZoneID
-            }
+            syncGate.setSynchronizedScope(key: scopeKey, zoneName: zoneID.zoneName, ownerName: zoneID.ownerName)
         }
         return true
     }

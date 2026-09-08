@@ -14,7 +14,7 @@ struct CompleteQuestIntent: AppIntent, Sendable {
     static let title: LocalizedStringResource = "Complete Quest"
     static let description = IntentDescription("Marks a quest or chore as completed.")
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CompleteQuestIntent")
+    private let logger = Logger(category: "CompleteQuestIntent")
 
     @Parameter(title: "Quest")
     var quest: QuestEntity?

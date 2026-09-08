@@ -29,7 +29,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     nonisolated static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
     nonisolated static let syncTaskId = "com.volcrypt.lootlist.sync"
     nonisolated static let spendDigestTaskId = "com.volcrypt.lootlist.spenddigest"
-    private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
+    private nonisolated static let logger = Logger(category: "AppDelegate")
 
     /// Thread-safe exactly-once completion box for BGTask expiration/finish races.
     /// `BGTask.setTaskCompleted(success:)` is thread-safe from any isolation
@@ -234,6 +234,67 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return config
     }
 
+    /// Async silent-push resolver backing the completion-handler delegate below.
+    /// WHY async extraction: UIKit still requires the completion-handler signature,
+    /// so the delegate stays a thin wrapper while the sync race lives in async code
+    /// with the BGProcessingTask retry on deadline.
+    nonisolated static func resolveSilentPushResult() async -> UIBackgroundFetchResult {
+        enum RemoteSyncRace: Sendable {
+            case completed(SyncOutcome)
+            case deadlineExpired
+        }
+
+        let syncNotifications = NotificationCenter.default.notifications(named: .syncDidComplete)
+
+        let raceResult = await withTaskGroup(of: RemoteSyncRace?.self) { group in
+            group.addTask {
+                for await notification in syncNotifications {
+                    if let value = notification.userInfo?[SyncOutcome.userInfoKey] as? SyncOutcome {
+                        return .completed(value)
+                    }
+                }
+                return .deadlineExpired
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: .seconds(25))
+                } catch {
+                    Self.logger.debug("Background task deadline timer interrupted: \(error, privacy: .private)")
+                }
+                return .deadlineExpired
+            }
+            group.addTask {
+                // WHY: structured child so deadline cancellation propagates into the sync pass instead of orphaning it.
+                if let lifecycleCoordinator = AppDependencies.shared?.lifecycleCoordinator {
+                    await lifecycleCoordinator.handleRemoteNotification()
+                }
+                return nil
+            }
+
+            var winner: RemoteSyncRace = .deadlineExpired
+            for await result in group {
+                // WHY: sync completion alone never decides the fetch result; wait for notification or deadline.
+                guard let result else { continue }
+                winner = result
+                break
+            }
+            // WHY: cancel the loser so the notification stream does not block group teardown.
+            group.cancelAll()
+            return winner
+        }
+        switch raceResult {
+        case let .completed(outcome):
+            return outcome.backgroundFetchResult
+        case .deadlineExpired:
+            // WHY: terminated-push coverage — if the 25s push sync races
+            // past its deadline (jetsam / throttled push), schedule the
+            // BGProcessingTask retry so pendingRecordZoneChanges still
+            // upload when the system next launches the app.
+            Self.scheduleSyncProcessingTask()
+            return .failed
+        }
+    }
+
     func application(
         _: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
@@ -248,61 +309,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
         }
 
-        // Distinguishable race results: both arms yield a non-nil value so the for-await loop always
-        // terminates when either side finishes — a bare Optional here would treat the 25s deadline's `nil` as
-        enum RemoteSyncRace: Sendable {
-            case completed(SyncOutcome)
-            case deadlineExpired
-        }
-
         Task {
-            let syncNotifications = NotificationCenter.default.notifications(named: .syncDidComplete)
-
-            let raceResult = await withTaskGroup(of: RemoteSyncRace.self) { group in
-                group.addTask {
-                    for await notification in syncNotifications {
-                        if let value = notification.userInfo?[SyncOutcome.userInfoKey] as? SyncOutcome {
-                            return .completed(value)
-                        }
-                    }
-                    return .deadlineExpired
-                }
-                group.addTask {
-                    do {
-                        try await Task.sleep(for: .seconds(25))
-                    } catch {
-                        Self.logger.debug("Background task deadline timer interrupted: \(error, privacy: .private)")
-                    }
-                    return .deadlineExpired
-                }
-
-                Task {
-                    if let lifecycleCoordinator = AppDependencies.shared?.lifecycleCoordinator {
-                        await lifecycleCoordinator.handleRemoteNotification()
-                    }
-                }
-
-                var winner: RemoteSyncRace = .deadlineExpired
-                for await result in group {
-                    winner = result
-                    break
-                }
-                // Whichever side wins the race (sync outcome or the 25s deadline), the other child must be cancelled
-                // so the group unwinds instead of blocking forever on the notification stream.
-                group.cancelAll()
-                return winner
-            }
-            switch raceResult {
-            case let .completed(outcome):
-                completionHandler(outcome.backgroundFetchResult)
-            case .deadlineExpired:
-                // WHY: terminated-push coverage — if the 25s push sync races
-                // past its deadline (jetsam / throttled push), schedule the
-                // BGProcessingTask retry so pendingRecordZoneChanges still
-                // upload when the system next launches the app.
-                Self.scheduleSyncProcessingTask()
-                completionHandler(.failed)
-            }
+            await completionHandler(Self.resolveSilentPushResult())
         }
     }
 

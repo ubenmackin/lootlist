@@ -288,12 +288,12 @@ extension QuestServiceTests {
             _ = try await scaffold.questService.createTemplate(
                 name: "Unauthorized",
                 description: "",
-                defaultGold: 5.0,
+                defaultGold: 500,
                 xpReward: 10,
                 createdBy: scaffold.hero,
                 family: Family(
                     name: "Guild",
-                    createdBy: scaffold.parent.id,
+                    creatorUserRecordName: scaffold.parent.id.recordName,
                     id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
                 )
             )

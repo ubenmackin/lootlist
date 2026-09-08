@@ -19,7 +19,7 @@ import os
 /// `AppDependencies` to remove temporal coupling where discovery had to check
 /// `authStatus == .checkingCloudData` before running.
 actor FamilyDiscoveryService {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDiscovery")
+    private static let logger = Logger(category: "FamilyDiscovery")
 
     private var logger: Logger {
         Self.logger
@@ -134,10 +134,8 @@ actor FamilyDiscoveryService {
                         || zoneOwner == "__defaultOwner__"
                         || zoneOwner == "_defaultOwner_"
                     let familyCreatorMatches = foundFamily.creatorUserRecordName == userRecordID.recordName
-                        || foundFamily.createdBy.recordName == userRecordID.recordName
                     let isPlaceholderFamilyCreator = AppConstants.Security.legacyPlaceholderCreators
                         .contains(foundFamily.creatorUserRecordName ?? "")
-                        || AppConstants.Security.legacyPlaceholderCreators.contains(foundFamily.createdBy.recordName)
                     let shouldConsiderFamily = familyCreatorMatches || isZoneOwnedByUser || (isPlaceholderFamilyCreator && isZoneOwnedByUser)
                     guard shouldConsiderFamily else {
                         logger.info(

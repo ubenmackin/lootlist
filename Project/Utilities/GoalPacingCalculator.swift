@@ -72,7 +72,7 @@ enum GoalPacingCalculator {
         let status: PacingStatus
         let daysRemaining: Int
         let weeksRemaining: Int
-        let weeklyRequiredSavingsDollars: Double
+        let weeklyRequiredSavingsPennies: Int64
         let remainingPennies: Int64
         let formattedTargetDate: String
         let pacingDescription: String
@@ -98,7 +98,6 @@ enum GoalPacingCalculator {
         let weeksRemaining = max(1, Int(ceil(Double(max(daysRemaining, 1)) / 7.0)))
         let remainingPennies = max(0, targetAmountPennies - savedPennies)
         let weeklyRequiredPennies = Int64(ceil(Double(remainingPennies) / Double(weeksRemaining)))
-        let weeklyDollars = Double(weeklyRequiredPennies) / 100.0
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
@@ -132,11 +131,11 @@ enum GoalPacingCalculator {
             }
 
             if daysRemaining == 0 {
-                description = "Due today · \(CurrencyFormatter.string(Double(remainingPennies) / 100.0)) left"
+                description = "Due today · \(CurrencyFormatter.string(remainingPennies)) left"
             } else if daysRemaining <= 7 {
-                description = "\(daysRemaining) day\(daysRemaining == 1 ? "" : "s") left · \(CurrencyFormatter.string(Double(remainingPennies) / 100.0)) left"
+                description = "\(daysRemaining) day\(daysRemaining == 1 ? "" : "s") left · \(CurrencyFormatter.string(remainingPennies)) left"
             } else {
-                description = "Save \(CurrencyFormatter.string(weeklyDollars))/week to reach by \(formattedDate)"
+                description = "Save \(CurrencyFormatter.string(weeklyRequiredPennies))/week to reach by \(formattedDate)"
             }
         }
 
@@ -144,7 +143,7 @@ enum GoalPacingCalculator {
             status: status,
             daysRemaining: daysRemaining,
             weeksRemaining: weeksRemaining,
-            weeklyRequiredSavingsDollars: weeklyDollars,
+            weeklyRequiredSavingsPennies: weeklyRequiredPennies,
             remainingPennies: remainingPennies,
             formattedTargetDate: formattedDate,
             pacingDescription: description

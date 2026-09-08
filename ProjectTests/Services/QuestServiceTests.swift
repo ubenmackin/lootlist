@@ -92,7 +92,7 @@ struct QuestServiceTests {
     func `over-completion beyond targetCount grants zero additional XP`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 2
         )
@@ -120,7 +120,7 @@ struct QuestServiceTests {
     func `legitimate single completion grants full XP reward unchanged`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 50,
             targetCount: 1
         )
@@ -144,7 +144,7 @@ struct QuestServiceTests {
     func `mid-target completion grants only the prorated marginal XP`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 100,
             targetCount: 3
         )
@@ -177,14 +177,14 @@ struct QuestServiceTests {
         let deviceA = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
             cloudKitOverride: cloudKit,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
         let deviceB = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
             cloudKitOverride: cloudKit,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -219,7 +219,7 @@ struct QuestServiceTests {
         // targetCount=1 quest with a 100 XP bounty.
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -239,7 +239,7 @@ struct QuestServiceTests {
         // targetCount=3 quest with a 100 XP bounty.
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 100,
             targetCount: 3
         )
@@ -257,7 +257,7 @@ struct QuestServiceTests {
     func `completion whose xpCredited is already set is not re-rewarded`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -288,7 +288,7 @@ struct QuestServiceTests {
             completion: stampedCompletion
         )
 
-        #expect(reRunGold == 100.0)
+        #expect(reRunGold == 10000)
         let finalHero = try #require(scaffold.cache.fetchProfile(recordName: hero.id.recordName, family: "fam1"))
         #expect(
             finalHero.xpTotal == 100,
@@ -302,7 +302,7 @@ struct QuestServiceTests {
     func `quest xpBanked is synced into QuestCache`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -331,14 +331,14 @@ struct QuestServiceTests {
         let deviceA = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
             cloudKitOverride: cloudKit,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
         let deviceB = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
             cloudKitOverride: cloudKit,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -374,7 +374,7 @@ struct QuestServiceTests {
     func `a legitimately capped completion stamps xpCredited to zero`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -404,7 +404,7 @@ struct QuestServiceTests {
     func `parent-verified completion mints XP to the hero and stamps xpCredited`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .parentVerify,
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             targetCount: 1
         )
@@ -451,7 +451,7 @@ struct QuestServiceTests {
     func `applyReward mints nothing when a non-parent stranger acts on the hero`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .parentVerify,
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             targetCount: 1
         )
@@ -573,7 +573,7 @@ struct QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .parentVerify,
             cloudKitOverride: mockCK,
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             targetCount: 1
         )
@@ -667,7 +667,7 @@ struct QuestServiceTests {
     func `markComplete for multiPart parentVerify records intermediate subparts then pending on final`() async throws {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .parentVerify,
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 30,
             targetCount: 3,
             isAllOrNothing: false

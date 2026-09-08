@@ -33,7 +33,7 @@ extension CacheServiceTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -58,7 +58,7 @@ extension CacheServiceTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -71,13 +71,13 @@ extension CacheServiceTests {
         await service.upsertQuest(quest)
 
         var updated = quest
-        updated.goldReward = 10.0
+        updated.goldReward = 1000
         updated.name = "Mega Clean Room"
         await service.upsertQuest(updated)
 
         let quests = service.fetchQuests(family: "fam")
         #expect(quests.count == 1)
-        #expect(quests.first?.goldReward == 10.0)
+        #expect(quests.first?.goldReward == 1000)
         #expect(quests.first?.questName == "Mega Clean Room")
     }
 
@@ -89,7 +89,7 @@ extension CacheServiceTests {
         var quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -118,7 +118,7 @@ extension CacheServiceTests {
         var quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -149,7 +149,7 @@ extension CacheServiceTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -182,7 +182,7 @@ extension CacheServiceTests {
         let questA = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -195,7 +195,7 @@ extension CacheServiceTests {
         let questB = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -225,7 +225,7 @@ extension CacheServiceTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -261,7 +261,7 @@ extension CacheServiceTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -355,7 +355,7 @@ extension CacheServiceTests {
         let questA = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -368,7 +368,7 @@ extension CacheServiceTests {
         let questB = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -423,7 +423,7 @@ extension CacheServiceTests {
         let template = QuestTemplate(
             name: "Clean Room",
             description: "Tidy up",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -464,7 +464,7 @@ extension CacheServiceTests {
         let service = try makeService()
         let entry = LedgerEntry(
             profile: ref("hero"),
-            amount: 5.0,
+            amount: 500,
             description: "Bonus",
             family: ref("fam"),
             id: CKRecord.ID(recordName: "entry1")
@@ -474,7 +474,7 @@ extension CacheServiceTests {
 
         let entries = service.fetchLedgerEntries(profileRecordName: "hero", family: "fam")
         #expect(entries.count == 1)
-        #expect(entries.first?.amount == 5.0)
+        #expect(entries.first?.amount == 500)
     }
 
     @Test
@@ -885,7 +885,7 @@ extension CacheServiceTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 100,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -913,21 +913,21 @@ extension CacheServiceTests {
 
         // Also validate that updates propagate natively.
         var updatedQuest = quest
-        updatedQuest.goldReward = 99.0
+        updatedQuest.goldReward = 9900
         updatedQuest.name = "Native Propagation Quest Updated"
         await backgroundActor.batchUpsertQuests([updatedQuest])
 
         var updated: [QuestCache] = []
         for _ in 0 ..< 50 {
             updated = (try? container.mainContext.fetch(FetchDescriptor<QuestCache>())) ?? []
-            if updated.first?.goldReward == 99.0 {
+            if updated.first?.goldReward == 9900 {
                 break
             }
             try? await Task.sleep(for: .milliseconds(10))
         }
         #expect(updated.count == 1, "mainContext should see update via native SwiftData propagation")
         #expect(updated.first?.questName == "Native Propagation Quest Updated")
-        #expect(updated.first?.goldReward == 99.0)
+        #expect(updated.first?.goldReward == 9900)
     }
 
     @Test

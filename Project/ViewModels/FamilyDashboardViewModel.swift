@@ -28,8 +28,8 @@ final class FamilyDashboardViewModel {
 
     private(set) var pastPayouts: [AllowancePeriodCache] = []
 
-    /// Sum of all child ledger balances across the family.
-    private(set) var familyOutflow: Double = 0
+    /// Sum of all child ledger balances across the family (whole pennies).
+    private(set) var familyOutflow: Int64 = 0
 
     /// Count of quest completions awaiting parent verification.
     private(set) var pendingReviewCount: Int = 0
@@ -46,7 +46,7 @@ final class FamilyDashboardViewModel {
     private let achievements: AchievementService
     private let familyService: any FamilyProfileFetching
     private let appState: AppState
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
+    private let logger = Logger(category: "FamilyDashboard")
 
     /// Mirrors TreasuryService toast manager to surface breakdown errors in toast banner.
     var toastManager: ToastManager? {
@@ -206,6 +206,39 @@ final class FamilyDashboardViewModel {
         appState.currentProfile?.role == .guildMaster
     }
 
+    // MARK: - Section Transforms (pure, no CloudKit)
+
+    /// WHY ViewModel-owned: six-week trend math lived in the view body;
+    /// one helper keeps dashboard sparkline and payout charts identical.
+    nonisolated static func sparklinePoints(
+        periods: [AllowancePeriodCache],
+        payoutDay: PayoutDay,
+        selectedProfile: String?,
+        now: Date = Date()
+    ) -> [WeeklyEarningPoint] {
+        HubQueryProvider.weeklyEarningPoints(periods: periods, payoutDay: payoutDay, selectedProfile: selectedProfile, now: now)
+    }
+
+    nonisolated static func sparklineTotal(for points: [WeeklyEarningPoint]) -> Int64 {
+        points.reduce(0) { $0 + $1.amount }
+    }
+
+    /// Pending-review completions shared by the stat card and queue section.
+    nonisolated static func pendingCompletions(from completions: [QuestCompletionCache]) -> [QuestCompletionCache] {
+        HubQueryProvider.pendingCompletions(from: completions)
+    }
+
+    /// Weekly subtitle shared by the summary card header.
+    nonisolated static func weeklySubtitle(lootDayTitle: String, isPending: Bool, showsSettled: Bool) -> String {
+        if showsSettled {
+            return "\(lootDayTitle) · Real-time Settled"
+        }
+        if isPending {
+            return "\(lootDayTitle) · Pending Payout"
+        }
+        return lootDayTitle
+    }
+
     func subscribeToSyncEvents(_ coordinator: AppSyncCoordinator) {
         guard syncSubscriptionID == nil else { return }
         let (stream, id) = coordinator.subscribe()
@@ -260,11 +293,12 @@ final class FamilyDashboardViewModel {
 struct WeekendSummary: Equatable {
     let weekOf: Date
 
-    let totalEarned: Double
+    /// Whole pennies.
+    let totalEarned: Int64
 
     /// Quest gold awaiting weekly payout settlement for non-real-time heroes.
-    var pendingPayoutAmount: Double {
-        heroSummaries.reduce(into: 0.0) { acc, hero in
+    var pendingPayoutAmount: Int64 {
+        heroSummaries.reduce(into: 0) { acc, hero in
             if (hero.profile.payoutPolicyEnum ?? .perQuest) != .realTime {
                 acc += hero.weeklyQuestGold
             }
@@ -294,11 +328,11 @@ struct HeroSummary: Equatable, Identifiable {
     let weeklyQuestsTotal: Int
 
     /// Total earned this week for display (quest gold + immediate bonus like deposits).
-    let weeklyGoldEarned: Double
+    let weeklyGoldEarned: Int64
 
     /// Quest gold only — the portion that is pending payout for non-real-time heroes.
     /// Deposits/withdrawals hit the ledger immediately and must not be pending.
-    let weeklyQuestGold: Double
+    let weeklyQuestGold: Int64
 
     let currentStreak: Int
 
@@ -310,8 +344,8 @@ struct HeroSummary: Equatable, Identifiable {
         profile: ProfileCache,
         weeklyQuestsCompleted: Int,
         weeklyQuestsTotal: Int,
-        weeklyGoldEarned: Double,
-        weeklyQuestGold: Double? = nil,
+        weeklyGoldEarned: Int64,
+        weeklyQuestGold: Int64? = nil,
         currentStreak: Int,
         trophiesEarned: Int,
         avatarRenderSpec: AvatarRenderSpec? = nil
@@ -384,6 +418,6 @@ struct ChildAccountCard: Identifiable, Equatable {
     }
 
     let profile: ProfileCache
-    let balance: Double
+    let balance: Int64
     let pendingReviewCount: Int
 }

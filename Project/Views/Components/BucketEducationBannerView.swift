@@ -34,12 +34,10 @@ struct BucketEducationBannerView: View {
         // WHY single source: dismissal binding owned by parent to avoid dual AppStorage wrappers for same key.
         if let effectiveProfile = profileRecordName.sanitizedNilIfEmpty {
             let targetProfile = effectiveProfile
-            let filter = #Predicate<ProfileCache> {
-                $0.familyRecordName == targetFamily && $0.recordName == targetProfile
-            }
+            let filter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
             _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
         } else {
-            let filter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+            let filter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
             _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
         }
     }

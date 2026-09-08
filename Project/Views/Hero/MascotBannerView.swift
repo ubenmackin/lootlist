@@ -9,7 +9,7 @@ import os
 import SwiftUI
 
 struct MascotBannerView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MascotBannerView")
+    private static let logger = Logger(category: "MascotBannerView")
 
     @Environment(BonusObjectiveService.self) private var bonusService
     @Environment(GemService.self) private var gemService

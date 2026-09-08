@@ -12,8 +12,9 @@ import SwiftUI
 struct GoalCardView: View {
     let emoji: String
     let name: String
-    let savedAmount: Double
-    let targetAmount: Double
+    // WHY pennies canonical: Int64 is the single money representation so cards never round-trip through Double dollars.
+    let savedPennies: Int64
+    let targetPennies: Int64
     var targetDate: Date?
     var createdAt: Date = .init()
     var linkURL: String?
@@ -22,8 +23,8 @@ struct GoalCardView: View {
     var accessibilityID: String?
 
     private var progress: Double {
-        guard targetAmount > 0 else { return 0 }
-        return min(max(savedAmount / targetAmount, 0), 1)
+        guard targetPennies > 0 else { return 0 }
+        return min(max(Double(savedPennies) / Double(targetPennies), 0), 1)
     }
 
     private var percentText: String {
@@ -32,8 +33,8 @@ struct GoalCardView: View {
 
     private var pacingSummary: GoalPacingCalculator.PacingSummary? {
         GoalPacingCalculator.calculatePacing(
-            targetAmountPennies: Int64((targetAmount * 100).rounded()),
-            savedPennies: Int64((savedAmount * 100).rounded()),
+            targetAmountPennies: targetPennies,
+            savedPennies: savedPennies,
             createdAt: createdAt,
             targetDate: targetDate,
             completedAt: isCompleted ? Date() : nil
@@ -122,7 +123,7 @@ struct GoalCardView: View {
 
             // Saved / Target status line
             HStack(spacing: 4) {
-                Text(CurrencyFormatter.string(savedAmount))
+                Text(CurrencyFormatter.string(savedPennies))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
 
@@ -130,7 +131,7 @@ struct GoalCardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text(CurrencyFormatter.string(targetAmount))
+                Text(CurrencyFormatter.string(targetPennies))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -167,11 +168,11 @@ struct GoalCardView: View {
                 Spacer()
 
                 if let summary = pacingSummary, summary.status != .completed, summary.daysRemaining > 7 {
-                    Text("Save \(CurrencyFormatter.string(summary.weeklyRequiredSavingsDollars))/wk")
+                    Text("Save \(CurrencyFormatter.string(pennies: summary.weeklyRequiredSavingsPennies))/wk")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(summary.status.tintColor)
                 } else {
-                    Text("\(CurrencyFormatter.string(max(targetAmount - savedAmount, 0))) left")
+                    Text("\(CurrencyFormatter.string(max(targetPennies - savedPennies, 0))) left")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

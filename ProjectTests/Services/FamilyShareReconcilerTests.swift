@@ -49,7 +49,6 @@ struct FamilyShareReconcilerTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(

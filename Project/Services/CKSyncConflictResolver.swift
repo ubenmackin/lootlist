@@ -22,10 +22,7 @@ import SwiftData
 /// changeTag/encodedSystemFields via a single background batch.
 @MainActor
 final class CKSyncConflictResolver {
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "CKSyncConflictResolver"
-    )
+    private let logger = Logger(category: "CKSyncConflictResolver")
 
     private let cacheService: CacheService?
     private var backgroundCache: BackgroundCacheActor?
@@ -494,17 +491,17 @@ final class CKSyncConflictResolver {
     /// `getOrCreateAllowancePeriod →` monotonic rank paid(2) > payoutPending(1) > active(0), max amounts
     /// (totalEarned/questsCompleted/paidAmount) plus server-preferred paidDate (server ?? client),
     private func resolveAllowancePeriodConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
-        let serverPaidAmount = serverRecord["paidAmount"] as? Double
-        let clientPaidAmount = originalRecord["paidAmount"] as? Double
-        let mergedPaidAmount: Double? = {
+        let serverPaidAmount = serverRecord.penniesOptional(forKey: "paidAmount")
+        let clientPaidAmount = originalRecord.penniesOptional(forKey: "paidAmount")
+        let mergedPaidAmount: Int64? = {
             if serverPaidAmount == nil, clientPaidAmount == nil {
                 return nil
             }
             return max(serverPaidAmount ?? 0, clientPaidAmount ?? 0)
         }()
 
-        let serverTotalEarned = serverRecord["totalEarned"] as? Double ?? 0
-        let clientTotalEarned = originalRecord["totalEarned"] as? Double ?? 0
+        let serverTotalEarned = serverRecord.penniesOptional(forKey: "totalEarned") ?? 0
+        let clientTotalEarned = originalRecord.penniesOptional(forKey: "totalEarned") ?? 0
         let mergedTotalEarned = max(serverTotalEarned, clientTotalEarned)
 
         let serverQuestsCompleted = serverRecord["questsCompleted"] as? Int ?? 0

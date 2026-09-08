@@ -147,7 +147,7 @@ struct BucketServiceTests {
         func entry(_ name: String, amount: Double, bucketKind: String?) -> LedgerEntry {
             LedgerEntry(
                 profile: profileRef,
-                amount: amount,
+                amount: CurrencyFormatter.dollarsToPennies(amount),
                 description: name,
                 source: "quest",
                 bucketKind: bucketKind,
@@ -166,8 +166,8 @@ struct BucketServiceTests {
         await cache.upsertLedgerEntry(entry("e-vault", amount: 4.0, bucketKind: "vault"))
 
         let balances = buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 10.0)
-        #expect(balances[.shortTermSave] == 6.25)
+        #expect(balances[.spend] == 1000)
+        #expect(balances[.shortTermSave] == 625)
         #expect(balances[.longTermSave] == nil)
         #expect(balances.count == 2)
     }
@@ -232,7 +232,7 @@ struct BucketServiceTests {
             )
             family = Family(
                 name: "Test Guild",
-                createdBy: gmID,
+                creatorUserRecordName: "gm1",
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
@@ -247,7 +247,7 @@ struct BucketServiceTests {
             cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
         }
 
-        func seedEarned(goldReward: Double = 25.0) {
+        func seedEarned(goldReward: Int64 = 2500) {
             let templateRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
             )
@@ -312,16 +312,16 @@ struct BucketServiceTests {
         let paid = try await scaffold.payOut()
 
         #expect(paid.status == .paid)
-        #expect(paid.paidAmount == 25.0)
+        #expect(paid.paidAmount == 2500)
 
         let entries = scaffold.ledgerEntries().sorted { $0.recordName < $1.recordName }
         #expect(entries.count == 3, "Multi-bucket payout mints exactly one entry per receiving bucket")
 
         let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
         let base = "payout-\(paid.id.recordName)"
-        #expect(byName["\(base)-spend"]?.amount == 15.0)
-        #expect(byName["\(base)-shortTermSave"]?.amount == 6.25)
-        #expect(byName["\(base)-longTermSave"]?.amount == 3.75)
+        #expect(byName["\(base)-spend"]?.amount == 1500)
+        #expect(byName["\(base)-shortTermSave"]?.amount == 625)
+        #expect(byName["\(base)-longTermSave"]?.amount == 375)
         #expect(byName["\(base)-spend"]?.bucketKind == BucketKind.spend.rawValue)
         #expect(byName["\(base)-shortTermSave"]?.bucketKind == BucketKind.shortTermSave.rawValue)
         #expect(byName["\(base)-longTermSave"]?.bucketKind == BucketKind.longTermSave.rawValue)
@@ -329,7 +329,7 @@ struct BucketServiceTests {
 
         // Pennies must sum back to the exact payout total in the wallet.
         let balance = try await scaffold.treasury.currentBalance(for: scaffold.hero)
-        #expect(balance == 25.0)
+        #expect(balance == 2500)
     }
 
     @Test
@@ -342,7 +342,7 @@ struct BucketServiceTests {
         let entries = scaffold.ledgerEntries()
         #expect(entries.count == 1)
         #expect(entries.first?.recordName == "payout-\(paid.id.recordName)")
-        #expect(entries.first?.amount == 25.0)
+        #expect(entries.first?.amount == 2500)
         #expect(entries.first?.bucketKind == BucketKind.spend.rawValue)
     }
 

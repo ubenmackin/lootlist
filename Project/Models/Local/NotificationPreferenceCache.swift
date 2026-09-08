@@ -59,13 +59,9 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
             profileRecordName: preference.profile.recordID.recordName,
             familyRecordName: preference.family.recordID.recordName,
             eventType: preference.eventType.rawValue,
-            enabled: preference.enabled,
-            changeTag: preference.changeTag,
-            encodedSystemFields: preference.encodedSystemFields,
-            sourceZoneName: preference.id.zoneID.zoneName,
-            sourceZoneOwnerName: preference.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: preference.id.zoneID)
+            enabled: preference.enabled
         )
+        applySystemFields(from: preference)
     }
 
     // MARK: - CacheMergeable
@@ -75,13 +71,7 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
         familyRecordName = preference.family.recordID.recordName
         eventType = preference.eventType.rawValue
         enabled = preference.enabled
-        changeTag = preference.changeTag
-        sourceZoneName = preference.id.zoneID.zoneName
-        sourceZoneOwnerName = preference.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: preference.id.zoneID)
-        if isServerSync, preference.encodedSystemFields != nil {
-            encodedSystemFields = preference.encodedSystemFields
-        }
+        applySystemFields(from: preference, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<NotificationPreferenceCache> {
@@ -97,5 +87,22 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<NotificationPreferenceCache> {
         FetchDescriptor<NotificationPreferenceCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<NotificationPreferenceCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<NotificationPreferenceCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+profile to the store instead of scanning.
+    static func profilePredicate(familyRecordName: String, profileRecordName: String) -> Predicate<NotificationPreferenceCache> {
+        let targetFamily = familyRecordName
+        let targetProfile = profileRecordName
+        return #Predicate<NotificationPreferenceCache> {
+            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
+        }
     }
 }

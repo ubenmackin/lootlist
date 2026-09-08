@@ -149,7 +149,7 @@ struct TreasuryServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -171,7 +171,7 @@ struct TreasuryServiceTests {
 
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -185,9 +185,9 @@ struct TreasuryServiceTests {
 
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
 
-        // Gold must come from cache (25.0).  If code hit CK instead,
+        // Gold must come from cache (2500).  If code hit CK instead,
         // goldFromQuests would be 0 (empty mockRecords → fetch throws → try? swallows).
-        #expect(breakdown.goldFromQuests == 25.0)
+        #expect(breakdown.goldFromQuests == 2500)
         #expect(breakdown.questsCount == 1)
         // Cache-hit path must not touch CloudKit and must ride single-save spy with zero hydrations.
         #expect(countingCloudKit.readCallCount == 0)
@@ -212,7 +212,7 @@ struct TreasuryServiceTests {
         // Custom family payout day (.friday); the hero carries no per-profile override.
         let family = Family(
             name: "Friday Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .friday,
             id: familyID
         )
@@ -245,7 +245,7 @@ struct TreasuryServiceTests {
         let controlQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -259,7 +259,7 @@ struct TreasuryServiceTests {
         let boundaryQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 40.0,
+            goldReward: 4000,
             xpReward: 80,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -293,9 +293,9 @@ struct TreasuryServiceTests {
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
 
         // Both completions must land in the .friday-anchored current week:
-        // 25.0 (control) + 40.0 (boundary). With the old .sunday fallback the
-        // Saturday completion bucketed into the prior week, yielding 25.0/1.
-        #expect(breakdown.goldFromQuests == 65.0)
+        // 2500 (control) + 4000 (boundary). With the old .sunday fallback the
+        // Saturday completion bucketed into the prior week, yielding 2500/1.
+        #expect(breakdown.goldFromQuests == 6500)
         #expect(breakdown.questsCount == 2)
         #expect(countingCloudKit.readCallCount == 0)
         #expect(spy.hydrateCallCount == 0)
@@ -320,7 +320,7 @@ struct TreasuryServiceTests {
         // Family configured with .allOrNothing
         let family = Family(
             name: "AON Family",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutPolicy: .allOrNothing,
             id: familyID
         )
@@ -344,7 +344,7 @@ struct TreasuryServiceTests {
         let quest1 = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -359,7 +359,7 @@ struct TreasuryServiceTests {
         let quest2 = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -389,7 +389,7 @@ struct TreasuryServiceTests {
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
 
         // 1 out of 2 quests completed under family .allOrNothing policy must yield 0 gold
-        #expect(breakdown.goldFromQuests == 0.0)
+        #expect(breakdown.goldFromQuests == 0)
         #expect(breakdown.questsCount == 1)
         #expect(countingCloudKit.readCallCount == 0)
         #expect(spy.hydrateCallCount == 0)
@@ -405,7 +405,7 @@ struct TreasuryServiceTests {
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: dummyZone), action: .none)
         let family = Family(
             name: "Guild",
-            createdBy: CKRecord.ID(recordName: "owner", zoneID: dummyZone),
+            creatorUserRecordName: "owner",
             payoutPolicy: .allOrNothing,
             id: CKRecord.ID(recordName: "fam1", zoneID: dummyZone)
         )
@@ -485,7 +485,7 @@ struct TreasuryServiceTests {
             )
             family = Family(
                 name: "Split Guild",
-                createdBy: gmID,
+                creatorUserRecordName: gmID.recordName,
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
@@ -525,7 +525,7 @@ struct TreasuryServiceTests {
         }
 
         /// Seeds one completed quest in the fixture week so a payout settles.
-        func seedWeekEarnings(goldReward: Double) {
+        func seedWeekEarnings(goldReward: Int64) {
             let templateRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
             )
@@ -585,11 +585,11 @@ struct TreasuryServiceTests {
     @Test
     func `payout deposits split across buckets following the child percentages`() async throws {
         let fixture = try SplitMoneyFlowFixture(spendPercent: 60, shortPercent: 25, longPercent: 15)
-        fixture.seedWeekEarnings(goldReward: 12.34)
+        fixture.seedWeekEarnings(goldReward: 1234)
 
         let paid = try await fixture.payOutWeek()
         #expect(paid.status == .paid)
-        #expect(paid.paidAmount == 12.34)
+        #expect(paid.paidAmount == 1234)
 
         let entries = fixture.ledgerEntries().sorted { $0.recordName < $1.recordName }
         #expect(entries.count == 3)
@@ -598,31 +598,31 @@ struct TreasuryServiceTests {
         let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
         // Largest-remainder rounding of 1234 pennies at 60/25/15: the stray
         // penny lands on Short-Term Save (largest fractional remainder).
-        #expect(byName["\(base)-spend"]?.amount == 7.40)
-        #expect(byName["\(base)-shortTermSave"]?.amount == 3.09)
-        #expect(byName["\(base)-longTermSave"]?.amount == 1.85)
+        #expect(byName["\(base)-spend"]?.amount == 740)
+        #expect(byName["\(base)-shortTermSave"]?.amount == 309)
+        #expect(byName["\(base)-longTermSave"]?.amount == 185)
         #expect(byName["\(base)-spend"]?.bucketKind == BucketKind.spend.rawValue)
         #expect(byName["\(base)-shortTermSave"]?.bucketKind == BucketKind.shortTermSave.rawValue)
         #expect(byName["\(base)-longTermSave"]?.bucketKind == BucketKind.longTermSave.rawValue)
         #expect(entries.allSatisfy { $0.source == "quest" })
 
-        let totalPennies = entries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        let totalPennies = entries.reduce(Int64(0)) { $0 + $1.amount }
         #expect(totalPennies == 1234)
     }
 
     @Test
     func `withdrawal from a bucket debits only that bucket`() async throws {
         let fixture = try SplitMoneyFlowFixture(spendPercent: 60, shortPercent: 25, longPercent: 15)
-        fixture.seedWeekEarnings(goldReward: 20.00)
+        fixture.seedWeekEarnings(goldReward: 2000)
         _ = try await fixture.payOutWeek()
 
-        // Deposit settled as spend 12.00 / short 5.00 / long 3.00. The child
-        // then withdraws 8.00 out of Spend into Short-Term Save.
+        // Deposit settled as spend 1200 / short 500 / long 300. The child
+        // then withdraws 800 out of Spend into Short-Term Save.
         fixture.appState.currentProfile = fixture.hero
         let entry = try await fixture.buckets.transfer(
             from: .spend,
             to: .shortTermSave,
-            amount: 8.00,
+            amount: 800,
             profile: fixture.hero,
             family: fixture.family,
             transferID: BucketService.deterministicTransferID(
@@ -631,7 +631,7 @@ struct TreasuryServiceTests {
                 to: .shortTermSave
             )
         )
-        #expect(entry.amount == 8.00)
+        #expect(entry.amount == 800)
         #expect(entry.source == "transfer")
         #expect(entry.bucketKind == BucketKind.shortTermSave.rawValue)
         #expect(entry.fromBucket == BucketKind.spend.rawValue)
@@ -641,9 +641,9 @@ struct TreasuryServiceTests {
             profileRecordName: fixture.hero.id.recordName,
             familyRecordName: fixture.family.id.recordName
         )
-        #expect(balances[.spend] == 4.00)
-        #expect(balances[.shortTermSave] == 13.00)
-        #expect(balances[.longTermSave] == 3.00)
+        #expect(balances[.spend] == 400)
+        #expect(balances[.shortTermSave] == 1300)
+        #expect(balances[.longTermSave] == 300)
 
         // One ledger row carries both sides of the movement.
         #expect(fixture.ledgerEntries().count == 4)
@@ -663,14 +663,14 @@ struct TreasuryServiceTests {
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let profile = Profile(displayName: "Hero", avatarClass: .knight, avatarPresetID: "knight_01", role: .hero, iCloudUserID: profileID, family: familyRef, id: profileID)
-        let family = Family(name: "Hydrate Guild", createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Hydrate Guild", creatorUserRecordName: "parent1", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         appState.family = family
         appState.currentProfile = profile
         let monday = WeekMath.mondayOfWeek(for: Date())
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -694,7 +694,7 @@ struct TreasuryServiceTests {
         let treasury = TreasuryService(cloudKit: mock, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
         // Cache is empty and not fresh, so weeklyBreakdown will query and hydrate.
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
-        #expect(breakdown.goldFromQuests == 25.0)
+        #expect(breakdown.goldFromQuests == 2500)
         #expect(spy.hydrateCallCount == 2)
     }
 }

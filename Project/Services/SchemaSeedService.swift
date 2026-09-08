@@ -18,7 +18,7 @@
     /// cleanup on every path. Family itself is the pre-existing parent, never seeded.
     @MainActor
     final class SchemaSeedService {
-        private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SchemaSeed")
+        private static let logger = Logger(category: "SchemaSeed")
         private static let seedPrefix = "schemaseed"
 
         struct SeedReport: Sendable {
@@ -148,7 +148,7 @@
             QuestTemplate(
                 name: "Schema Seed Template",
                 description: "Schema seed",
-                defaultGold: 5.0,
+                defaultGold: 500,
                 xpReward: 50,
                 scheduleType: .specificDays,
                 specificDays: ["monday", "wednesday"],
@@ -166,7 +166,7 @@
             Quest(
                 template: CKRecord.Reference(recordID: template.id, action: .none),
                 assignee: profileRef,
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 100,
                 scheduleType: .specificDays,
                 targetCount: 2,
@@ -204,11 +204,11 @@
                 weekOf: Date(),
                 profile: profileRef,
                 status: .paid,
-                totalEarned: 25.0,
+                totalEarned: 2500,
                 questsCompleted: 3,
                 questsTotal: 5,
                 paidDate: Date(),
-                paidAmount: 25.0,
+                paidAmount: 2500,
                 family: familyRef,
                 id: Self.seedID("allowanceperiod", zoneID: zoneID)
             )
@@ -217,7 +217,7 @@
         private func makeSeedLedger(profileRef: CKRecord.Reference, familyRef: CKRecord.Reference, zoneID: CKRecordZone.ID) -> LedgerEntry {
             LedgerEntry(
                 profile: profileRef,
-                amount: 4.0,
+                amount: 400,
                 description: "Schema seed transfer",
                 location: "Schema seed",
                 source: LedgerSource.transfer.rawValue,
@@ -298,7 +298,7 @@
                 profile: profileRef,
                 questCompletion: CKRecord.Reference(recordID: completion.id, action: .none),
                 xpAmount: 50,
-                goldAmount: 10.0,
+                goldAmount: 1000,
                 family: familyRef,
                 id: Self.seedID("rewardevent", zoneID: zoneID)
             )

@@ -10,10 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct HeroInterestMatchView: View {
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "HeroInterestMatch"
-    )
+    private let logger = Logger(category: "HeroInterestMatch")
 
     let hero: ProfileCache
     let familyRecordName: String?
@@ -52,9 +49,7 @@ struct HeroInterestMatchView: View {
 
         let targetRecord = hero.recordName
         let targetFamily = familyRecordName ?? hero.familyRecordName
-        _heroRows = Query(filter: #Predicate<ProfileCache> {
-            $0.recordName == targetRecord && $0.familyRecordName == targetFamily
-        })
+        _heroRows = Query(filter: ProfileCache.recordPredicate(recordName: targetRecord, familyRecordName: targetFamily))
 
         _interestEnabled = State(initialValue: hero.interestEnabled)
         _interestBucket = State(initialValue: hero.interestBucket.flatMap { BucketKind(rawValue: $0) } ?? .longTermSave)
@@ -64,8 +59,7 @@ struct HeroInterestMatchView: View {
         _matchEnabled = State(initialValue: hero.matchEnabled)
         _matchRatePercent = State(initialValue: hero.matchRateBps > 0 ? Double(hero.matchRateBps) / 100.0 : 100.0)
         if let cap = hero.matchMonthlyCapPennies {
-            let dollars = Double(cap) / 100.0
-            _matchCapDollars = State(initialValue: CurrencyFormatter.editingString(dollars))
+            _matchCapDollars = State(initialValue: CurrencyFormatter.editingString(cap))
         } else {
             _matchCapDollars = State(initialValue: "")
         }
@@ -80,10 +74,10 @@ struct HeroInterestMatchView: View {
     }
 
     private var parsedMatchCapPennies: Int64? {
-        guard let value = CurrencyFormatter.decimalDouble(from: matchCapDollars), value > 0 else {
+        guard let value = CurrencyFormatter.pennies(from: matchCapDollars), value > 0 else {
             return nil
         }
-        return Int64((value * 100).rounded())
+        return value
     }
 
     var body: some View {
@@ -119,8 +113,7 @@ struct HeroInterestMatchView: View {
                 matchEnabled = updatedHero.matchEnabled
                 matchRatePercent = updatedHero.matchRateBps > 0 ? Double(updatedHero.matchRateBps) / 100.0 : 100.0
                 if let cap = updatedHero.matchMonthlyCapPennies {
-                    let dollars = Double(cap) / 100.0
-                    matchCapDollars = CurrencyFormatter.editingString(dollars)
+                    matchCapDollars = CurrencyFormatter.editingString(cap)
                 } else {
                     matchCapDollars = ""
                 }

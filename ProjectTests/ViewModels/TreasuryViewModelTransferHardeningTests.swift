@@ -37,7 +37,7 @@ struct TreasuryViewModelTransferHardeningTests {
         appState.currentProfile = profile
         appState.family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            creatorUserRecordName: "u1",
             payoutPolicy: .perQuest,
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
@@ -61,16 +61,16 @@ struct TreasuryViewModelTransferHardeningTests {
     @Test
     func `ms-cents multi-transfer succeeds with distinct ids end to end`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 20.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 2000, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
         let now = Date()
         let first = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 4.00,
+            from: .spend, to: .shortTermSave, amount: 400,
             profile: scaffold.hero, family: scaffold.family,
             at: now
         )
         let second = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 6.00,
+            from: .spend, to: .shortTermSave, amount: 600,
             profile: scaffold.hero, family: scaffold.family,
             at: now.addingTimeInterval(1)
         )
@@ -79,8 +79,8 @@ struct TreasuryViewModelTransferHardeningTests {
         #expect(first.id.recordName != second.id.recordName)
         #expect(scaffold.entries().count == 3)
         let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 10.00)
-        #expect(balances[.shortTermSave] == 10.00)
+        #expect(balances[.spend] == 1000)
+        #expect(balances[.shortTermSave] == 1000)
 
         // WHY end-to-end: the same cached rows drive Treasury totals and the spending list.
         let state = makeAppState()
@@ -89,18 +89,18 @@ struct TreasuryViewModelTransferHardeningTests {
         viewModel.rebuildLists(logs: [], ledgers: ledgers, quests: [], allowancePeriods: [], scope: .allTime, templates: [])
         #expect(viewModel.spendingLog.map(\.id).contains(first.id.recordName))
         #expect(viewModel.spendingLog.map(\.id).contains(second.id.recordName))
-        #expect(viewModel.balance == 20.00)
-        #expect(viewModel.spendBalance == 10.00)
+        #expect(viewModel.balance == 2000)
+        #expect(viewModel.spendBalance == 1000)
     }
 
     @Test
     func `same-ms identical retry dedupes without forking`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 20.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 2000, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
         let now = Date()
         let first = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 4.00,
+            from: .spend, to: .shortTermSave, amount: 400,
             profile: scaffold.hero, family: scaffold.family,
             at: now
         )
@@ -109,7 +109,7 @@ struct TreasuryViewModelTransferHardeningTests {
         // WHY replay-safe: same ms, cents, and pair mint the same base id so a retry converges.
         await #expect(throws: BucketServiceError.duplicateTodayTransfer) {
             _ = try await scaffold.buckets.transfer(
-                from: .spend, to: .shortTermSave, amount: 4.00,
+                from: .spend, to: .shortTermSave, amount: 400,
                 profile: scaffold.hero, family: scaffold.family,
                 at: now
             )
@@ -117,17 +117,17 @@ struct TreasuryViewModelTransferHardeningTests {
         #expect(scaffold.entries().count == countAfterFirst)
         #expect(scaffold.cache.fetchLedgerEntry(recordName: first.id.recordName, family: "fam1") != nil)
         let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 16.00)
-        #expect(balances[.shortTermSave] == 4.00)
+        #expect(balances[.spend] == 1600)
+        #expect(balances[.shortTermSave] == 400)
     }
 
     @Test
     func `pending transfer survives refresh and stays queued for reconcile upload`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
         let entry = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 4.00,
+            from: .spend, to: .shortTermSave, amount: 400,
             profile: scaffold.hero, family: scaffold.family,
             at: Date()
         )
@@ -144,8 +144,8 @@ struct TreasuryViewModelTransferHardeningTests {
         let refreshed = scaffold.entries()
         #expect(refreshed.map(\.recordName).contains(transferName))
         let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 6.00)
-        #expect(balances[.shortTermSave] == 4.00)
+        #expect(balances[.spend] == 600)
+        #expect(balances[.shortTermSave] == 400)
 
         let state = makeAppState()
         let viewModel = try makeTreasuryViewModel(state)
@@ -165,10 +165,10 @@ struct TreasuryViewModelTransferHardeningTests {
     @Test
     func `transfer copy maps description and buckets to spending rows`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
         let entry = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 4.00,
+            from: .spend, to: .shortTermSave, amount: 400,
             profile: scaffold.hero, family: scaffold.family,
             at: Date()
         )
@@ -186,7 +186,7 @@ struct TreasuryViewModelTransferHardeningTests {
             return
         }
         #expect(row.description == entry.description)
-        #expect(row.amount == 4.00)
+        #expect(row.amount == 400)
         #expect(row.source == LedgerSource.transfer.rawValue)
         #expect(row.rawCache?.fromBucket == BucketKind.spend.rawValue)
         #expect(row.rawCache?.toBucket == BucketKind.shortTermSave.rawValue)

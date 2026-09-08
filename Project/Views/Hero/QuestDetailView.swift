@@ -13,7 +13,7 @@ struct QuestDetailView: View {
     let quest: QuestCache
     let initialLog: QuestCompletionCache?
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestDetail")
+    private let logger = Logger(category: "QuestDetail")
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
@@ -67,7 +67,7 @@ struct QuestDetailView: View {
 
         if targetFamily.isEmpty {
             // WHY: fail-closed — empty scope must return zero rows via indexed predicate, never an unscoped scan across families.
-            let emptyFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == "__empty__" }
+            let emptyFilter = QuestCompletionCache.emptyPredicate()
             _cachedCompletions = Query(
                 filter: emptyFilter,
                 sort: \QuestCompletionCache.completedDate,
@@ -75,9 +75,7 @@ struct QuestDetailView: View {
             )
         } else {
             // WHY: predicate pushdown on familyRecordName+questRecordName index — cross-family isolation at fetch layer.
-            let filter = #Predicate<QuestCompletionCache> {
-                $0.familyRecordName == targetFamily && $0.questRecordName == questName
-            }
+            let filter = QuestCompletionCache.questPredicate(familyRecordName: targetFamily, questRecordName: questName)
             _cachedCompletions = Query(
                 filter: filter,
                 sort: \QuestCompletionCache.completedDate,
@@ -87,12 +85,10 @@ struct QuestDetailView: View {
         let targetTemplate = quest.templateRecordName
         if targetFamily.isEmpty {
             // WHY: fail-closed — empty scope must return zero rows via indexed predicate, never an unscoped scan across families.
-            let emptyTemplateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == "__empty__" }
+            let emptyTemplateFilter = QuestTemplateCache.emptyPredicate()
             _cachedTemplates = Query(filter: emptyTemplateFilter, sort: \QuestTemplateCache.name)
         } else {
-            let templateFilter = #Predicate<QuestTemplateCache> {
-                $0.familyRecordName == targetFamily && $0.recordName == targetTemplate
-            }
+            let templateFilter = QuestTemplateCache.recordPredicate(recordName: targetTemplate, familyRecordName: targetFamily)
             _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
         }
     }

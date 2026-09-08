@@ -49,14 +49,14 @@ struct TreasuryView: View {
         // queries MUST remain family + profile scoped at the store layer
         // (`familyRecordName == targetFamily && <profileField> == targetProfile`). Do not
         // regress to family-only predicates with in-memory `filter { profile == name }`; the
-        // profile predicate must stay in the #Predicate for isolation and I/O efficiency.
+        // profile predicate must stay in the Cache helper for isolation and I/O efficiency.
         // WHY stable sorts: CloudKit merge reorders can shuffle equal-dated rows; secondary recordName keeps ForEach(id: \.recordName) stable and avoids reorder churn across sync
         // passes.
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+        let completionFilter = QuestCompletionCache.completerPredicate(familyRecordName: targetFamily, completerRecordName: targetProfile)
+        let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        let questFilter = QuestCache.assignedPredicate(familyRecordName: targetFamily, assigneeRecordName: targetProfile)
+        let allowanceFilter = AllowancePeriodCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
@@ -334,7 +334,7 @@ struct WeeklyBreakdownCard: View {
         .padding(.horizontal)
     }
 
-    private func payoutRowValue(status: PayoutStatus, paidAmount: Double?) -> String {
+    private func payoutRowValue(status: PayoutStatus, paidAmount: Int64?) -> String {
         if status == .paid, let paidAmount {
             return "\(status.displayName) · \(CurrencyFormatter.magnitude(paidAmount))"
         }

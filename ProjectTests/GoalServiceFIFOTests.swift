@@ -41,7 +41,7 @@ struct GoalServiceFIFOTests {
     }
 
     private func makeBucketLedger(recordName: String,
-                                  amount: Double,
+                                  amount: Int64,
                                   profileRecordName: String = "hero1",
                                   bucketKind: BucketKind = .shortTermSave) -> LedgerEntryCache
     {
@@ -306,7 +306,7 @@ struct GoalServiceFIFOTests {
             makeGoal(recordName: "done", targetPennies: 6000, hoursAgo: 10, completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 5000, hoursAgo: 5)
         ]
-        let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 100.0)]
+        let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 10000)]
         // WHY subtract held funds: completed 60 still sits in bucket 100, so open gets min(40, 50).
         let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgers)
         #expect(allocations["done"] == 6000)
@@ -320,7 +320,7 @@ struct GoalServiceFIFOTests {
             makeGoal(recordName: "done", targetPennies: 10000, hoursAgo: 10, completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 10000, hoursAgo: 5)
         ]
-        let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 40.0)]
+        let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 4000)]
         // WHY clamp at zero: completed already exceeds bucket 40, so open gets nothing but completed still renders full.
         let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgers)
         #expect(allocations["done"] == 10000)

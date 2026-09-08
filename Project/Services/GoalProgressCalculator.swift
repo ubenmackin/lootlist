@@ -33,21 +33,18 @@ enum GoalProgressCalculator {
         return ledgerEntries
             .filter { $0.recordName.hasPrefix(prefix) && $0.profileRecordName == goal.profileRecordName }
             .reduce(into: Int64(0)) { acc, entry in
-                acc += pennies(for: entry)
+                acc += entry.amount
             }
     }
 
     /// Total currency amount attributed to `goal` from deterministic contribution records.
-    static func contributionAmount(for goal: GoalCache, in ledgerEntries: [LedgerEntryCache]) -> Double {
-        let prefix = DeterministicRecordID.contributionPrefix(for: goal.recordName)
-        return ledgerEntries
-            .filter { $0.recordName.hasPrefix(prefix) && $0.profileRecordName == goal.profileRecordName }
-            .reduce(0.0) { $0 + $1.amount }
+    static func contributionAmount(for goal: GoalCache, in ledgerEntries: [LedgerEntryCache]) -> Int64 {
+        contributionPennies(for: goal, in: ledgerEntries)
     }
 
-    /// Pennies conversion for a single ledger entry (rounded to nearest cent).
+    /// Pennies conversion for a single ledger entry (already whole pennies).
     private static func pennies(for entry: LedgerEntryCache) -> Int64 {
-        Int64((entry.amount * 100).rounded())
+        entry.amount
     }
 
     // MARK: - Allocation Strategies

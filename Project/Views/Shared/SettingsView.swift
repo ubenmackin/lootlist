@@ -88,7 +88,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 }
 
 struct SettingsView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SettingsView")
+    private static let logger = Logger(category: "SettingsView")
 
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
@@ -123,9 +123,7 @@ struct SettingsView: View {
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
-        let currentProfileFilter = #Predicate<ProfileCache> {
-            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-        }
+        let currentProfileFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
         _currentProfileRows = Query(
             filter: currentProfileFilter,
             sort: \ProfileCache.displayName

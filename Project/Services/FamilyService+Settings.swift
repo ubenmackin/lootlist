@@ -24,7 +24,7 @@ extension FamilyService {
             throw FamilyServiceError.persistenceFailed
         }
         let actingIsParent = appState.currentProfile?.role.isParent ?? false
-        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+        let ownerAnchorGrant: Bool = if hasResolvedOwnerAnchor(family) {
             await isFamilyOwner(family)
         } else {
             false
@@ -51,7 +51,7 @@ extension FamilyService {
             appState: appState
         )
         let actingIsParent = appState.currentProfile?.role.isParent ?? false
-        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+        let ownerAnchorGrant: Bool = if hasResolvedOwnerAnchor(family) {
             await isFamilyOwner(family)
         } else {
             false
@@ -81,7 +81,7 @@ extension FamilyService {
             appState: appState
         )
         let actingIsParent = appState.currentProfile?.role.isParent ?? false
-        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+        let ownerAnchorGrant: Bool = if hasResolvedOwnerAnchor(family) {
             await isFamilyOwner(family)
         } else {
             false

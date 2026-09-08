@@ -23,10 +23,13 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var name: String
 
-    /// Legacy profile reference retained for schema compatibility. Security
-    /// decisions must use `creatorUserRecordName`, not this mutable record
-    /// field.
-    let createdBy: CKRecord.ID
+    /// Server-authoritative owner identity, read from `creatorUserRecordName`.
+    var effectiveCreatorUserRecordName: String? {
+        guard let creatorUserRecordName, !creatorUserRecordName.isEmpty else {
+            return nil
+        }
+        return creatorUserRecordName
+    }
 
     /// The iCloud user record name of the family's founding user, read from the server-owned
     /// `CKRecord.creatorUserRecordID` on the read path.
@@ -49,8 +52,10 @@ struct Family: Identifiable, Equatable, Sendable {
 
         name = try record.extract("name")
 
-        let createdByID: String = try record.extract("createdBy")
-        createdBy = CKRecord.ID(recordName: createdByID)
+        // Server-authoritative creator user record ID; falls back to legacy createdBy field if present
+        let serverCreator = record.creatorUserRecordID?.recordName
+        let legacyCreatedBy: String? = record.extractOptional("createdBy")
+        creatorUserRecordName = serverCreator ?? legacyCreatedBy
 
         guard let createdAt = record["createdAt"] as? Date else {
             throw CKDecodingError.missingField("createdAt")
@@ -72,14 +77,12 @@ struct Family: Identifiable, Equatable, Sendable {
         } else {
             payoutDay = .sunday
         }
-
-        creatorUserRecordName = record.creatorUserRecordID?.recordName
     }
 
     func toRecord() -> CKRecord {
         let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["name"] = name as CKRecordValue
-        record["createdBy"] = createdBy.recordName as CKRecordValue
+        record["createdBy"] = (creatorUserRecordName ?? id.recordName) as CKRecordValue
         record["createdAt"] = createdAt as CKRecordValue
         record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
         record["payoutDay"] = payoutDay.rawValue as CKRecordValue
@@ -87,18 +90,32 @@ struct Family: Identifiable, Equatable, Sendable {
     }
 
     init(name: String,
-         createdBy: CKRecord.ID,
+         creatorUserRecordName: String? = nil,
+         payoutPolicy: PayoutPolicy = .perQuest,
+         payoutDay: PayoutDay = .sunday,
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
+        self.id = id
+        self.name = name
+        createdAt = Date()
+        self.payoutPolicy = payoutPolicy
+        self.payoutDay = payoutDay
+        self.creatorUserRecordName = creatorUserRecordName
+    }
+
+    init(name: String,
+         createdBy _: CKRecord.ID,
          payoutPolicy: PayoutPolicy = .perQuest,
          payoutDay: PayoutDay = .sunday,
          creatorUserRecordName: String? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
-        self.id = id
-        self.name = name
-        self.createdBy = createdBy
-        createdAt = Date()
-        self.payoutPolicy = payoutPolicy
-        self.payoutDay = payoutDay
-        self.creatorUserRecordName = creatorUserRecordName
+        self.init(
+            name: name,
+            creatorUserRecordName: creatorUserRecordName,
+            payoutPolicy: payoutPolicy,
+            payoutDay: payoutDay,
+            id: id
+        )
     }
 }

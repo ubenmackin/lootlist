@@ -20,7 +20,7 @@ struct SpendDigestServiceTests {
     private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Digest Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
     }
@@ -60,7 +60,7 @@ struct SpendDigestServiceTests {
     ) -> LedgerEntry {
         LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
-            amount: amount,
+            amount: CurrencyFormatter.dollarsToPennies(amount),
             description: record,
             date: date,
             source: source,

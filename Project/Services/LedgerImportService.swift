@@ -31,7 +31,8 @@ struct StagedImportRow: Identifiable, Equatable {
     var purchasedByRaw: String?
 
     var date: Date?
-    var amount: Double?
+    /// Whole pennies (signed) parsed from the CSV amount cell.
+    var amount: Int64?
 
     var assignedProfileRecordName: String?
     var isExcluded: Bool = false
@@ -217,7 +218,7 @@ enum LedgerCSVParser {
     /// Accepts currency amounts like "12.50", "(12.50)", "-12.5", "1,234.56", and bare decimals.
     /// Thousands separators are stripped before numeric conversion because
     /// bank-style exports quote amounts containing commas.
-    static func parseAmount(_ raw: String) -> Double? {
+    static func parseAmount(_ raw: String) -> Int64? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
 
@@ -238,7 +239,8 @@ enum LedgerCSVParser {
         }
 
         guard let value = Double(text), value.isFinite else { return nil }
-        return negative ? -value : value
+        let pennies = CurrencyFormatter.dollarsToPennies(value)
+        return negative ? -abs(pennies) : pennies
     }
 
     /// Parses flexible date formats (ISO timestamps, date-only, US slashes).
@@ -289,8 +291,8 @@ final class LedgerImportService {
     let syncCoordinator: CKSyncEngineCoordinator
     let appState: AppState
 
-    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerImport")
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerImport")
+    private static let staticLogger = Logger(category: "LedgerImport")
+    private let logger = Logger(category: "LedgerImport")
 
     struct FinalizeSummary: Equatable, Sendable {
         let importedCount: Int
@@ -347,7 +349,7 @@ final class LedgerImportService {
     /// including the assigned child — so identical lines bought for different
     /// kids produce distinct entries, and any review-time edit changes identity.
     static func recordName(for row: StagedImportRow, profileRecordName: String) -> String {
-        let cents = Int(((row.amount ?? 0) * 100).rounded())
+        let cents = Int(row.amount ?? 0)
         let timestamp = Int((row.date ?? Date()).timeIntervalSince1970)
         let canonical = [
             row.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),

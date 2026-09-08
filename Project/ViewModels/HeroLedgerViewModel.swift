@@ -12,15 +12,15 @@ import os
 @MainActor
 @Observable
 final class HeroLedgerViewModel {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroLedger")
+    private let logger = Logger(category: "HeroLedger")
 
     let heroProfile: ProfileCache
     private let spending: SpendingService
     private let appState: AppState
 
-    private(set) var balance: Double?
-    private(set) var spendBalance: Double = 0
-    private(set) var pendingQuestGold: Double = 0.0
+    private(set) var balance: Int64?
+    private(set) var spendBalance: Int64 = 0
+    private(set) var pendingQuestGold: Int64 = 0
     private(set) var ledgerRows: [SpendingLogRow] = []
     private(set) var errorMessage: String?
     private(set) var isLoading: Bool = false
@@ -32,7 +32,7 @@ final class HeroLedgerViewModel {
     }
 
     /// WHY instance shim: views hold @Query rows but should not reimplement bucket math.
-    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Double {
+    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Int64 {
         BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: heroProfile.recordName)
     }
 
@@ -62,11 +62,11 @@ final class HeroLedgerViewModel {
         }
         let payoutStatus = currentAllowance?.statusEnum
         if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
-            pendingQuestGold = 0.0
+            pendingQuestGold = 0
         } else {
             // WHY day count wins: stale targetCount under-counts specific-days split rewards.
             let templatesByID = SpecificDaysHelper.templatesByID(templates)
-            pendingQuestGold = GoldCalculation.netWeeklyGold(
+            pendingQuestGold = GoldCalculation.netWeeklyPennies(
                 quests: quests,
                 logs: completions,
                 profileRecordName: heroProfile.recordName,
@@ -79,7 +79,7 @@ final class HeroLedgerViewModel {
         ledgerRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
     }
 
-    func deposit(description: String, amount: Double, date: Date) async -> Bool {
+    func deposit(description: String, amount: Int64, date: Date) async -> Bool {
         guard let family = appState.family else {
             errorMessage = "No family loaded."
             return false
@@ -110,7 +110,7 @@ final class HeroLedgerViewModel {
         }
     }
 
-    func withdraw(description: String, amount: Double, date: Date) async -> Bool {
+    func withdraw(description: String, amount: Int64, date: Date) async -> Bool {
         guard let family = appState.family else {
             errorMessage = "No family loaded."
             return false

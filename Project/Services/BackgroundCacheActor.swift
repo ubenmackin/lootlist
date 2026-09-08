@@ -13,7 +13,7 @@ import SwiftData
 /// Background cache writer managing off-main SwiftData writes.
 @ModelActor
 actor BackgroundCacheActor {
-    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
+    let logger = Logger(category: "BackgroundCacheActor")
     let mutationQueue = SerialMutationQueue.shared
 
     /// Creates the background cache actor off-main to avoid main-thread affinity.

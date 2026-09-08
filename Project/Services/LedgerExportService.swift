@@ -11,7 +11,7 @@ import os
 /// Builds CSV and JSON ledger exports in memory matching import schema.
 @MainActor
 final class LedgerExportService {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerExport")
+    private let logger = Logger(category: "LedgerExport")
 
     init() {}
 
@@ -50,7 +50,7 @@ final class LedgerExportService {
             let date = dateFormatter.string(from: entry.date)
             let desc = csvEscape(entry.entryDescription)
             let merchant = csvEscape(entry.location ?? "")
-            let amount = CurrencyFormatter.editingString(entry.amount)
+            let amount = CurrencyFormatter.editingString(pennies: entry.amount)
             let purchasedBy = csvEscape(childName)
             csv += "\(date),\(desc),\(merchant),\(amount),\(purchasedBy)\n"
         }
@@ -92,7 +92,7 @@ private struct LedgerEntryJSON: Codable {
     let recordName: String
     let profileRecordName: String
     let familyRecordName: String
-    let amount: Double
+    let amount: Int64
     let description: String
     let location: String?
     let date: Date

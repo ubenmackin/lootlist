@@ -9,10 +9,7 @@ import Foundation
 import os
 
 enum WeekMath {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "WeekMath"
-    )
+    private static let logger = Logger(category: "WeekMath")
     /// (targetWeekday%7)+1 rotates payoutDay to cycle start — Sat 7 wraps to Sun 1; iso8601UTC is UTC no-DST.
     /// weekRange is half-open [start,end) — end exclusive, Date==end is next week (gate at Monday 00:00).
     static func startOfWeek(for date: Date, payoutDay: PayoutDay = .sunday) -> Date {

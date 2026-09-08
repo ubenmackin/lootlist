@@ -24,7 +24,8 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var recordName: String
     var profileRecordName: String
     var familyRecordName: String
-    var amount: Double
+    /// Whole pennies (signed) — mirrors `LedgerEntry.amount`.
+    var amount: Int64
     var entryDescription: String
     var location: String?
     var date: Date
@@ -55,10 +56,14 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         return LedgerSource(rawValue: source)
     }
 
+    var formattedAmount: String {
+        CurrencyFormatter.string(pennies: amount)
+    }
+
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,
-         amount: Double,
+         amount: Int64,
          entryDescription: String,
          location: String? = nil,
          date: Date,
@@ -102,13 +107,9 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
             source: entry.source,
             bucketKind: entry.bucketKind,
             fromBucket: entry.fromBucket,
-            toBucket: entry.toBucket,
-            changeTag: entry.changeTag,
-            encodedSystemFields: entry.encodedSystemFields,
-            sourceZoneName: entry.id.zoneID.zoneName,
-            sourceZoneOwnerName: entry.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: entry.id.zoneID)
+            toBucket: entry.toBucket
         )
+        applySystemFields(from: entry)
     }
 
     // MARK: - CacheMergeable
@@ -124,13 +125,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         bucketKind = entry.bucketKind
         fromBucket = entry.fromBucket
         toBucket = entry.toBucket
-        changeTag = entry.changeTag
-        sourceZoneName = entry.id.zoneID.zoneName
-        sourceZoneOwnerName = entry.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: entry.id.zoneID)
-        if isServerSync, entry.encodedSystemFields != nil {
-            encodedSystemFields = entry.encodedSystemFields
-        }
+        applySystemFields(from: entry, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<LedgerEntryCache> {
@@ -146,5 +141,30 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<LedgerEntryCache> {
         FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<LedgerEntryCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+profile to the store instead of scanning.
+    static func profilePredicate(familyRecordName: String, profileRecordName: String) -> Predicate<LedgerEntryCache> {
+        let targetFamily = familyRecordName
+        let targetProfile = profileRecordName
+        return #Predicate<LedgerEntryCache> {
+            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
+        }
+    }
+
+    /// WHY single source: import counts share the deterministic prefix definition.
+    static func importPredicate(familyRecordName: String) -> Predicate<LedgerEntryCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<LedgerEntryCache> {
+            $0.familyRecordName == targetFamily && $0.recordName.starts(with: "import-")
+        }
     }
 }

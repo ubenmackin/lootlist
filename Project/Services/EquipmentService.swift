@@ -37,7 +37,7 @@ enum EquipmentError: LocalizedError, Sendable, Equatable {
 @Observable
 final class EquipmentService {
     private let cloudKitService: any CloudKitServiceProtocol
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Equipment")
+    private let logger = Logger(category: "Equipment")
     private let gemService: GemService?
     private let soundManager: SoundManager?
     var cacheService: CacheService?

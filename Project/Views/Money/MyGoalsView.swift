@@ -17,7 +17,7 @@ struct MyGoalsView: View {
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyGoals")
+    private static let logger = Logger(category: "MyGoals")
 
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
@@ -47,8 +47,8 @@ struct MyGoalsView: View {
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "MyGoalsView")
         // WHY: predicate pushdown — filter by family+profile at store; family-only when the profile is unresolved so TabBar/hub surfaces never render silent-empty.
         if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
-            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-            let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            let goalFilter = GoalCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+            let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
             _cachedGoals = Query(
                 filter: goalFilter,
                 sort: \GoalCache.createdAt
@@ -59,8 +59,8 @@ struct MyGoalsView: View {
                 order: .reverse
             )
         } else {
-            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-            let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+            let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+            let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
             _cachedGoals = Query(
                 filter: goalFilter,
                 sort: \GoalCache.createdAt
@@ -73,12 +73,10 @@ struct MyGoalsView: View {
         }
         // WHY: predicate pushdown — profile split % drives banner visibility; family-scoped query keeps banner live.
         if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
-            let filter = #Predicate<ProfileCache> {
-                $0.familyRecordName == targetFamily && $0.recordName == targetProfile
-            }
+            let filter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
             _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
         } else {
-            let filter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+            let filter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
             _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
         }
     }
@@ -314,7 +312,7 @@ struct MyGoalsView: View {
             } message: { goal in
                 // WHY region currency: amounts render through CurrencyFormatter so copy stays locale-correct.
                 Text(
-                    "This will deduct \(CurrencyFormatter.string(Double(goal.targetAmountPennies) / 100.0)) from your \(goal.bucketKindEnum?.shortName ?? "savings") bucket and archive “\(goal.name)”."
+                    "This will deduct \(CurrencyFormatter.string(goal.targetAmountPennies)) from your \(goal.bucketKindEnum?.shortName ?? "savings") bucket and archive “\(goal.name)”."
                 )
             }
             .refreshable {
@@ -415,8 +413,9 @@ struct MyGoalsView: View {
 
     @ViewBuilder
     private func goalCard(for goal: GoalCache) -> some View {
-        let saved = Double(savedPennies(for: goal)) / 100.0
-        let target = Double(goal.targetAmountPennies) / 100.0
+        // WHY pennies canonical: progress derives from the Int64 pennies ratio so display never drifts through Double dollars.
+        let saved = savedPennies(for: goal)
+        let target = goal.targetAmountPennies
         let isCompleted = goal.completedAt != nil
         let pacing = GoalPacingCalculator.calculatePacing(
             targetAmountPennies: goal.targetAmountPennies,
@@ -432,7 +431,7 @@ struct MyGoalsView: View {
                   url.scheme?.lowercased().hasPrefix("http") == true else { return nil }
             return url
         }()
-        let progress = target > 0 && target.isFinite && saved.isFinite ? min(max(saved / target, 0), 1) : 0.0
+        let progress = target > 0 ? min(max(Double(saved) / Double(target), 0), 1) : 0.0
         let percent = Int((progress * 100).rounded())
 
         VStack(alignment: .leading, spacing: 10) {
@@ -529,7 +528,7 @@ struct MyGoalsView: View {
         }
     }
 
-    private func goalCardStatusLine(saved: Double, target: Double, pacing: GoalPacingCalculator.PacingSummary?, isCompleted: Bool) -> some View {
+    private func goalCardStatusLine(saved: Int64, target: Int64, pacing: GoalPacingCalculator.PacingSummary?, isCompleted: Bool) -> some View {
         HStack(spacing: 4) {
             Text(CurrencyFormatter.string(saved))
                 .font(.caption.weight(.semibold))
@@ -572,7 +571,7 @@ struct MyGoalsView: View {
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             Spacer()
             if let pacing, !isCompleted, pacing.daysRemaining > 7 {
-                Text("Save \(CurrencyFormatter.string(pacing.weeklyRequiredSavingsDollars))/wk")
+                Text("Save \(CurrencyFormatter.string(pennies: pacing.weeklyRequiredSavingsPennies))/wk")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(pacing.status.tintColor)
             } else if let category = goal.category, !category.isEmpty {
@@ -589,9 +588,9 @@ struct MyGoalsView: View {
         }
     }
 
-    private func accessibilityLabel(for goal: GoalCache, saved: Double, target: Double) -> String {
+    private func accessibilityLabel(for goal: GoalCache, saved: Int64, target: Int64) -> String {
         let name = goal.name
-        let percent = target > 0 ? Int((saved / target * 100).rounded()) : 0
+        let percent = target > 0 ? Int((Double(saved) / Double(target) * 100).rounded()) : 0
         let completedText = goal.completedAt != nil ? ", completed" : ""
         return "\(name), \(percent) percent saved\(completedText)"
     }

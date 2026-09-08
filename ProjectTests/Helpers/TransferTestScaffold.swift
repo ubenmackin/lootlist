@@ -39,7 +39,7 @@ struct TransferTestScaffold {
         )
         family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            creatorUserRecordName: "u1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -56,7 +56,7 @@ struct TransferTestScaffold {
     }
 
     func seed(_ name: String,
-              amount: Double,
+              amount: Int64,
               source: String,
               bucketKind: String?,
               fromBucket: String? = nil,

@@ -12,7 +12,7 @@ import SwiftUI
 
 @main
 struct LootListApp: App {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
+    private let logger = Logger(category: "Security")
 
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase

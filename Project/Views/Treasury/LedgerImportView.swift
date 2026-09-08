@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// until the explicit "Import N Transactions" confirmation; nothing touches
 /// the ledger before that button fires.
 struct LedgerImportView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerImportView")
+    private static let logger = Logger(category: "LedgerImportView")
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
     @Environment(ToastManager.self) private var toastManager: ToastManager?
@@ -38,7 +38,7 @@ struct LedgerImportView: View {
         // Filter by family and deterministic import ID prefix `import-` so only
         // rows created by CSV import are counted, not manual or quest entries.
         _importedLedgers = Query(
-            filter: #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.recordName.starts(with: "import-") },
+            filter: LedgerEntryCache.importPredicate(familyRecordName: targetFamily),
             sort: \LedgerEntryCache.date,
             order: .reverse
         )

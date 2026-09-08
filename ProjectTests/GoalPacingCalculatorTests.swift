@@ -99,6 +99,6 @@ struct GoalPacingCalculatorTests {
             now: now
         )
         #expect(summary?.weeksRemaining == 4)
-        #expect(summary?.weeklyRequiredSavingsDollars == 20.0)
+        #expect(summary?.weeklyRequiredSavingsPennies == 2000)
     }
 }

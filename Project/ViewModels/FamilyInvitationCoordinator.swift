@@ -29,7 +29,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
     private let familyService: any FamilyProfileFetching
     private let appState: AppState
     private let invitationResolver: InvitationResolver
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyInvitationCoordinator")
+    private let logger = Logger(category: "FamilyInvitationCoordinator")
 
     init(
         familyService: any FamilyProfileFetching,

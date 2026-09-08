@@ -10,7 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct GuildSettingsView: View {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GuildSettings")
+    private let logger = Logger(category: "GuildSettings")
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
@@ -54,17 +54,17 @@ struct GuildSettingsView: View {
         self.familyRecordName = familyRecordName
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "GuildSettingsView")
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
-        let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
+        let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+        let gemLedgerFilter = GemLedgerCache.familyPredicate(familyRecordName: targetFamily)
+        let rewardEventFilter = RewardEventCache.familyPredicate(familyRecordName: targetFamily)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
 
         // WHY stable sorts: all caches feed ForEach(id: \.recordName); secondary recordName tie-breaker keeps ordering deterministic across CloudKit merge reorders.
         _cachedProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])

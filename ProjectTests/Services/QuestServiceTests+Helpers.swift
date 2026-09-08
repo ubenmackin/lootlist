@@ -264,7 +264,7 @@ extension QuestServiceTests {
 
         let family = Family(
             name: "Test Guild",
-            createdBy: parent.id,
+            creatorUserRecordName: parent.id.recordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -290,7 +290,7 @@ extension QuestServiceTests {
             cloudKitOverride: (any CloudKitServiceProtocol)? = nil,
             syncCoordinator: Any? = nil,
             useSingleSaveSpy: Bool = false,
-            goldReward: Double = 10.0,
+            goldReward: Int64 = 1000,
             xpReward: Int = 20,
             targetCount: Int = 1,
             isAllOrNothing: Bool = false
@@ -333,7 +333,7 @@ extension QuestServiceTests {
             appState.isZoneOwner = resolvedCloudKit.activeIsOwner
             appState.family = Family(
                 name: "fam1",
-                createdBy: parentID,
+                creatorUserRecordName: parentID.recordName,
                 id: familyRef.recordID
             )
             questService.appState = appState

@@ -159,7 +159,7 @@ enum JourneyService {
             syncCoordinator,
             id: updated.id,
             appState: appState,
-            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "JourneyService"),
+            logger: Logger(category: "JourneyService"),
             context: "JourneyService.acknowledgeJourneyLevel"
         )
     }

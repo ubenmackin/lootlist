@@ -14,7 +14,7 @@ import os
 final class LedgerImportViewModel {
     private let importService: LedgerImportService
     private let appState: AppState
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerImport")
+    private let logger = Logger(category: "LedgerImport")
 
     private(set) var stagedRows: [StagedImportRow] = []
     private(set) var errorMessage: String?
@@ -47,7 +47,7 @@ final class LedgerImportViewModel {
         LedgerImportService.blockingRows(in: stagedRows).count
     }
 
-    var totalAmount: Double {
+    var totalAmount: Int64 {
         includedRows.compactMap(\.amount).reduce(0, +)
     }
 

@@ -107,13 +107,9 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
             isArchived: goal.isArchived,
             targetDate: goal.targetDate,
             linkURL: goal.linkURL,
-            imageURL: goal.imageURL,
-            changeTag: goal.changeTag,
-            encodedSystemFields: goal.encodedSystemFields,
-            sourceZoneName: goal.id.zoneID.zoneName,
-            sourceZoneOwnerName: goal.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: goal.id.zoneID)
+            imageURL: goal.imageURL
         )
+        applySystemFields(from: goal)
     }
 
     // MARK: - CacheMergeable
@@ -132,13 +128,7 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
         targetDate = goal.targetDate
         linkURL = goal.linkURL
         imageURL = goal.imageURL
-        changeTag = goal.changeTag
-        sourceZoneName = goal.id.zoneID.zoneName
-        sourceZoneOwnerName = goal.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: goal.id.zoneID)
-        if isServerSync, goal.encodedSystemFields != nil {
-            encodedSystemFields = goal.encodedSystemFields
-        }
+        applySystemFields(from: goal, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<GoalCache> {
@@ -154,5 +144,22 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<GoalCache> {
         FetchDescriptor<GoalCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<GoalCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+profile to the store instead of scanning.
+    static func profilePredicate(familyRecordName: String, profileRecordName: String) -> Predicate<GoalCache> {
+        let targetFamily = familyRecordName
+        let targetProfile = profileRecordName
+        return #Predicate<GoalCache> {
+            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
+        }
     }
 }

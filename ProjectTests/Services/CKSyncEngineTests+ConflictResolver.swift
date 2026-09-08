@@ -28,7 +28,7 @@ extension CKSyncEngineTests {
         let clientQuest = Quest(
             template: tmplRef,
             assignee: heroRef,
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -46,7 +46,7 @@ extension CKSyncEngineTests {
 
         var serverQuest = clientQuest
         serverQuest.name = "Server Old Name"
-        serverQuest.goldReward = 5.0
+        serverQuest.goldReward = 500
         serverQuest.xpBanked = 30
         let serverRecord = serverQuest.toRecord()
 
@@ -60,12 +60,12 @@ extension CKSyncEngineTests {
 
         let resolved = try #require(await resolver.resolveFailedSave(record: clientRecord, error: ckError))
         #expect(resolved["name"] as? String == "Local Edited Name")
-        #expect(resolved["goldReward"] as? Double == 5.0)
+        #expect(resolved["goldReward"] as? Int64 == 500)
         #expect(resolved["xpBanked"] as? Int == 30)
 
         let cached = try #require(cache.fetchQuest(recordName: questID.recordName, family: "fam1"))
         #expect(cached.questName == "Local Edited Name")
-        #expect(cached.goldReward == 5.0)
+        #expect(cached.goldReward == 500)
         #expect(cached.xpBanked == 30)
     }
 
@@ -447,7 +447,7 @@ extension CKSyncEngineTests {
         serverRecord["name"] = "Clean Room" as CKRecordValue
         serverRecord["xpReward"] = 50 as CKRecordValue
         serverRecord["xpBanked"] = 40 as CKRecordValue
-        serverRecord["goldReward"] = 10.0 as CKRecordValue
+        serverRecord["goldReward"] = Int64(1000) as CKRecordValue
         serverRecord["scheduleType"] = QuestSchedule.weeklyFlexible.rawValue as CKRecordValue
         serverRecord["weekOf"] = Date() as CKRecordValue
         serverRecord["family"] = familyRef as CKRecordValue
@@ -461,7 +461,7 @@ extension CKSyncEngineTests {
         clientRecord["name"] = "Clean Room" as CKRecordValue
         clientRecord["xpReward"] = 50 as CKRecordValue
         clientRecord["xpBanked"] = 70 as CKRecordValue // over-cap
-        clientRecord["goldReward"] = 10.0 as CKRecordValue
+        clientRecord["goldReward"] = Int64(1000) as CKRecordValue
         clientRecord["scheduleType"] = QuestSchedule.weeklyFlexible.rawValue as CKRecordValue
         clientRecord["weekOf"] = Date() as CKRecordValue
         clientRecord["family"] = familyRef as CKRecordValue

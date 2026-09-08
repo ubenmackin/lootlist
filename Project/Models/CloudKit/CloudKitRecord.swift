@@ -34,6 +34,32 @@ extension CKRecord {
         return defaultValue
     }
 
+    /// WHY NSNumber inspection: legacy rows store dollars as Double while
+    /// migrated rows store pennies as Int64 under the same key; objCType
+    /// distinguishes them so $5.00 never decodes as 5 pennies.
+    func pennies(forKey key: String) throws -> Int64 {
+        guard let raw = self[key] else {
+            throw CKDecodingError.missingField(key)
+        }
+        if let number = raw as? NSNumber {
+            let objCType = String(cString: number.objCType)
+            if objCType == "d" || objCType == "f" {
+                return CurrencyFormatter.dollarsToPennies(number.doubleValue)
+            }
+            return number.int64Value
+        }
+        throw CKDecodingError.missingField(key)
+    }
+
+    func penniesOptional(forKey key: String) -> Int64? {
+        guard self[key] != nil else { return nil }
+        do {
+            return try pennies(forKey: key)
+        } catch {
+            return nil
+        }
+    }
+
     func extract<T>(_ key: String) throws -> T {
         guard let value = self[key] as? T else {
             throw CKDecodingError.missingField(key)

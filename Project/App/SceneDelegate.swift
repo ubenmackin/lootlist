@@ -11,7 +11,7 @@ import UIKit
 
 @MainActor
 final class SceneDelegate: NSObject, UIWindowSceneDelegate {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SceneDelegate")
+    private let logger = Logger(category: "SceneDelegate")
 
     func scene(
         _: UIScene,
@@ -29,15 +29,6 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
                 name: .quickActionTriggered,
                 object: type
             )
-        }
-    }
-
-    func sceneWillEnterForeground(_: UIScene) {
-        // Foreground watermark catch-up: re-entering foreground re-validates freshness
-        // via AppLifecycleCoordinator.performForegroundSync; any missed silent pushes
-        // re-deliver through persisted CKSyncEngine change tokens.
-        Task { @MainActor in
-            await AppDependencies.shared?.lifecycleCoordinator.performForegroundSync()
         }
     }
 

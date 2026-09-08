@@ -64,7 +64,7 @@ struct InterestServiceTests {
             )
             family = Family(
                 name: "Test Guild",
-                createdBy: gmID,
+                creatorUserRecordName: gmID.recordName,
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
@@ -89,7 +89,7 @@ struct InterestServiceTests {
             return Calendar.iso8601UTC.date(from: comps) ?? Date()
         }
 
-        func seedLedger(amount: Double, bucket: BucketKind, source: String = "quest", date: Date = Date(), name: String) {
+        func seedLedger(amount: Int64, bucket: BucketKind, source: String = "quest", date: Date = Date(), name: String) {
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: hero.id, action: .none),
                 amount: amount,
@@ -148,10 +148,10 @@ struct InterestServiceTests {
     func `apply rounds down sub-penny remainder`() async throws {
         let sc = try Scaffold(interestRateBps: 333, interestIsCompound: false)
         // Balance 1000p at 3.33% → 33p = $0.33 after floor
-        sc.seedLedger(amount: 10.0, bucket: .longTermSave, name: "seed")
+        sc.seedLedger(amount: 1000, bucket: .longTermSave, name: "seed")
         let profile = try sc.refreshHero()
         let entry = try await sc.interest.applyMonthlyInterest(profile: profile, family: sc.family, date: sc.utcDate(year: 2026, month: 7))
-        #expect(entry?.amount == 0.33)
+        #expect(entry?.amount == 33)
         #expect(entry?.source == "interest")
         #expect(entry?.description == "Parent Interest")
         #expect(entry?.bucketKind == BucketKind.longTermSave.rawValue)
@@ -162,7 +162,7 @@ struct InterestServiceTests {
     @Test
     func `double apply in same month is idempotent`() async throws {
         let sc = try Scaffold()
-        sc.seedLedger(amount: 20.0, bucket: .longTermSave, name: "seed")
+        sc.seedLedger(amount: 2000, bucket: .longTermSave, name: "seed")
         let date = sc.utcDate(year: 2026, month: 6)
         let hero1 = try sc.refreshHero()
         let first = try await sc.interest.applyMonthlyInterest(profile: hero1, family: sc.family, date: date)
@@ -180,24 +180,24 @@ struct InterestServiceTests {
     func `compound accumulates across months`() async throws {
         // 10.00 at 10% (1000 bps) compound: month1 100p → 11.00, month2 110p → 12.10, month3 121p → 13.31
         let sc = try Scaffold(interestRateBps: 1000, interestIsCompound: true)
-        sc.seedLedger(amount: 10.0, bucket: .longTermSave, name: "seed")
+        sc.seedLedger(amount: 1000, bucket: .longTermSave, name: "seed")
 
         var hero = try sc.refreshHero()
         let m1 = sc.utcDate(year: 2026, month: 6)
         let e1 = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: m1)
-        #expect(e1?.amount == 1.0)
+        #expect(e1?.amount == 100)
         hero = try sc.refreshHero()
 
         let m2 = sc.utcDate(year: 2026, month: 7)
         let e2 = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: m2)
         // 1100p * 10% = 110p = 1.10 (compound includes prior interest)
-        #expect(e2?.amount == 1.1)
+        #expect(e2?.amount == 110)
 
         hero = try sc.refreshHero()
         let m3 = sc.utcDate(year: 2026, month: 8)
         let e3 = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: m3)
         // 1210p * 10% = 121p = 1.21
-        #expect(e3?.amount == 1.21)
+        #expect(e3?.amount == 121)
 
         #expect(sc.interestEntries().count == 3)
         // Verify deterministic names differ by month
@@ -209,23 +209,23 @@ struct InterestServiceTests {
     @Test
     func `simple does not compound`() async throws {
         let sc = try Scaffold(interestRateBps: 1000, interestIsCompound: false)
-        sc.seedLedger(amount: 10.0, bucket: .longTermSave, name: "seed")
+        sc.seedLedger(amount: 1000, bucket: .longTermSave, name: "seed")
 
         var hero = try sc.refreshHero()
         let m1 = sc.utcDate(year: 2026, month: 6)
         let e1 = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: m1)
-        #expect(e1?.amount == 1.0)
+        #expect(e1?.amount == 100)
         hero = try sc.refreshHero()
 
         let m2 = sc.utcDate(year: 2026, month: 7)
         let e2 = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: m2)
         // Simple ignores prior interest: still 1000p *10% = 1.00
-        #expect(e2?.amount == 1.0)
+        #expect(e2?.amount == 100)
 
         hero = try sc.refreshHero()
         let m3 = sc.utcDate(year: 2026, month: 8)
         let e3 = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: m3)
-        #expect(e3?.amount == 1.0)
+        #expect(e3?.amount == 100)
         #expect(sc.interestEntries().count == 3)
     }
 
@@ -244,7 +244,7 @@ struct InterestServiceTests {
     @Test
     func `disabled config is no-op`() async throws {
         let sc = try Scaffold(interestEnabled: false)
-        sc.seedLedger(amount: 20.0, bucket: .longTermSave, name: "seed")
+        sc.seedLedger(amount: 2000, bucket: .longTermSave, name: "seed")
         let hero = try sc.refreshHero()
         let result = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: sc.utcDate(year: 2026, month: 6))
         #expect(result == nil)
@@ -263,7 +263,7 @@ struct InterestServiceTests {
     func `sub-penny balance is no-op`() async throws {
         // 1 cent at 5% = 0.05 cents → floor 0
         let sc = try Scaffold(interestRateBps: 500)
-        sc.seedLedger(amount: 0.01, bucket: .longTermSave, name: "tiny")
+        sc.seedLedger(amount: 1, bucket: .longTermSave, name: "tiny")
         let hero = try sc.refreshHero()
         let result = try await sc.interest.applyMonthlyInterest(profile: hero, family: sc.family, date: sc.utcDate(year: 2026, month: 6))
         #expect(result == nil)
@@ -283,7 +283,7 @@ struct InterestServiceTests {
     @Test
     func `hero cannot apply interest`() async throws {
         let sc = try Scaffold()
-        sc.seedLedger(amount: 20.0, bucket: .longTermSave, name: "seed")
+        sc.seedLedger(amount: 2000, bucket: .longTermSave, name: "seed")
         sc.appState.currentProfile = sc.hero
         await #expect(throws: FamilyServiceError.unauthorized) {
             _ = try await sc.interest.applyMonthlyInterest(profile: sc.hero, family: sc.family, date: sc.utcDate(year: 2026, month: 6))

@@ -10,7 +10,7 @@ import Synchronization
 
 /// Centralized debug assertion verifying that family-scoped views have a valid non-empty scope.
 enum FamilyScopeValidator {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyScopeValidator")
+    private static let logger = Logger(category: "FamilyScopeValidator")
     private static let emittedFaults = Mutex<Set<String>>(Set<String>())
 
     static func assertNonEmpty(targetFamily: String, viewName: String) {

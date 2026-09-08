@@ -15,7 +15,7 @@ struct LedgerExportServiceTests {
     private let service = LedgerExportService()
 
     private func makeEntry(
-        amount: Double = 12.34,
+        amount: Int64 = 1234,
         entryDescription: String,
         location: String? = nil
     ) -> LedgerEntryCache {
@@ -105,7 +105,7 @@ struct LedgerExportServiceTests {
     @Test
     func `amount column is never formula guarded`() {
         let csv = service.buildCSV(
-            entries: [makeEntry(amount: -42.10, entryDescription: "Refund")],
+            entries: [makeEntry(amount: -4210, entryDescription: "Refund")],
             childName: "Ava"
         )
         let columns = dataRows(of: csv)[0].split(separator: ",", omittingEmptySubsequences: false).map(String.init)

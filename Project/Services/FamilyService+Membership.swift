@@ -146,7 +146,7 @@ extension FamilyService {
         if resolvedOwner != storedOwnerFallback {
             logger.warning("FamilyService.deleteFamilyAndReset fallback isOwner corrected via creator anchor: stored=\(storedOwnerFallback) resolved=\(resolvedOwner)")
         }
-        let isAuthorized: Bool = if let anchor = family.creatorUserRecordName, anchor != "__defaultOwner__", anchor != "_defaultOwner_" {
+        let isAuthorized: Bool = if hasResolvedOwnerAnchor(family) {
             isOwner
         } else {
             resolvedOwner && actingRoleIsParent

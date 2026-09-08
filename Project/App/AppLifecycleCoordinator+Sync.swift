@@ -16,21 +16,15 @@ extension AppLifecycleCoordinator {
     /// Lightweight re-sync for scene activation.
     func performForegroundSync() async {
         guard tryEnterSync() else {
-            let completed = state.withLock { $0.hasCompletedInitialBootstrap }
-            let phase = state.withLock { $0.phase }
+            let completed = syncGate.hasCompletedInitialBootstrap
+            let phase = syncGate.phase
             logger.info("Foreground sync skipped: completed=\(completed), phase=\(String(describing: phase))")
             return
         }
         defer { exitPhase(.syncing) }
 
         logger.info("Starting foreground sync")
-        await syncCoordinator?.fetchChanges()
-        await syncCoordinator?.sendPendingChanges()
-        // WHY: terminated-push coverage complements push-driven sync — schedule
-        // BGProcessingTask retry so pendingRecordZoneChanges still upload after
-        // jetsam or throttled silent push.
-        AppDelegate.scheduleSyncProcessingTask()
-        await reconcileCacheFromCloudKit()
+        await executeCoreSyncSequence()
         await evaluateTrophiesCatchup()
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
         let didScheduleForegroundPayout = payoutScheduler(appState?.family?.payoutDay ?? .sunday)
@@ -43,8 +37,8 @@ extension AppLifecycleCoordinator {
     /// User-initiated manual sync.
     func performManualSync() async {
         guard tryEnterManualSync() else {
-            let phase = state.withLock { $0.phase }
-            let manual = state.withLock { $0.isManualSyncing }
+            let phase = syncGate.phase
+            let manual = syncGate.isManualSyncing
             logger.info("Manual sync skipped: phase=\(String(describing: phase)), manualSyncing=\(manual)")
             return
         }
@@ -56,13 +50,7 @@ extension AppLifecycleCoordinator {
         {
             concrete.initializeEngines()
         }
-        await syncCoordinator?.fetchChanges()
-        await syncCoordinator?.sendPendingChanges()
-        // WHY: terminated-push coverage complements push-driven sync — schedule
-        // BGProcessingTask retry so pendingRecordZoneChanges still upload after
-        // jetsam or throttled silent push.
-        AppDelegate.scheduleSyncProcessingTask()
-        await reconcileCacheFromCloudKit()
+        await executeCoreSyncSequence()
         await evaluateTrophiesCatchup()
         logger.info("Manual sync completed")
     }
@@ -71,7 +59,7 @@ extension AppLifecycleCoordinator {
     /// active family zone changes. Recovered authenticated sessions may complete
     /// this transition before initial bootstrap has been marked complete.
     func performFamilyZoneChange() async {
-        let bootstrapIncomplete = !state.withLock { $0.hasCompletedInitialBootstrap }
+        let bootstrapIncomplete = !syncGate.hasCompletedInitialBootstrap
         // Hero recovery path: initial bootstrap paused at `detectedPreviousFamily` before authentication — the
         // subsequent `acceptDetectedFamily` sets `familyZoneID`/`.authenticated`.
         if bootstrapIncomplete {
@@ -86,8 +74,8 @@ extension AppLifecycleCoordinator {
             }
         }
         guard tryEnterZoneChange(allowBeforeBootstrap: bootstrapIncomplete) else {
-            let completed = state.withLock { $0.hasCompletedInitialBootstrap }
-            let phase = state.withLock { $0.phase }
+            let completed = syncGate.hasCompletedInitialBootstrap
+            let phase = syncGate.phase
             logger.info("Family zone change skipped: completed=\(completed), phase=\(String(describing: phase))")
             return
         }
@@ -126,8 +114,8 @@ extension AppLifecycleCoordinator {
 
         // If this zone change completed the hero-recovery bootstrap, mark it done
         // so subsequent foreground/remote syncs are not permanently skipped.
-        if !state.withLock({ $0.hasCompletedInitialBootstrap }) {
-            state.withLock { $0.hasCompletedInitialBootstrap = true }
+        if !syncGate.hasCompletedInitialBootstrap {
+            syncGate.markBootstrapComplete()
             logger.info("Family zone change completed initial bootstrap for recovered hero")
         }
     }
@@ -135,20 +123,14 @@ extension AppLifecycleCoordinator {
     /// Handles incoming remote push notification sync triggers.
     func handleRemoteNotification() async {
         guard tryEnterSync() else {
-            let completed = state.withLock { $0.hasCompletedInitialBootstrap }
-            let phase = state.withLock { $0.phase }
+            let completed = syncGate.hasCompletedInitialBootstrap
+            let phase = syncGate.phase
             logger.info("Remote sync skipped: completed=\(completed), phase=\(String(describing: phase))")
             return
         }
         defer { exitPhase(.syncing) }
 
-        await syncCoordinator?.fetchChanges()
-        await syncCoordinator?.sendPendingChanges()
-        // WHY: terminated-push coverage complements push-driven sync — schedule
-        // BGProcessingTask retry so pendingRecordZoneChanges still upload after
-        // jetsam or throttled silent push.
-        AppDelegate.scheduleSyncProcessingTask()
-        await reconcileCacheFromCloudKit()
+        await executeCoreSyncSequence()
     }
 
     /// Centralized background task handler for weekly payout refresh.
@@ -160,5 +142,16 @@ extension AppLifecycleCoordinator {
             logger.warning("Background payout refresh: payout scheduler failed")
         }
         return didSchedule
+    }
+
+    /// Shared fetch-send-schedule-reconcile pass for foreground, manual, and push syncs.
+    private func executeCoreSyncSequence() async {
+        await syncCoordinator?.fetchChanges()
+        await syncCoordinator?.sendPendingChanges()
+        // WHY: terminated-push coverage complements push-driven sync — schedule
+        // BGProcessingTask retry so pendingRecordZoneChanges still upload after
+        // jetsam or throttled silent push.
+        AppDelegate.scheduleSyncProcessingTask()
+        await reconcileCacheFromCloudKit()
     }
 }

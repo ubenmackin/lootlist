@@ -21,7 +21,7 @@ struct LedgerCSVParserTests {
         #expect(rows.count == 1)
         #expect(rows[0].descriptionText == "LEGO Set")
         #expect(rows[0].merchant == "Amazon")
-        #expect(rows[0].amount == 29.99)
+        #expect(rows[0].amount == 2999)
         #expect(rows[0].date != nil)
         #expect(rows[0].purchasedByRaw == "Ava")
         #expect(rows[0].parseIssue == nil)
@@ -49,7 +49,7 @@ struct LedgerCSVParserTests {
         #expect(rows.count == 1)
         #expect(rows[0].descriptionText == "Two scoops")
         #expect(rows[0].merchant == "Ice Cream Shop")
-        #expect(rows[0].amount == 5.0)
+        #expect(rows[0].amount == 500)
         #expect(rows[0].purchasedByRaw == "Sam")
     }
 
@@ -126,21 +126,21 @@ struct LedgerCSVParserTests {
 
     @Test
     func `parses dollar prefixed amounts`() {
-        #expect(LedgerCSVParser.parseAmount("$12.50") == 12.50)
-        #expect(LedgerCSVParser.parseAmount(" $1,234.56 ") == 1234.56)
+        #expect(LedgerCSVParser.parseAmount("$12.50") == 1250)
+        #expect(LedgerCSVParser.parseAmount(" $1,234.56 ") == 123_456)
     }
 
     @Test
     func `parses parenthesized negatives as negative values`() {
-        #expect(LedgerCSVParser.parseAmount("(42.10)") == -42.10)
-        #expect(LedgerCSVParser.parseAmount("($42.10)") == -42.10)
+        #expect(LedgerCSVParser.parseAmount("(42.10)") == -4210)
+        #expect(LedgerCSVParser.parseAmount("($42.10)") == -4210)
     }
 
     @Test
     func `parses bare decimals and explicit signs`() {
-        #expect(LedgerCSVParser.parseAmount("7") == 7.0)
-        #expect(LedgerCSVParser.parseAmount("-3.25") == -3.25)
-        #expect(LedgerCSVParser.parseAmount("+3.25") == 3.25)
+        #expect(LedgerCSVParser.parseAmount("7") == 700)
+        #expect(LedgerCSVParser.parseAmount("-3.25") == -325)
+        #expect(LedgerCSVParser.parseAmount("+3.25") == 325)
     }
 
     @Test
@@ -224,7 +224,7 @@ struct LedgerImportServiceTests {
     private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
     }

@@ -20,11 +20,13 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
     var familyRecordName: String
     var weekOf: Date
     var status: String
-    var totalEarned: Double
+    /// Whole pennies — mirrors `AllowancePeriod.totalEarned`.
+    var totalEarned: Int64
     var questsCompleted: Int
     var questsTotal: Int
     var paidDate: Date?
-    var paidAmount: Double?
+    /// Nil means unpaid; mirrors `AllowancePeriod.paidAmount`.
+    var paidAmount: Int64?
     var changeTag: String?
     var encodedSystemFields: Data?
     var sourceZoneName: String?
@@ -35,16 +37,24 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
         PayoutStatus(rawValue: status)
     }
 
+    var formattedTotalEarned: String {
+        CurrencyFormatter.string(pennies: totalEarned)
+    }
+
+    var formattedPaidAmount: String? {
+        paidAmount.map { CurrencyFormatter.string(pennies: $0) }
+    }
+
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,
          weekOf: Date,
          status: String,
-         totalEarned: Double,
+         totalEarned: Int64,
          questsCompleted: Int,
          questsTotal: Int,
          paidDate: Date? = nil,
-         paidAmount: Double? = nil,
+         paidAmount: Int64? = nil,
          changeTag: String? = nil,
          encodedSystemFields: Data? = nil,
          sourceZoneName: String? = nil,
@@ -79,13 +89,9 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
             questsCompleted: period.questsCompleted,
             questsTotal: period.questsTotal,
             paidDate: period.paidDate,
-            paidAmount: period.paidAmount,
-            changeTag: period.changeTag,
-            encodedSystemFields: period.encodedSystemFields,
-            sourceZoneName: period.id.zoneID.zoneName,
-            sourceZoneOwnerName: period.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: period.id.zoneID)
+            paidAmount: period.paidAmount
         )
+        applySystemFields(from: period)
     }
 
     // MARK: - CacheMergeable
@@ -117,13 +123,7 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
             paidDate = period.paidDate
             paidAmount = period.paidAmount
         }
-        changeTag = period.changeTag
-        sourceZoneName = period.id.zoneID.zoneName
-        sourceZoneOwnerName = period.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: period.id.zoneID)
-        if isServerSync, period.encodedSystemFields != nil {
-            encodedSystemFields = period.encodedSystemFields
-        }
+        applySystemFields(from: period, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<AllowancePeriodCache> {
@@ -139,5 +139,22 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<AllowancePeriodCache> {
         FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<AllowancePeriodCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+profile to the store instead of scanning.
+    static func profilePredicate(familyRecordName: String, profileRecordName: String) -> Predicate<AllowancePeriodCache> {
+        let targetFamily = familyRecordName
+        let targetProfile = profileRecordName
+        return #Predicate<AllowancePeriodCache> {
+            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
+        }
     }
 }

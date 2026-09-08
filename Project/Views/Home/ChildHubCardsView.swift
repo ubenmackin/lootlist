@@ -161,11 +161,12 @@ struct ChildHubCardsView: View {
                 .accessibilityLabel("View all goals")
             }
             if let summary = viewModel.activeGoal {
-                let savedDollars = Double(summary.savedPennies) / 100.0
-                let targetDollars = Double(summary.goal.targetAmountPennies) / 100.0
+                // WHY pennies canonical: money renders via CurrencyFormatter pennies overloads so sub-cent values never drift through Double.
+                let savedPennies = summary.savedPennies
+                let targetPennies = summary.goal.targetAmountPennies
                 let pacing = GoalPacingCalculator.calculatePacing(
-                    targetAmountPennies: summary.goal.targetAmountPennies,
-                    savedPennies: summary.savedPennies,
+                    targetAmountPennies: targetPennies,
+                    savedPennies: savedPennies,
                     createdAt: summary.goal.createdAt,
                     targetDate: summary.goal.targetDate,
                     completedAt: summary.goal.completedAt
@@ -187,13 +188,13 @@ struct ChildHubCardsView: View {
                             }
                         }
                         Spacer(minLength: DesignSystemConstants.Padding.small)
-                        Text("\(CurrencyFormatter.string(savedDollars)) / \(CurrencyFormatter.string(targetDollars))").font(.caption.weight(.semibold)).monospacedDigit()
+                        Text("\(CurrencyFormatter.string(savedPennies)) / \(CurrencyFormatter.string(targetPennies))").font(.caption.weight(.semibold)).monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
-                    ProgressBar(value: savedDollars, maximum: targetDollars, label: nil, tint: Color(DesignSystemConstants.Colors.primaryGreen), height: 10)
+                    ProgressBar(value: Double(savedPennies), maximum: Double(targetPennies), label: nil, tint: Color(DesignSystemConstants.Colors.primaryGreen), height: 10)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Active goal \(summary.goal.name), \(CurrencyFormatter.string(savedDollars)) of \(CurrencyFormatter.string(targetDollars)) saved")
+                .accessibilityLabel("Active goal \(summary.goal.name), \(CurrencyFormatter.string(savedPennies)) of \(CurrencyFormatter.string(targetPennies)) saved")
                 .accessibilityIdentifier("hub.activeGoalCard")
             } else {
                 Text("No active goal yet — tap View All to set one!")
@@ -225,7 +226,8 @@ struct ChildHubCardsView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 let points = sparklinePoints
-                let yValues = points.map(\.amount)
+                // WHY Double domain: charts plot scaled values while money stays Int64 pennies.
+                let yValues = points.map { Double($0.amount) }
                 let minY = yValues.min() ?? 0
                 let maxY = yValues.max() ?? 0
                 let yDomain: ClosedRange<Double> = {
@@ -238,13 +240,13 @@ struct ChildHubCardsView: View {
                 Chart(points) { point in
                     LineMark(
                         x: .value("Day", point.label),
-                        y: .value("Amount", point.amount)
+                        y: .value("Amount", Double(point.amount))
                     )
                     .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                     .interpolationMethod(.catmullRom)
                     AreaMark(
                         x: .value("Day", point.label),
-                        y: .value("Amount", point.amount)
+                        y: .value("Amount", Double(point.amount))
                     )
                     .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15))
                     .interpolationMethod(.catmullRom)
@@ -279,16 +281,8 @@ struct ChildHubCardsView: View {
     }
 
     private var sparklinePoints: [WeeklyEarningPoint] {
-        // WHY group by UTC dayKey so same-day ledgers sum into one point across timezones.
-        let grouped = Dictionary(grouping: recentLedgers) { WeekMath.dayKey(for: $0.date) }
-        return grouped.keys.sorted().suffix(7).compactMap { key in
-            guard let entries = grouped[key] else { return nil }
-            let bucketDate = WeekMath.date(fromDayKey: key) ?? entries.map(\.date).min() ?? Date()
-            // WHY single-count: goal markers reuse deposit/quest pennies and transfers move between buckets.
-            let total = entries.filter { BucketService.isCounted($0) }.reduce(0) { $0 + $1.amount }
-            let label = bucketDate.formatted(.dateTime.month(.abbreviated).day())
-            return WeeklyEarningPoint(id: key, weekStart: bucketDate, label: label, amount: total)
-        }
+        // WHY ViewModel-owned: dayKey grouping lived in the view body; single helper keeps hub sparklines identical.
+        ChildHubViewModel.ledgerSparklinePoints(from: recentLedgers)
     }
 
     private var cardBackground: some View {

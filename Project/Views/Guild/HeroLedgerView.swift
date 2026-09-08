@@ -40,11 +40,11 @@ struct HeroLedgerView: View {
         self.spending = spending
         let targetFamily = familyRecordName ?? ""
         let targetProfile = hero.recordName
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
-        let allowancePeriodFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+        let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        let questFilter = QuestCache.assignedPredicate(familyRecordName: targetFamily, assigneeRecordName: targetProfile)
+        let completionFilter = QuestCompletionCache.completerPredicate(familyRecordName: targetFamily, completerRecordName: targetProfile)
+        let allowancePeriodFilter = AllowancePeriodCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
 
         _cachedLedgers = Query(
             filter: ledgerFilter,
@@ -393,7 +393,7 @@ struct HeroLedgerView: View {
         .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
     }
 
-    private func entryAmount(_ amount: Double) -> some View {
+    private func entryAmount(_ amount: Int64) -> some View {
         Text(CurrencyFormatter.signed(amount))
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed))

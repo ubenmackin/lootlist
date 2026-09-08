@@ -74,7 +74,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
             cloudKitOverride: cloudKit,
-            goldReward: 100.0,
+            goldReward: 10000,
             xpReward: 100,
             targetCount: 1
         )
@@ -141,7 +141,7 @@ extension QuestServiceTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -194,7 +194,7 @@ extension QuestServiceTests {
             periodCache,
             "Settlement must use the cache-sourced family and persist an allowance period"
         )
-        #expect(period.totalEarned == 25.0, "Fresh quest gold must be settled onto the period")
+        #expect(period.totalEarned == 2500, "Fresh quest gold must be settled onto the period")
         #expect(period.questsCompleted == 1)
     }
 
@@ -214,7 +214,7 @@ extension QuestServiceTests {
         let template = QuestTemplate(
             name: "Cached Chore",
             description: "A description",
-            defaultGold: 10.0,
+            defaultGold: 1000,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             specificDays: [],
@@ -265,7 +265,7 @@ extension QuestServiceTests {
         let cachedQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -310,7 +310,7 @@ extension QuestServiceTests {
         let cachedQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,

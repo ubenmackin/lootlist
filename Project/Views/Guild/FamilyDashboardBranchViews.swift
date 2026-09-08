@@ -24,7 +24,7 @@ struct FamilyDashboardEmptyView: View {
 
 struct FamilyDashboardSparklineCard: View {
     let points: [WeeklyEarningPoint]
-    let total: Double
+    let total: Int64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -47,7 +47,7 @@ struct FamilyDashboardSparklineCard: View {
                 Chart(points) { point in
                     BarMark(
                         x: .value("Week", point.label),
-                        y: .value("Earned", point.amount)
+                        y: .value("Earned", Double(point.amount))
                     )
                     .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                     .cornerRadius(4)

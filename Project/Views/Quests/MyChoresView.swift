@@ -11,7 +11,7 @@ import SwiftUI
 
 /// Child-centric assigned chores screen displaying pending and open chores for the week.
 struct MyChoresView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyChoresView")
+    private static let logger = Logger(category: "MyChoresView")
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(ToastManager.self) private var toastManager: ToastManager?
@@ -46,17 +46,11 @@ struct MyChoresView: View {
         let targetProfile = profileRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "MyChoresView")
         // WHY: predicate pushdown — filter by family+profile at store; avoids family-wide scan.
-        let questFilter = #Predicate<QuestCache> {
-            $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile
-        }
+        let questFilter = QuestCache.assignedIncludingInactivePredicate(familyRecordName: targetFamily, assigneeRecordName: targetProfile)
         // WHY: hero-scoped completions — store filters by completer to avoid family-wide scan.
-        let completionFilter = #Predicate<QuestCompletionCache> {
-            $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile
-        }
+        let completionFilter = QuestCompletionCache.completerPredicate(familyRecordName: targetFamily, completerRecordName: targetProfile)
         // WHY: templates are family-scoped (shared across heroes).
-        let templateFilter = #Predicate<QuestTemplateCache> {
-            $0.familyRecordName == targetFamily
-        }
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(

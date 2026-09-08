@@ -9,7 +9,7 @@ import os
 import SwiftUI
 
 struct GuildDangerZoneSectionView: View {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GuildDangerZone")
+    private let logger = Logger(category: "GuildDangerZone")
 
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService

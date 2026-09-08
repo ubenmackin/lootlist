@@ -12,7 +12,7 @@ import Synchronization
 
 @MainActor
 final class AutoPayoutCoordinator {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AutoPayoutCoordinator")
+    private let logger = Logger(category: "AutoPayoutCoordinator")
 
     private let treasuryService: TreasuryService
     private let questService: QuestService

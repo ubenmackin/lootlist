@@ -42,7 +42,7 @@ struct CKSyncEngineTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none),
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 25,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),
@@ -63,7 +63,7 @@ struct CKSyncEngineTests {
         let record = try #require(RecordBridge.record(for: questIdentity, cacheService: cache))
         #expect(record.recordType == Quest.recordType)
         #expect(record["name"] as? String == "Dragon Slaying")
-        #expect(record["goldReward"] as? Double == 15.0)
+        #expect(record["goldReward"] as? Int64 == 1500)
         #expect(record.parent?.recordID.recordName == "fam1")
     }
 
@@ -144,7 +144,7 @@ struct CKSyncEngineTests {
         var clientQuest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 200,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),
@@ -311,7 +311,7 @@ struct CKSyncEngineTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 25,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),
@@ -348,7 +348,7 @@ struct CKSyncEngineTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 25,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),
@@ -418,7 +418,7 @@ struct CKSyncEngineTests {
 
         let family = Family(
             name: "Callback Guild",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            creatorUserRecordName: "gm1",
             id: CKRecord.ID(recordName: "callback-family", zoneID: zoneID)
         )
         let profile = Profile(
@@ -475,7 +475,7 @@ struct CKSyncEngineTests {
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: savedZoneID)
         let family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: savedZoneID),
+            creatorUserRecordName: "gm1",
             id: familyID
         )
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: savedZoneID)
@@ -525,7 +525,7 @@ struct CKSyncEngineTests {
         _ = CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: appState, defaults: defaults)
 
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        let family = Family(name: "Test Guild", createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID), id: familyID)
+        let family = Family(name: "Test Guild", creatorUserRecordName: "gm1", id: familyID)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let profile = Profile(displayName: "Hero", role: .hero, iCloudUserID: heroID, family: CKRecord.Reference(recordID: familyID, action: .none), id: heroID)
 
@@ -565,7 +565,7 @@ struct CKSyncEngineTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         appState.cacheService = cache
-        appState.family = Family(name: "Stable", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-stable", zoneID: zoneID))
+        appState.family = Family(name: "Stable", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-stable", zoneID: zoneID))
         appState.currentProfile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -607,7 +607,7 @@ struct CKSyncEngineTests {
             #expect(cache.isCacheFresh(familyRecordName: "fallback-zone", type: type) == false)
         }
 
-        appState.family = Family(name: "Real", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-real", zoneID: zoneID))
+        appState.family = Family(name: "Real", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-real", zoneID: zoneID))
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
         for type in CachedRecordType.allCases {
             #expect(cache.isCacheFresh(familyRecordName: "family-real", type: type) == true)

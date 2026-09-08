@@ -23,7 +23,9 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
 
     var name: String
     var description: String
-    var defaultGold: Double
+    /// Whole pennies — legacy `gold` prefix retained per architecture; render
+    /// only through `CurrencyFormatter`.
+    var defaultGold: Int64
     var xpReward: Int
     var rarity: QuestRarity {
         QuestRarity.from(xp: xpReward)
@@ -56,7 +58,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
 
         name = try record.extract("name")
         description = try record.extract("description")
-        defaultGold = try record.extract("defaultGold")
+        defaultGold = try record.pennies(forKey: "defaultGold")
         xpReward = try record.extract("xpReward")
 
         let scheduleRaw = record.extractOptional("scheduleType") ?? QuestSchedule.weeklyFlexible.rawValue
@@ -111,7 +113,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
 
     init(name: String,
          description: String,
-         defaultGold: Double,
+         defaultGold: Int64,
          xpReward: Int,
          scheduleType: QuestSchedule,
          specificDays: [String] = [],
@@ -136,5 +138,9 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         self.createdBy = createdBy
         self.family = family
         self.isActive = isActive
+    }
+
+    var formattedDefaultGold: String {
+        CurrencyFormatter.string(pennies: defaultGold)
     }
 }

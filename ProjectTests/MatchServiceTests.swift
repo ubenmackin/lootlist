@@ -97,7 +97,7 @@ struct MatchServiceTests {
             return Calendar.iso8601UTC.date(from: comps) ?? Date()
         }
 
-        func seedLedger(amount: Double, bucket: BucketKind, source: String = "quest", date: Date = Date(), name: String) {
+        func seedLedger(amount: Int64, bucket: BucketKind, source: String = "quest", date: Date = Date(), name: String) {
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: hero.id, action: .none),
                 amount: amount,
@@ -112,7 +112,7 @@ struct MatchServiceTests {
             _ = cache.saveContext()
         }
 
-        func seedMatchEntry(amount: Double, date: Date, name: String) {
+        func seedMatchEntry(amount: Int64, date: Date, name: String) {
             seedLedger(amount: amount, bucket: .longTermSave, source: MatchService.ledgerSource, date: date, name: name)
         }
 
@@ -168,12 +168,12 @@ struct MatchServiceTests {
         let entry = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-payout-period1",
-            contributionAmount: 5.00,
+            contributionAmount: 500,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(entry?.amount == 5.00)
+        #expect(entry?.amount == 500)
         #expect(entry?.source == MatchService.ledgerSource)
         #expect(entry?.description == MatchService.entryDescription)
         #expect(entry?.bucketKind == BucketKind.longTermSave.rawValue)
@@ -191,7 +191,7 @@ struct MatchServiceTests {
         let first = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: contribID,
-            contributionAmount: 10.00,
+            contributionAmount: 1000,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -202,7 +202,7 @@ struct MatchServiceTests {
         let second = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: contribID,
-            contributionAmount: 10.00,
+            contributionAmount: 1000,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -222,29 +222,29 @@ struct MatchServiceTests {
         let e1 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-payout1",
-            contributionAmount: 6.00,
+            contributionAmount: 600,
             date: june,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e1?.amount == 6.00)
+        #expect(e1?.amount == 600)
 
         // Second contribution: $8.00 → would be $8.00 match, but only $4.00 remaining
         let e2 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-payout2",
-            contributionAmount: 8.00,
+            contributionAmount: 800,
             date: june,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e2?.amount == 4.00)
+        #expect(e2?.amount == 400)
 
         // Third contribution: capped because mtd already hit $10.00
         let e3 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-payout3",
-            contributionAmount: 5.00,
+            contributionAmount: 500,
             date: june,
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -263,23 +263,23 @@ struct MatchServiceTests {
         let e1 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-june1",
-            contributionAmount: 8.00,
+            contributionAmount: 800,
             date: june,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e1?.amount == 5.00) // capped at $5.00
+        #expect(e1?.amount == 500) // capped at $5.00
 
         // July: cap resets, full match again
         let e2 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-july1",
-            contributionAmount: 6.00,
+            contributionAmount: 600,
             date: july,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e2?.amount == 5.00) // capped at $5.00 in July too
+        #expect(e2?.amount == 500) // capped at $5.00 in July too
         #expect(sc.matchEntries().count == 2)
     }
 
@@ -293,27 +293,27 @@ struct MatchServiceTests {
         let e1 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-a",
-            contributionAmount: 2.00,
+            contributionAmount: 200,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e1?.amount == 2.00)
+        #expect(e1?.amount == 200)
 
         let e2 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-b",
-            contributionAmount: 2.00,
+            contributionAmount: 200,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e2?.amount == 1.00) // only $1.00 remaining
+        #expect(e2?.amount == 100) // only $1.00 remaining
 
         let e3 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-c",
-            contributionAmount: 0.50,
+            contributionAmount: 50,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -333,12 +333,12 @@ struct MatchServiceTests {
         let entry = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-highrate",
-            contributionAmount: 5.00,
+            contributionAmount: 500,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(entry?.amount == 10.00)
+        #expect(entry?.amount == 1000)
     }
 
     @Test
@@ -350,12 +350,12 @@ struct MatchServiceTests {
         let entry = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-highrate-cap",
-            contributionAmount: 5.00,
+            contributionAmount: 500,
             date: date,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(entry?.amount == 7.00)
+        #expect(entry?.amount == 700)
     }
 
     // MARK: - Multiple goals same month
@@ -381,23 +381,23 @@ struct MatchServiceTests {
         let e1 = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-june1",
-            contributionAmount: 5.00,
+            contributionAmount: 500,
             date: june,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e1?.amount == 5.00)
+        #expect(e1?.amount == 500)
 
         // Goal 2: $10.00 → would be $10.00, capped at $3.00 remaining
         let e2 = try await sc.match.applyMatch(
             for: goal2,
             contributionEventID: "contrib-goal2-june1",
-            contributionAmount: 10.00,
+            contributionAmount: 1000,
             date: june,
             heroProfile: sc.refreshHero(),
             family: sc.family
         )
-        #expect(e2?.amount == 3.00)
+        #expect(e2?.amount == 300)
         #expect(sc.matchEntries().count == 2)
     }
 
@@ -417,7 +417,7 @@ struct MatchServiceTests {
         let result = try await sc.match.applyMatch(
             for: spendGoal,
             contributionEventID: "contrib-spendGoal-e1",
-            contributionAmount: 5.00,
+            contributionAmount: 500,
             date: sc.utcDate(year: 2026, month: 6),
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -434,7 +434,7 @@ struct MatchServiceTests {
         let result = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-disabled",
-            contributionAmount: 10.00,
+            contributionAmount: 1000,
             date: sc.utcDate(year: 2026, month: 6),
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -449,7 +449,7 @@ struct MatchServiceTests {
         let result = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-zero-rate",
-            contributionAmount: 10.00,
+            contributionAmount: 1000,
             date: sc.utcDate(year: 2026, month: 6),
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -463,7 +463,7 @@ struct MatchServiceTests {
         let result = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-zero-amount",
-            contributionAmount: 0.0,
+            contributionAmount: 0,
             date: sc.utcDate(year: 2026, month: 6),
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -478,7 +478,7 @@ struct MatchServiceTests {
         let result = try await sc.match.applyMatch(
             for: sc.goal,
             contributionEventID: "contrib-goal1-tiny",
-            contributionAmount: 0.01,
+            contributionAmount: 1,
             date: sc.utcDate(year: 2026, month: 6),
             heroProfile: sc.refreshHero(),
             family: sc.family
@@ -510,7 +510,7 @@ struct MatchServiceTests {
             _ = try await sc.match.applyMatch(
                 for: sc.goal,
                 contributionEventID: "contrib-goal1-hero",
-                contributionAmount: 5.00,
+                contributionAmount: 500,
                 date: sc.utcDate(year: 2026, month: 6),
                 heroProfile: sc.hero,
                 family: sc.family

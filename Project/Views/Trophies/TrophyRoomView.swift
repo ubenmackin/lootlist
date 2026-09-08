@@ -10,7 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct TrophyRoomView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TrophyRoom")
+    private static let logger = Logger(category: "TrophyRoom")
     @State private var viewModel: TrophyRoomViewModel?
 
     @Environment(AchievementService.self) private var achievementService
@@ -38,11 +38,9 @@ struct TrophyRoomView: View {
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let currentProfileFilter = #Predicate<ProfileCache> {
-            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-        }
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let currentProfileFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
         _cachedAchievements = Query(
             filter: achievementFilter,
             sort: \AchievementCache.name

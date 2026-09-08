@@ -33,13 +33,11 @@ struct SavingsSplitView: View {
         // Single-row targeted fetch (e.g. parent inspecting a hero); otherwise family-scoped fetch resolved via currentProfile.
         if let profileRecordName, !profileRecordName.isEmpty {
             let targetProfile = profileRecordName
-            let filter = #Predicate<ProfileCache> {
-                $0.familyRecordName == targetFamily && $0.recordName == targetProfile
-            }
+            let filter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
             _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
         } else {
             // Family-wide fetch; active hero resolved via currentProfileRow.
-            let filter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+            let filter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
             _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
         }
     }

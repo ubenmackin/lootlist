@@ -475,7 +475,7 @@ struct AppStateTests {
         let familyID = CKRecord.ID(recordName: "legacy-gm-fam", zoneID: zoneID)
         let family = Family(
             name: "Mackin",
-            createdBy: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: familyID
         )
         let gMProfile = Profile(
@@ -487,11 +487,11 @@ struct AppStateTests {
             id: CKRecord.ID(recordName: "gm-prof", zoneID: zoneID)
         )
 
-        // Seed family with a stale server creator stamp but valid createdBy.
+        // Seed family with a legacy record (no server creator stamp; record createdBy carries creator).
         // Profile is stamped correctly by the mock save.
         let cloudKit = DiscoveryCloudKitService()
         cloudKit.activeIsOwner = true
-        cloudKit.seedMockRecords([family], creatorUserRecordName: "old-creator-id")
+        cloudKit.seedMockRecords([family], creatorUserRecordName: nil)
         cloudKit.seedMockRecords([gMProfile], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         cloudKit.privateZones = [CKRecordZone(zoneID: zoneID)]
 

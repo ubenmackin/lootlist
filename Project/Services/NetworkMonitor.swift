@@ -35,7 +35,7 @@ final class NetworkMonitor {
 
     private let monitor: NWPathMonitor
     private let queue = DispatchQueue(label: "com.volcrypt.lootlist.networkmonitor", qos: .utility)
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NetworkMonitor")
+    private let logger = Logger(category: "NetworkMonitor")
 
     private(set) var isConnected: Bool = true
     private(set) var connectionType: ConnectionType = .wifi

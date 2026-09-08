@@ -24,8 +24,8 @@ enum InterestServiceError: LocalizedError {
 @MainActor
 @Observable
 final class InterestService {
-    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "InterestService")
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "InterestService")
+    private static let staticLogger = Logger(category: "InterestService")
+    private let logger = Logger(category: "InterestService")
     private let cloudKit: any CloudKitServiceProtocol
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
@@ -166,13 +166,13 @@ final class InterestService {
             profileRecordName: profile.id.recordName,
             familyRecordName: family.id.recordName
         )
-        var basePennies = Int(((balances[bucket] ?? 0) * 100).rounded())
+        var basePennies = Int(balances[bucket] ?? 0)
         if !profile.interestIsCompound {
             // Simple interest ignores prior credits: only deposits earn
             // interest, never interest already paid into the bucket.
             let priorInterestPennies = cachedEntries
                 .filter { $0.sourceEnum == .interest && $0.bucketKind == bucket.rawValue }
-                .reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+                .reduce(0) { $0 + Int($1.amount) }
             basePennies -= priorInterestPennies
         }
 
@@ -181,7 +181,7 @@ final class InterestService {
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: Double(creditPennies) / 100.0,
+            amount: Int64(creditPennies),
             description: Self.entryDescription,
             date: date,
             source: LedgerSource.interest.rawValue,
@@ -191,7 +191,7 @@ final class InterestService {
         )
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "InterestService.applyInterest")
-        let formattedAmount = CurrencyFormatter.string(Double(creditPennies) / 100.0)
+        let formattedAmount = CurrencyFormatter.string(pennies: Int64(creditPennies))
         logger
             .info(
                 "Credited \(formattedAmount, privacy: .public) monthly interest for \(profile.id.recordName, privacy: .private) in month \(Self.monthKey(for: date), privacy: .public)"

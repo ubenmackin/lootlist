@@ -58,7 +58,7 @@ struct HeroBoardViewModelTests {
                 id: heroID
             )
 
-            let family = Family(name: "Test Guild", createdBy: parentID, id: familyRef.recordID)
+            let family = Family(name: "Test Guild", creatorUserRecordName: parentID.recordName, id: familyRef.recordID)
             appState.family = family
 
             toastManager = ToastManager()
@@ -95,7 +95,7 @@ struct HeroBoardViewModelTests {
                 weekOf: WeekMath.startOfWeek(for: Date(), payoutDay: .sunday),
                 questName: name,
                 isActive: isActive,
-                goldReward: 5.0,
+                goldReward: 500,
                 xpReward: 50,
                 rarity: "common",
                 scheduleType: QuestSchedule.weeklyFlexible.rawValue,

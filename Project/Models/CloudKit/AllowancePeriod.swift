@@ -26,12 +26,15 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
     var profile: CKRecord.Reference
 
     var status: PayoutStatus
-    var totalEarned: Double
+    /// Whole pennies — integer storage avoids floating-point drift; render
+    /// only through `CurrencyFormatter`.
+    var totalEarned: Int64
     var questsCompleted: Int
     var questsTotal: Int
 
     var paidDate: Date?
-    var paidAmount: Double?
+    /// Nil means unpaid; non-nil holds whole pennies once settled.
+    var paidAmount: Int64?
 
     var family: CKRecord.Reference
 
@@ -61,12 +64,12 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         }
         self.status = status
 
-        totalEarned = try record.extract("totalEarned")
+        totalEarned = try record.pennies(forKey: "totalEarned")
         questsCompleted = try record.extract("questsCompleted")
         questsTotal = try record.extract("questsTotal")
 
         paidDate = record.extractOptional("paidDate")
-        paidAmount = record.extractOptional("paidAmount")
+        paidAmount = record.penniesOptional(forKey: "paidAmount")
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")
@@ -91,11 +94,11 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
     init(weekOf: Date,
          profile: CKRecord.Reference,
          status: PayoutStatus = .active,
-         totalEarned: Double = 0,
+         totalEarned: Int64 = 0,
          questsCompleted: Int = 0,
          questsTotal: Int,
          paidDate: Date? = nil,
-         paidAmount: Double? = nil,
+         paidAmount: Int64? = nil,
          family: CKRecord.Reference,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
@@ -109,5 +112,13 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         self.paidDate = paidDate
         self.paidAmount = paidAmount
         self.family = family
+    }
+
+    var formattedTotalEarned: String {
+        CurrencyFormatter.string(pennies: totalEarned)
+    }
+
+    var formattedPaidAmount: String? {
+        paidAmount.map { CurrencyFormatter.string(pennies: $0) }
     }
 }

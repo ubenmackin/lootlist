@@ -8,41 +8,37 @@
 import Foundation
 import os
 
-/// Calculates quest reward proration for gold and XP using `Decimal` arithmetic.
+/// Calculates quest reward proration in whole pennies using integer math.
 enum GoldCalculation: Sendable {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "GoldCalculation"
-    )
+    private static let logger = Logger(category: "GoldCalculation")
 
-    /// Computes prorated gold credit based on approved completion count and payout policy.
-    static func credit(goldReward: Double,
-                       targetCount: Int,
-                       isAllOrNothing: Bool,
-                       approvedCount: Int) -> Decimal
+    /// WHY integer math: prorated splits round half up to whole pennies so
+    /// wallet totals never accumulate floating-point drift.
+    static func creditPennies(goldRewardPennies: Int64,
+                              targetCount: Int,
+                              isAllOrNothing: Bool,
+                              approvedCount: Int) -> Int64
     {
         let safeTarget = max(1, targetCount)
         let capped = min(max(0, approvedCount), safeTarget)
-
+        guard capped > 0 else { return 0 }
         if isAllOrNothing {
-            return capped >= safeTarget ? Decimal(goldReward) : 0
+            return capped >= safeTarget ? max(0, goldRewardPennies) : 0
         }
-
-        let perUnit = Decimal(goldReward) / Decimal(safeTarget)
-        return perUnit * Decimal(capped)
+        let reward = max(0, goldRewardPennies)
+        return (reward * Int64(capped) + Int64(safeTarget / 2)) / Int64(safeTarget)
     }
 
-    /// Double-returning variant using banker's rounding for wallet totals.
-    static func creditAsDouble(goldReward: Double,
-                               targetCount: Int,
-                               isAllOrNothing: Bool,
-                               approvedCount: Int) -> Double
+    /// Computes prorated gold credit based on approved completion count and payout policy.
+    static func credit(goldReward: Int64,
+                       targetCount: Int,
+                       isAllOrNothing: Bool,
+                       approvedCount: Int) -> Int64
     {
-        let result = credit(goldReward: goldReward,
-                            targetCount: targetCount,
-                            isAllOrNothing: isAllOrNothing,
-                            approvedCount: approvedCount)
-        return NSDecimalNumber(decimal: result).doubleValue
+        creditPennies(goldRewardPennies: goldReward,
+                      targetCount: targetCount,
+                      isAllOrNothing: isAllOrNothing,
+                      approvedCount: approvedCount)
     }
 
     /// Cumulative XP credit for a quest, prorated and capped at xpReward.
@@ -93,23 +89,23 @@ enum GoldCalculation: Sendable {
         NSDecimalNumber(decimal: creditAsDecimal(xp: xp, baseRate: baseRate)).doubleValue
     }
 
-    static func totalGold(
+    static func totalPennies(
         for quests: [QuestCache],
         approvedLogs: [QuestCompletionCache],
         templatesByID: [String: QuestTemplateCache] = [:]
-    ) -> Double {
+    ) -> Int64 {
         let questByName = Dictionary(quests.map { ($0.recordName, $0) },
                                      uniquingKeysWith: { current, _ in current })
         var countByQuest: [String: Int] = [:]
         for log in approvedLogs {
             countByQuest[log.questRecordName, default: 0] += 1
         }
-        var total = 0.0
+        var total: Int64 = 0
         for (qName, count) in countByQuest {
             if let quest = questByName[qName] {
                 // WHY day count wins: stale targetCount under-counts specific-days split rewards.
                 let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-                total += creditAsDouble(for: quest, approvedCount: count, effectiveTarget: target)
+                total += creditPennies(for: quest, approvedCount: count, effectiveTarget: target)
             } else {
                 logger.warning("Missing quest \(qName, privacy: .private) for gold proration")
             }
@@ -153,16 +149,16 @@ enum GoldCalculation: Sendable {
         return nonRejectedCount >= target
     }
 
-    static func credit(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Decimal {
-        credit(
-            goldReward: quest.goldReward,
+    static func credit(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Int64 {
+        creditPennies(
+            goldRewardPennies: quest.goldReward,
             targetCount: effectiveTarget,
             isAllOrNothing: quest.isAllOrNothing,
             approvedCount: approvedCount
         )
     }
 
-    static func credit(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Decimal {
+    static func credit(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Int64 {
         credit(
             for: quest,
             approvedCount: approvedCount,
@@ -170,56 +166,56 @@ enum GoldCalculation: Sendable {
         )
     }
 
-    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Double {
-        creditAsDouble(
-            goldReward: quest.goldReward,
+    static func creditPennies(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Int64 {
+        creditPennies(
+            goldRewardPennies: quest.goldReward,
             targetCount: effectiveTarget,
             isAllOrNothing: quest.isAllOrNothing,
             approvedCount: approvedCount
         )
     }
 
-    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Double {
-        creditAsDouble(
+    static func creditPennies(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Int64 {
+        creditPennies(
             for: quest,
             approvedCount: approvedCount,
             effectiveTarget: SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
         )
     }
 
-    static func credit(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Decimal {
-        credit(
-            goldReward: quest.goldReward,
+    static func credit(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Int64 {
+        creditPennies(
+            goldRewardPennies: quest.goldReward,
             targetCount: effectiveTarget,
             isAllOrNothing: quest.isAllOrNothing,
             approvedCount: approvedCount
         )
     }
 
-    static func creditAsDouble(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Double {
-        creditAsDouble(
-            goldReward: quest.goldReward,
+    static func creditPennies(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Int64 {
+        creditPennies(
+            goldRewardPennies: quest.goldReward,
             targetCount: effectiveTarget,
             isAllOrNothing: quest.isAllOrNothing,
             approvedCount: approvedCount
         )
     }
 
-    static func netWeeklyGold(
+    static func netWeeklyPennies(
         quests: [QuestCache],
         logs: [QuestCompletionCache],
         profileRecordName: String,
         payoutPolicy: PayoutPolicy?,
         weekRange: Range<Date>,
         templatesByID: [String: QuestTemplateCache] = [:]
-    ) -> Double {
+    ) -> Int64 {
         let heroLogs = logs.filter { $0.completerRecordName == profileRecordName }
         let approvedLogs = heroLogs.filter {
             ($0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified) &&
                 (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
         }
 
-        var totalEarned = totalGold(for: quests, approvedLogs: approvedLogs, templatesByID: templatesByID)
+        var totalEarned = totalPennies(for: quests, approvedLogs: approvedLogs, templatesByID: templatesByID)
 
         let assignedQuests = quests.filter {
             $0.assigneeRecordName == profileRecordName && weekRange.contains($0.weekOf)
@@ -244,12 +240,12 @@ enum GoldCalculation: Sendable {
 
     // MARK: - Pure Domain Gold Aggregation
 
-    /// Pure gold summation over already-fetched Quest models.
-    static func totalCredit(
+    /// Pure pennies summation over already-fetched Quest models.
+    static func totalCreditPennies(
         for quests: [Quest],
         logs: [QuestCompletion],
         templatesByID: [String: QuestTemplate] = [:]
-    ) -> Double {
+    ) -> Int64 {
         let approved = logs.filter {
             $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
         }
@@ -259,16 +255,60 @@ enum GoldCalculation: Sendable {
         for log in approved {
             countByName[log.quest.recordID.recordName, default: 0] += 1
         }
-        var total = 0.0
+        var total: Int64 = 0
         for (name, count) in countByName {
             if let quest = questMap[name] {
                 // WHY day count wins: stale targetCount under-counts specific-days split rewards.
                 let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-                total += creditAsDouble(for: quest, approvedCount: count, effectiveTarget: target)
+                total += creditPennies(for: quest, approvedCount: count, effectiveTarget: target)
             } else {
                 logger.warning("Missing quest \(name, privacy: .private) for gold proration")
             }
         }
         return total
+    }
+
+    // MARK: - Legacy Double shims (pennies-backed)
+
+    /// WHY shim: historic Double callers stay compiling while single-sourcing math in pennies.
+    static func creditAsDouble(goldReward: Double, targetCount: Int, isAllOrNothing: Bool, approvedCount: Int) -> Double {
+        Double(creditPennies(
+            goldRewardPennies: CurrencyFormatter.dollarsToPennies(goldReward),
+            targetCount: targetCount,
+            isAllOrNothing: isAllOrNothing,
+            approvedCount: approvedCount
+        )) / 100.0
+    }
+
+    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Double {
+        Double(creditPennies(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)) / 100.0
+    }
+
+    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Double {
+        Double(creditPennies(for: quest, approvedCount: approvedCount, specificDays: specificDays)) / 100.0
+    }
+
+    static func creditAsDouble(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Double {
+        Double(creditPennies(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)) / 100.0
+    }
+
+    static func totalGold(for quests: [QuestCache], approvedLogs: [QuestCompletionCache], templatesByID: [String: QuestTemplateCache] = [:]) -> Double {
+        Double(totalPennies(for: quests, approvedLogs: approvedLogs, templatesByID: templatesByID)) / 100.0
+    }
+
+    static func netWeeklyGold(
+        quests: [QuestCache],
+        logs: [QuestCompletionCache],
+        profileRecordName: String,
+        payoutPolicy: PayoutPolicy?,
+        weekRange: Range<Date>,
+        templatesByID: [String: QuestTemplateCache] = [:]
+    ) -> Double {
+        Double(netWeeklyPennies(quests: quests, logs: logs, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy, weekRange: weekRange, templatesByID: templatesByID)) /
+            100.0
+    }
+
+    static func totalCredit(for quests: [Quest], logs: [QuestCompletion], templatesByID: [String: QuestTemplate] = [:]) -> Double {
+        Double(totalCreditPennies(for: quests, logs: logs, templatesByID: templatesByID)) / 100.0
     }
 }

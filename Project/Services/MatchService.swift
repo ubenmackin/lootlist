@@ -24,8 +24,8 @@ enum MatchServiceError: LocalizedError {
 @MainActor
 @Observable
 final class MatchService {
-    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MatchService")
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MatchService")
+    private static let staticLogger = Logger(category: "MatchService")
+    private let logger = Logger(category: "MatchService")
     private let cloudKit: any CloudKitServiceProtocol
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
@@ -129,7 +129,7 @@ final class MatchService {
     @discardableResult
     func applyMatch(for goal: Goal,
                     contributionEventID: String,
-                    contributionAmount: Double,
+                    contributionAmount: Int64,
                     date: Date = Date(),
                     heroProfile: Profile,
                     family: Family) async throws -> LedgerEntry?
@@ -177,9 +177,9 @@ final class MatchService {
                 let entryDate = WeekMath.startOfDay(for: entry.date)
                 return entryDate >= monthStart && entryDate < monthEnd
             }
-            .reduce(into: 0) { $0 += Int(($1.amount * 100).rounded()) }
+            .reduce(into: 0) { $0 += Int($1.amount) }
 
-        let contributionPennies = Int((contributionAmount * 100).rounded())
+        let contributionPennies = Int(contributionAmount)
         var matchPennies = Self.matchPennies(
             contributionPennies: contributionPennies,
             rateBps: heroProfile.matchRateBps
@@ -197,7 +197,7 @@ final class MatchService {
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: heroProfile.id, action: .none),
-            amount: Double(matchPennies) / 100.0,
+            amount: Int64(matchPennies),
             description: Self.entryDescription,
             date: date,
             source: LedgerSource.match.rawValue,
@@ -207,7 +207,7 @@ final class MatchService {
         )
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "MatchService.applyMatch")
-        let formattedAmount = CurrencyFormatter.string(Double(matchPennies) / 100.0)
+        let formattedAmount = CurrencyFormatter.string(pennies: Int64(matchPennies))
         logger.info("Matched \(formattedAmount, privacy: .public) for goal \(goal.id.recordName, privacy: .private) in month \(month, privacy: .public)")
         return entry
     }

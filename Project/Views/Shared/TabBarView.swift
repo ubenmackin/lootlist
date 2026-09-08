@@ -27,11 +27,7 @@ struct TabBarView: View {
         self.familyRecordName = familyRecordName
 
         let targetFamily = familyRecordName ?? ""
-        let pendingStatus = VerificationStatus.pending.rawValue
-        let completionFilter = #Predicate<QuestCompletionCache> {
-            $0.familyRecordName == targetFamily &&
-                $0.verificationStatus == pendingStatus
-        }
+        let completionFilter = QuestCompletionCache.pendingPredicate(familyRecordName: targetFamily)
         _cachedCompletions = Query(filter: completionFilter)
     }
 

@@ -43,14 +43,11 @@ struct HeroDetailView: View {
 
         let targetFamily = familyRecordName ?? ""
         let targetProfile = hero.recordName
-        let ledgerFilter = #Predicate<LedgerEntryCache> { item in
-            item.familyRecordName == targetFamily
-                && item.profileRecordName == targetProfile
-        }
+        let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _cachedLedgers = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
     }
 
-    private var availableBalance: Double {
+    private var availableBalance: Int64 {
         BucketService.ledgerBalance(for: cachedLedgers, profileRecordName: hero.recordName)
     }
 

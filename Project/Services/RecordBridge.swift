@@ -13,10 +13,7 @@ import SwiftData
 /// Bridges SwiftData cache models to CKRecords for CKSyncEngine synchronization.
 @MainActor
 enum RecordBridge {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "RecordBridge"
-    )
+    private static let logger = Logger(category: "RecordBridge")
 
     static func record(for identity: ScopedRecordIdentity, cacheService: CacheService) -> CKRecord? {
         guard let familyRecordName = identity.familyRecordName else {

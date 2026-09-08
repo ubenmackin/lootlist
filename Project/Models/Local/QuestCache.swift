@@ -22,7 +22,8 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     var weekOf: Date
     var questName: String
     var isActive: Bool
-    var goldReward: Double
+    /// Whole pennies — legacy `gold` prefix retained; mirrors `Quest.goldReward`.
+    var goldReward: Int64
     var xpReward: Int
     /// Cached copy of `Quest.xpBanked` (the server-authoritative XP-credit
     /// ledger total). Synced via `update(from:)`/`toQuest(zoneID:)` so the
@@ -61,6 +62,10 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         QuestSchedule(rawValue: scheduleType)
     }
 
+    var formattedGoldReward: String {
+        CurrencyFormatter.string(pennies: goldReward)
+    }
+
     func isScheduled(on date: Date, template: QuestTemplateCache?, payoutDay: PayoutDay) -> Bool {
         guard isActive,
               WeekMath.weekRange(starting: WeekMath.startOfWeek(for: date, payoutDay: payoutDay)).contains(weekOf)
@@ -82,7 +87,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
          weekOf: Date,
          questName: String,
          isActive: Bool,
-         goldReward: Double,
+         goldReward: Int64,
          xpReward: Int,
          rarity: String,
          scheduleType: String,
@@ -146,13 +151,9 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
             createdByRecordName: quest.createdBy.recordID.recordName,
             xpBanked: quest.xpBanked,
             claimedByProfileRecordName: quest.claimedByProfileRecordName,
-            claimedAt: quest.claimedAt,
-            changeTag: quest.changeTag,
-            encodedSystemFields: quest.encodedSystemFields,
-            sourceZoneName: quest.id.zoneID.zoneName,
-            sourceZoneOwnerName: quest.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: quest.id.zoneID)
+            claimedAt: quest.claimedAt
         )
+        applySystemFields(from: quest)
     }
 
     // MARK: - CacheMergeable
@@ -171,9 +172,6 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         } else {
             xpBanked = quest.xpBanked
         }
-        sourceZoneName = quest.id.zoneID.zoneName
-        sourceZoneOwnerName = quest.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: quest.id.zoneID)
         // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives it from
         // `xpReward` at read time, so the stored string is only a legacy
         // fallback for rows without a meaningful xpReward.
@@ -185,10 +183,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         createdByRecordName = quest.createdBy.recordID.recordName
         claimedByProfileRecordName = quest.claimedByProfileRecordName
         claimedAt = quest.claimedAt
-        changeTag = quest.changeTag
-        if isServerSync, quest.encodedSystemFields != nil {
-            encodedSystemFields = quest.encodedSystemFields
-        }
+        applySystemFields(from: quest, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestCache> {
@@ -204,5 +199,37 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<QuestCache> {
         FetchDescriptor<QuestCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<QuestCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+    }
+
+    /// WHY separate: history surfaces list inactive rows while boards show active only.
+    static func familyIncludingInactivePredicate(familyRecordName: String) -> Predicate<QuestCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+assignee to the store instead of scanning.
+    static func assignedPredicate(familyRecordName: String, assigneeRecordName: String) -> Predicate<QuestCache> {
+        let targetFamily = familyRecordName
+        let targetAssignee = assigneeRecordName
+        return #Predicate<QuestCache> {
+            $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetAssignee && $0.isActive == true
+        }
+    }
+
+    /// WHY separate: the child checklist keeps inactive rows visible for expired-week context.
+    static func assignedIncludingInactivePredicate(familyRecordName: String, assigneeRecordName: String) -> Predicate<QuestCache> {
+        let targetFamily = familyRecordName
+        let targetAssignee = assigneeRecordName
+        return #Predicate<QuestCache> {
+            $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetAssignee
+        }
     }
 }

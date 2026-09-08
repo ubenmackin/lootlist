@@ -31,7 +31,7 @@ enum SyncOutcome: String, Sendable, Equatable {
 @MainActor
 @Observable
 final class AppSyncCoordinator {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppSync")
+    private let logger = Logger(category: "AppSync")
 
     /// Last time a CloudKit change notification was delivered. Exposed read-only
     /// for the debug overlay to correlate silent-push health.

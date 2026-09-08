@@ -14,7 +14,7 @@ struct LogSpendingIntent: AppIntent, Sendable {
     static let title: LocalizedStringResource = "Log Spending"
     static let description = IntentDescription("Logs spending or a transaction on your scroll.")
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LogSpendingIntent")
+    private let logger = Logger(category: "LogSpendingIntent")
 
     @Parameter(title: "Amount")
     var amount: Double
@@ -44,16 +44,19 @@ struct LogSpendingIntent: AppIntent, Sendable {
         let locationValue = trimmedLocation.flatMap { $0.isEmpty ? nil : $0 }
 
         do {
+            // WHY dollarsToPennies: intent amount arrives as dollars but the ledger
+            // stores whole pennies, so quantize here to keep a single money path.
+            let amountPennies = CurrencyFormatter.dollarsToPennies(amount)
             _ = try await dep.spendingService.logManual(
                 profile: profile,
                 family: family,
                 familyRecordName: family.id.recordName,
                 description: itemDescription,
-                amount: amount,
+                amount: amountPennies,
                 location: locationValue,
                 date: Date()
             )
-            let formattedAmount = CurrencyFormatter.string(amount)
+            let formattedAmount = CurrencyFormatter.string(pennies: amountPennies)
             let descStr = if let locationValue {
                 "\(itemDescription) at \(locationValue)"
             } else {

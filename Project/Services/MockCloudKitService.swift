@@ -53,7 +53,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
 
     init() {}
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MockCloudKit")
+    private let logger = Logger(category: "MockCloudKit")
 
     init(zoneID: CKRecordZone.ID) {
         self.activeFamilyZoneID = zoneID

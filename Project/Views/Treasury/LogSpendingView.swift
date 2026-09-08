@@ -39,10 +39,10 @@ struct LogSpendingView: View {
         let targetProfile = profileRecordName ?? ""
         // WHY predicate pushdown: the sheet only needs this hero's rows to price the Spend warning.
         if targetProfile.isEmpty {
-            let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+            let filter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
             _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
         } else {
-            let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            let filter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
             _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
         }
     }
@@ -187,12 +187,12 @@ struct LogSpendingView: View {
         }
     }
 
-    private var parsedAmount: Double? {
-        guard let value = CurrencyFormatter.decimalDouble(from: amountText), value.isFinite, value > 0 else { return nil }
+    private var parsedAmount: Int64? {
+        guard let value = CurrencyFormatter.pennies(from: amountText), value > 0 else { return nil }
         return value
     }
 
-    private var spendBalance: Double {
+    private var spendBalance: Int64 {
         // WHY passed-profile scope: the sheet's @Query rows are scoped by profileRecordName, so balance resolves by that profile instead of the ambient currentProfile.
         if let profileRecordName, !profileRecordName.isEmpty {
             BucketService.resolvedSpendBalance(for: cachedLedgers, profileRecordName: profileRecordName)

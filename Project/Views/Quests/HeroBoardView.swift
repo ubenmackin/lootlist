@@ -27,8 +27,8 @@ struct HeroBoardView: View {
         self.familyRecordName = familyRecordName
 
         let targetFamily = familyRecordName ?? ""
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
 
         _cachedQuests = Query(
             filter: questFilter,

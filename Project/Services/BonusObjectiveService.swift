@@ -89,30 +89,18 @@ final class BonusObjectiveService {
     }
 
     func dailyObjective(for profileCache: ProfileCache, date: Date = Date()) -> BonusObjective {
-        let calendar = Calendar.iso8601UTC
-        let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
-        let dateString = "\(dateComponents.year ?? 0)-\(dateComponents.month ?? 0)-\(dateComponents.day ?? 0)"
-        let hashString = "\(profileCache.recordName)-\(dateString)"
-        let digest = SHA256.hash(data: Data(hashString.utf8))
-        let hash = digest.prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
-        let templates = Self.templates
-        let index = Int(hash % UInt64(templates.count))
-        let selection = templates[index]
-
-        return BonusObjective(
-            id: "\(dateString)-\(selection.type.rawValue)",
-            title: selection.title,
-            description: selection.description,
-            gemReward: selection.reward,
-            type: selection.type
-        )
+        generateObjective(for: profileCache.recordName, date: date)
     }
 
     func dailyObjective(for profile: Profile, date: Date = Date()) -> BonusObjective {
+        generateObjective(for: profile.id.recordName, date: date)
+    }
+
+    private func generateObjective(for recordName: String, date: Date) -> BonusObjective {
         let calendar = Calendar.iso8601UTC
         let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
         let dateString = "\(dateComponents.year ?? 0)-\(dateComponents.month ?? 0)-\(dateComponents.day ?? 0)"
-        let hashString = "\(profile.id.recordName)-\(dateString)"
+        let hashString = "\(recordName)-\(dateString)"
         let digest = SHA256.hash(data: Data(hashString.utf8))
         let hash = digest.prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         let templates = Self.templates

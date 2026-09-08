@@ -98,7 +98,8 @@ enum SampleData {
     private struct TemplateSeed {
         let name: String
         let desc: String
-        let gold: Double
+        /// Whole pennies.
+        let gold: Int64
         let xp: Int
         let sched: QuestSchedule
         let approval: ApprovalMode
@@ -108,14 +109,14 @@ enum SampleData {
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
 
         let mayaTemplatesData: [TemplateSeed] = [
-            TemplateSeed(name: "Tidy Room", desc: "Tidy bedroom floor", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Do Homework", desc: "30 minutes of homework", gold: 7.50, xp: 75, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Help with Dishes", desc: "Load and unload dishwasher", gold: 4.50, xp: 45, sched: .weeklyFlexible, approval: .parentVerify)
+            TemplateSeed(name: "Tidy Room", desc: "Tidy bedroom floor", gold: 500, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Do Homework", desc: "30 minutes of homework", gold: 750, xp: 75, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Help with Dishes", desc: "Load and unload dishwasher", gold: 450, xp: 45, sched: .weeklyFlexible, approval: .parentVerify)
         ]
 
         let leoTemplatesData: [TemplateSeed] = [
-            TemplateSeed(name: "Feed the Cat", desc: "Give fresh food and water to the cat", gold: 3.00, xp: 30, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Practice Reading", desc: "Read for 20 minutes", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .parentVerify)
+            TemplateSeed(name: "Feed the Cat", desc: "Give fresh food and water to the cat", gold: 300, xp: 30, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Practice Reading", desc: "Read for 20 minutes", gold: 500, xp: 50, sched: .weeklyFlexible, approval: .parentVerify)
         ]
 
         var templates: [QuestTemplate] = []
@@ -215,7 +216,7 @@ enum SampleData {
         let recordSuffix: String
         let name: String
         let desc: String
-        let gold: Double
+        let gold: Int64
         let xp: Int
     }
 
@@ -223,9 +224,9 @@ enum SampleData {
     /// HeroBoardView renders claimed and unclaimed sections deterministically.
     private static func createBoardQuests(currentWeek: Date, claims: Int = 0) -> ([QuestTemplate], [Quest]) {
         let seeds: [BoardQuestSeed] = [
-            BoardQuestSeed(recordSuffix: "dog", name: "Walk the Dog", desc: "Take the dog for a walk around the block", gold: 3.00, xp: 30),
-            BoardQuestSeed(recordSuffix: "vacuum", name: "Vacuum Living Room", desc: "Vacuum the living room carpet and corners", gold: 4.00, xp: 40),
-            BoardQuestSeed(recordSuffix: "plants", name: "Water Plants", desc: "Water the indoor plants in the living room and kitchen", gold: 2.00, xp: 20)
+            BoardQuestSeed(recordSuffix: "dog", name: "Walk the Dog", desc: "Take the dog for a walk around the block", gold: 300, xp: 30),
+            BoardQuestSeed(recordSuffix: "vacuum", name: "Vacuum Living Room", desc: "Vacuum the living room carpet and corners", gold: 400, xp: 40),
+            BoardQuestSeed(recordSuffix: "plants", name: "Water Plants", desc: "Water the indoor plants in the living room and kitchen", gold: 200, xp: 20)
         ]
 
         var templates: [QuestTemplate] = []
@@ -336,7 +337,7 @@ enum SampleData {
             // Quest reward entries with bucket attribution
             LedgerEntry(
                 profile: hero1Ref,
-                amount: 5.00,
+                amount: 500,
                 description: "Tidy Room — quest reward",
                 date: now.addingTimeInterval(-86400 * 3),
                 source: "quest",
@@ -346,7 +347,7 @@ enum SampleData {
             ),
             LedgerEntry(
                 profile: hero1Ref,
-                amount: 5.00,
+                amount: 500,
                 description: "Do Homework — quest reward",
                 date: now.addingTimeInterval(-86400 * 2),
                 source: "quest",
@@ -356,7 +357,7 @@ enum SampleData {
             ),
             LedgerEntry(
                 profile: hero2Ref,
-                amount: 5.00,
+                amount: 500,
                 description: "Tidy Room — quest reward",
                 date: now.addingTimeInterval(-86400 * 1),
                 source: "quest",
@@ -366,7 +367,7 @@ enum SampleData {
             ),
             LedgerEntry(
                 profile: hero1Ref,
-                amount: 4.00,
+                amount: 400,
                 description: "Quest reward — Long-Term Save",
                 date: now.addingTimeInterval(-86400 * 1),
                 source: "quest",
@@ -377,7 +378,7 @@ enum SampleData {
             // Manual spending entries with bucket attribution
             LedgerEntry(
                 profile: hero1Ref,
-                amount: -2.50,
+                amount: -250,
                 description: "Candy from corner store",
                 date: now.addingTimeInterval(-3600 * 5),
                 source: "manual",
@@ -387,7 +388,7 @@ enum SampleData {
             ),
             LedgerEntry(
                 profile: hero2Ref,
-                amount: -1.75,
+                amount: -175,
                 description: "Vending machine snack",
                 date: now.addingTimeInterval(-3600 * 3),
                 source: "manual",
@@ -398,7 +399,7 @@ enum SampleData {
             // Interest entries for Maya
             LedgerEntry(
                 profile: hero1Ref,
-                amount: 0.15,
+                amount: 15,
                 description: "Monthly interest — Short-Term Save",
                 date: now.addingTimeInterval(-86400 * 15),
                 source: "interest",
@@ -409,7 +410,7 @@ enum SampleData {
             // Match entry for Maya (parent match on goal contribution)
             LedgerEntry(
                 profile: hero1Ref,
-                amount: 2.50,
+                amount: 250,
                 description: "Parent match — Art Supplies goal",
                 date: now.addingTimeInterval(-86400 * 6),
                 source: "match",
@@ -436,11 +437,11 @@ enum SampleData {
                 weekOf: week1Ago,
                 profile: hero1Ref,
                 status: .paid,
-                totalEarned: 12.50,
+                totalEarned: 1250,
                 questsCompleted: 5,
                 questsTotal: 5,
                 paidDate: paid1,
-                paidAmount: 12.50,
+                paidAmount: 1250,
                 family: familyRef,
                 id: CKRecord.ID(recordName: "allowance_maya_w1", zoneID: zoneID)
             ),
@@ -448,11 +449,11 @@ enum SampleData {
                 weekOf: week2Ago,
                 profile: hero1Ref,
                 status: .paid,
-                totalEarned: 10.00,
+                totalEarned: 1000,
                 questsCompleted: 4,
                 questsTotal: 5,
                 paidDate: paid2,
-                paidAmount: 10.00,
+                paidAmount: 1000,
                 family: familyRef,
                 id: CKRecord.ID(recordName: "allowance_maya_w2", zoneID: zoneID)
             ),
@@ -460,11 +461,11 @@ enum SampleData {
                 weekOf: week3Ago,
                 profile: hero1Ref,
                 status: .paid,
-                totalEarned: 15.00,
+                totalEarned: 1500,
                 questsCompleted: 6,
                 questsTotal: 6,
                 paidDate: paid3,
-                paidAmount: 15.00,
+                paidAmount: 1500,
                 family: familyRef,
                 id: CKRecord.ID(recordName: "allowance_maya_w3", zoneID: zoneID)
             ),
@@ -473,11 +474,11 @@ enum SampleData {
                 weekOf: week1Ago,
                 profile: hero2Ref,
                 status: .paid,
-                totalEarned: 8.00,
+                totalEarned: 800,
                 questsCompleted: 3,
                 questsTotal: 4,
                 paidDate: paid1,
-                paidAmount: 8.00,
+                paidAmount: 800,
                 family: familyRef,
                 id: CKRecord.ID(recordName: "allowance_leo_w1", zoneID: zoneID)
             ),
@@ -485,11 +486,11 @@ enum SampleData {
                 weekOf: week2Ago,
                 profile: hero2Ref,
                 status: .paid,
-                totalEarned: 10.00,
+                totalEarned: 1000,
                 questsCompleted: 4,
                 questsTotal: 4,
                 paidDate: paid2,
-                paidAmount: 10.00,
+                paidAmount: 1000,
                 family: familyRef,
                 id: CKRecord.ID(recordName: "allowance_leo_w2", zoneID: zoneID)
             )

@@ -10,7 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct QuestsView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestsView")
+    private static let logger = Logger(category: "QuestsView")
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
@@ -74,15 +74,13 @@ struct QuestsView: View {
         let targetProfile = profileRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "QuestsView")
         // WHY: predicate pushdown — filter by family+profile at store; avoids family-wide scan.
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
+        let questFilter = QuestCache.assignedPredicate(familyRecordName: targetFamily, assigneeRecordName: targetProfile)
         // WHY: hero-scoped completions — store filters by completer to avoid family-wide scan.
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let currentProfileFilter = #Predicate<ProfileCache> {
-            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-        }
+        let completionFilter = QuestCompletionCache.completerPredicate(familyRecordName: targetFamily, completerRecordName: targetProfile)
+        let templateFilter = QuestTemplateCache.activeFamilyPredicate(familyRecordName: targetFamily)
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let allowanceFilter = AllowancePeriodCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        let currentProfileFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(

@@ -38,17 +38,17 @@ struct SettingsRosterHostView: View {
         self.familyRecordName = familyRecordName
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "SettingsRosterHostView")
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
-        let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
+        let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+        let gemLedgerFilter = GemLedgerCache.familyPredicate(familyRecordName: targetFamily)
+        let rewardEventFilter = RewardEventCache.familyPredicate(familyRecordName: targetFamily)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
 
         _cachedProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])
         _cachedQuests = Query(filter: questFilter, sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)])
@@ -169,7 +169,7 @@ struct SettingsRosterHostView: View {
             showRoleTransferConfirm = nil
         } catch {
             // WHY log privately: role transfer failure contains membership context.
-            Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SettingsRosterHost").error("Failed to transfer Guild Master: \(error, privacy: .private)")
+            Logger(category: "SettingsRosterHost").error("Failed to transfer Guild Master: \(error, privacy: .private)")
         }
     }
 }
