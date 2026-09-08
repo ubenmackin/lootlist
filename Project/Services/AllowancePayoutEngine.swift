@@ -18,7 +18,7 @@ extension TreasuryService {
     /// `BucketService.splitPennies`.
     func mintBucketSplitPayout(
         periodRecordName: String,
-        amount: Double,
+        amount: Int64,
         weekOf: Date,
         profile: Profile?,
         family: CKRecord.Reference,
@@ -53,7 +53,7 @@ extension TreasuryService {
         }
 
         if let cachedPeriod = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName) {
-            guard cachedPeriod.statusEnum == .paid, abs((cachedPeriod.paidAmount ?? 0.0) - amount) < 0.001 else {
+            guard cachedPeriod.statusEnum == .paid, (cachedPeriod.paidAmount ?? 0) == amount else {
                 logger.warning("Skipping bucket payout split: period \(periodRecordName) status is not paid or amount mismatch")
                 return
             }
@@ -79,7 +79,7 @@ extension TreasuryService {
     struct SplitMintContext {
         let baseRecordName: String
         let periodRecordName: String
-        let amount: Double
+        let amount: Int64
         let weekOf: Date
         let profile: Profile
         let family: CKRecord.Reference
@@ -91,7 +91,7 @@ extension TreasuryService {
     /// WHY single helper: batch and real-time splits share one splitPennies mint plus FIFO cascade.
     func mintSplitLedgerEntries(_ context: SplitMintContext) async {
         // WHY whole-penny math: shares sum to the exact settlement total regardless of rounding.
-        let totalPennies = Int((context.amount * 100).rounded())
+        let totalPennies = Int(context.amount)
         let receiving = BucketService.splitPennies(totalPennies, profile: context.profile)
             .filter { $0.pennies > 0 }
         guard !receiving.isEmpty else { return }
@@ -125,7 +125,7 @@ extension TreasuryService {
         var names: [String: [String]] = [:]
         for twin in twins {
             let key = bucketKey(for: twin, baseRecordName: baseRecordName)
-            totals[key, default: 0] += Int((twin.amount * 100).rounded())
+            totals[key, default: 0] += Int(twin.amount)
             names[key, default: []].append(twin.recordName)
         }
         return (totals, names)
@@ -296,7 +296,7 @@ extension TreasuryService {
         }
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: context.profile.id, action: .none),
-            amount: Double(totalPennies) / 100.0,
+            amount: Int64(totalPennies),
             description: description,
             date: context.date,
             source: LedgerSource.quest.rawValue,
@@ -341,12 +341,12 @@ extension TreasuryService {
         let saveShares = shares.filter { $0.kind == .shortTermSave || $0.kind == .longTermSave }
         let label = context.isRealTime ? "real-time earnings" : "payout earnings"
         guard !saveShares.isEmpty else {
-            let formatted = CurrencyFormatter.string(context.amount)
+            let formatted = CurrencyFormatter.string(pennies: context.amount)
             logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
             return
         }
         guard let cachedFamily = cacheService.fetchFamily(recordName: context.family.recordID.recordName) else {
-            let formatted = CurrencyFormatter.string(context.amount)
+            let formatted = CurrencyFormatter.string(pennies: context.amount)
             logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
             return
         }
@@ -372,7 +372,7 @@ extension TreasuryService {
                 logger.warning("Goal allocation failed during payout \(context.periodRecordName, privacy: .private): \(error, privacy: .private)")
             }
         }
-        let formatted = CurrencyFormatter.string(context.amount)
+        let formatted = CurrencyFormatter.string(pennies: context.amount)
         logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
     }
 }

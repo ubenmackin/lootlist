@@ -52,7 +52,7 @@ extension QuestServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -90,7 +90,7 @@ extension QuestServiceTests {
 
         let family = Family(
             name: "Friday Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .friday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -114,7 +114,7 @@ extension QuestServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 30,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -151,7 +151,7 @@ extension QuestServiceTests {
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -172,7 +172,7 @@ extension QuestServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -224,7 +224,7 @@ extension QuestServiceTests {
         let cachedQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -267,7 +267,7 @@ extension QuestServiceTests {
         )
         let family = Family(
             name: "Wednesday Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .wednesday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -285,7 +285,7 @@ extension QuestServiceTests {
             assignee: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
             ),
-            goldReward: 20.0,
+            goldReward: 2000,
             xpReward: 40,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -328,7 +328,7 @@ extension QuestServiceTests {
         )
         let family = Family(
             name: "Friday Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .friday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -351,7 +351,7 @@ extension QuestServiceTests {
             assignee: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
             ),
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 60,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -394,7 +394,7 @@ extension QuestServiceTests {
         )
         let family = Family(
             name: "Friday Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .friday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -418,7 +418,7 @@ extension QuestServiceTests {
             assignee: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
             ),
-            goldReward: 35.0,
+            goldReward: 3500,
             xpReward: 70,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -465,7 +465,7 @@ extension QuestServiceTests {
 
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -482,7 +482,7 @@ extension QuestServiceTests {
         let inRangeQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -496,7 +496,7 @@ extension QuestServiceTests {
         let outOfRangeQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 99.0,
+            goldReward: 9900,
             xpReward: 200,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,

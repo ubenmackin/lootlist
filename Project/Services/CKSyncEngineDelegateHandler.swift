@@ -11,10 +11,7 @@ import os
 
 @MainActor
 final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "CKSyncEngineDelegateHandler"
-    )
+    private let logger = Logger(category: "CKSyncEngineDelegateHandler")
 
     private let cacheService: CacheService?
     private var backgroundCache: BackgroundCacheActor?

@@ -71,15 +71,13 @@ struct ProfileView: View {
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let currentProfileFilter = #Predicate<ProfileCache> {
-            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-        }
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
+        let questFilter = QuestCache.familyIncludingInactivePredicate(familyRecordName: targetFamily)
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let currentProfileFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
         _cachedAchievements = Query(
             filter: achievementFilter,
             sort: \AchievementCache.name
@@ -171,7 +169,8 @@ struct ProfileView: View {
             }
             .task {
                 recomputeCharacterFromCache()
-                viewModel.refreshFreshness(
+                viewModel.recordSavingsStreakMilestone()
+                await viewModel.refreshFreshness(
                     profile: appState.currentProfile,
                     family: appState.family,
                     achievementService: achievementService,
@@ -663,13 +662,36 @@ struct ProfileView: View {
     }
 }
 
+/// Service-owned device-local store for alternate app-icon eligibility.
+/// WHY service-owned: Views/ViewModels never touch UserDefaults directly; all reads/writes ride this store.
+enum AppIconEligibilityStore {
+    static let maxSavingsStreakWeeksKey = "appicon.maxSavingsStreakWeeks"
+
+    static func maxSavingsStreakWeeks(defaults: UserDefaults = .standard) -> Int {
+        defaults.integer(forKey: maxSavingsStreakWeeksKey)
+    }
+
+    static func recordSavingsStreak(_ streak: Int, defaults: UserDefaults = .standard) {
+        let stored = defaults.integer(forKey: maxSavingsStreakWeeksKey)
+        guard streak > stored else { return }
+        defaults.set(streak, forKey: maxSavingsStreakWeeksKey)
+    }
+}
+
 @MainActor
 @Observable
 final class ProfileViewModel {
     var streak: Int?
     var savingsStreak: Int?
-    var goldBalance: Double?
+    /// WHY Int64 pennies: ledger sums stay exact with no Double drift; renders via CurrencyFormatter.
+    var goldBalance: Int64?
     var earnedAchievements: [AchievementCache] = []
+
+    private let eligibilityDefaults: UserDefaults
+
+    init(eligibilityDefaults: UserDefaults = .standard) {
+        self.eligibilityDefaults = eligibilityDefaults
+    }
 
     func reset() {
         streak = nil
@@ -703,18 +725,10 @@ final class ProfileViewModel {
             payoutDay: payoutDay
         )
 
-        // Persist the highest savings-streak milestone reached so alternate app
-        // icon eligibility can be read from Settings (device-local UserDefaults).
-        if let streak = savingsStreak {
-            let stored = UserDefaults.standard.integer(forKey: "appicon.maxSavingsStreakWeeks")
-            if streak > stored {
-                UserDefaults.standard.set(streak, forKey: "appicon.maxSavingsStreakWeeks")
-            }
-        }
-
         // Balance is derived directly from ledger entry sum.
+        // WHY Int64 pennies: never drift through Double; renders via CurrencyFormatter.
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
-        goldBalance = profileLedgers.reduce(0.0) { $0 + $1.amount }
+        goldBalance = profileLedgers.reduce(Int64(0)) { $0 + $1.amount }
 
         let earnedNames = Set(
             profileAchievements
@@ -725,12 +739,20 @@ final class ProfileViewModel {
             .filter { earnedNames.contains($0.recordName) }
     }
 
+    /// WHY explicit record: recompute runs on every @Query update, so eligibility
+    /// persists from .task rather than during view updates.
+    func recordSavingsStreakMilestone() {
+        guard let streak = savingsStreak else { return }
+        AppIconEligibilityStore.recordSavingsStreak(streak, defaults: eligibilityDefaults)
+    }
+
+    /// WHY async: .task awaits directly so cancellation follows view lifecycle with no fire-and-forget.
     func refreshFreshness(
         profile: Profile?,
         family: Family?,
         achievementService: AchievementService,
         appState: AppState? = nil
-    ) {
+    ) async {
         guard let profile else { return }
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
@@ -743,23 +765,22 @@ final class ProfileViewModel {
                 return
             }
         }
-        Task {
-            do {
-                _ = try await achievementService.fetchEarned(profile: profile)
-            } catch {
-                let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ProfileView")
-                logger.debug("ProfileView: failed to fetch earned achievements for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)")
-            }
+        do {
+            _ = try await achievementService.fetchEarned(profile: profile)
+        } catch is CancellationError {
+            return
+        } catch {
+            let logger = Logger(category: "ProfileView")
+            logger.debug("ProfileView: failed to fetch earned achievements for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)")
         }
-        if let family {
-            Task {
-                do {
-                    _ = try await achievementService.fetchAllDefinitions(family: family)
-                } catch {
-                    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ProfileView")
-                    logger.debug("ProfileView: failed to fetch achievement definitions for family '\(family.id.recordName, privacy: .private)': \(error, privacy: .private)")
-                }
-            }
+        guard let family else { return }
+        do {
+            _ = try await achievementService.fetchAllDefinitions(family: family)
+        } catch is CancellationError {
+            return
+        } catch {
+            let logger = Logger(category: "ProfileView")
+            logger.debug("ProfileView: failed to fetch achievement definitions for family '\(family.id.recordName, privacy: .private)': \(error, privacy: .private)")
         }
     }
 }

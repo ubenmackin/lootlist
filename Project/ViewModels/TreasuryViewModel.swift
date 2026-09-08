@@ -11,7 +11,8 @@ import os
 
 struct SpendingLogRow: Identifiable, Equatable {
     let id: String
-    let amount: Double
+    /// Whole pennies (signed).
+    let amount: Int64
     let description: String
     let location: String?
     let date: Date
@@ -19,7 +20,7 @@ struct SpendingLogRow: Identifiable, Equatable {
     let rawCache: LedgerEntryCache?
 
     init(id: String,
-         amount: Double,
+         amount: Int64,
          description: String,
          location: String? = nil,
          date: Date,
@@ -35,6 +36,10 @@ struct SpendingLogRow: Identifiable, Equatable {
         self.rawCache = rawCache
     }
 
+    var formattedAmount: String {
+        CurrencyFormatter.string(pennies: amount)
+    }
+
     var bucketKind: String? {
         rawCache?.bucketKind
     }
@@ -47,7 +52,7 @@ struct SpendingLogRow: Identifiable, Equatable {
 @MainActor
 @Observable
 final class TreasuryViewModel {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Treasury")
+    private let logger = Logger(category: "Treasury")
 
     private let treasury: TreasuryService
 
@@ -55,11 +60,11 @@ final class TreasuryViewModel {
 
     private let appState: AppState
 
-    private(set) var balance: Double?
+    private(set) var balance: Int64?
 
-    private(set) var spendBalance: Double = 0
+    private(set) var spendBalance: Int64 = 0
 
-    private(set) var pendingQuestGold: Double = 0.0
+    private(set) var pendingQuestGold: Int64 = 0
 
     private(set) var weeklyBreakdown: TreasuryService.WeeklyBreakdown?
 
@@ -87,7 +92,7 @@ final class TreasuryViewModel {
     }
 
     /// WHY instance shim: views hold @Query rows but should not reimplement bucket math.
-    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Double {
+    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Int64 {
         guard let profile = appState.currentProfile else { return 0 }
         return BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profile.id.recordName)
     }
@@ -151,11 +156,11 @@ final class TreasuryViewModel {
         // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
         let weekBonusGold = weekLedgers
             .filter { BucketService.isBonusCounted($0) }
-            .reduce(into: 0.0) { $0 += $1.amount }
+            .reduce(into: Int64(0)) { $0 += $1.amount }
         let weekSpent = weekLedgers
             // WHY counted only: nil-bucket residue would count in spent but not ledgerBalance.
             .filter { $0.amount < 0 && BucketService.isCounted($0) }
-            .reduce(into: 0.0) { $0 += $1.amount }
+            .reduce(into: Int64(0)) { $0 += $1.amount }
 
         let profileLogs = logs.filter { $0.completerRecordName == profileName }
         let approvedLogs = profileLogs.filter {
@@ -166,7 +171,7 @@ final class TreasuryViewModel {
         let effectivePolicy = profile.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
         // WHY day count wins: stale targetCount under-counts specific-days split rewards.
         let templatesByID = SpecificDaysHelper.templatesByID(templates)
-        let weekQuestsGold = GoldCalculation.netWeeklyGold(
+        let weekQuestsGold = GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: logs,
             profileRecordName: profileName,
@@ -178,7 +183,7 @@ final class TreasuryViewModel {
         let totalEarned = weekQuestsGold + weekBonusGold
 
         if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
-            pendingQuestGold = 0.0
+            pendingQuestGold = 0
         } else {
             pendingQuestGold = weekQuestsGold
         }
@@ -219,7 +224,7 @@ final class TreasuryViewModel {
 
     @discardableResult
     func logSpending(description: String,
-                     amount: Double,
+                     amount: Int64,
                      location: String? = nil,
                      date: Date = Date()) async -> Bool
     {
@@ -230,7 +235,7 @@ final class TreasuryViewModel {
             errorMessage = "Describe your spending first."
             return false
         }
-        guard amount.isFinite, amount > 0 else {
+        guard amount > 0 else {
             errorMessage = "Enter a positive amount."
             return false
         }

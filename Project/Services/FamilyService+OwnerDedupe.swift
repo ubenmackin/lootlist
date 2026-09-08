@@ -44,21 +44,23 @@ extension FamilyService {
                                      ownerProfile ownerOnboarding: Profile) async throws -> Profile
     {
         let db = cloudKit.privateDatabase
-        let creatorID = CKRecord.ID(recordName: family.createdBy.recordName, zoneID: zoneID)
-        do {
-            // `fetch` throws on absence, so the provable-absence vs error split
-            // is made in the catch (fail-closed) rather than via optional try.
-            let fetched: Profile = try await cloudKit.fetch(Profile.self, id: creatorID, using: db)
-            if fetched.isActive {
-                logger.info("Direct point lookup found active Guild Master profile: '\(fetched.displayName, privacy: .private)'")
-                return fetched
+        let creatorID: CKRecord.ID? = family.creatorUserRecordName.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+        if let creatorID {
+            do {
+                // `fetch` throws on absence, so the provable-absence vs error split
+                // is made in the catch (fail-closed) rather than via optional try.
+                let fetched: Profile = try await cloudKit.fetch(Profile.self, id: creatorID, using: db)
+                if fetched.isActive {
+                    logger.info("Direct point lookup found active Guild Master profile: '\(fetched.displayName, privacy: .private)'")
+                    return fetched
+                }
+                // Inactive GM: reactivate preserving the existing identity.
+                logger.info("Direct point lookup found inactive Guild Master profile '\(fetched.displayName, privacy: .private)'; reactivating")
+                return try await reactivateOrSaveOwner(fetched, in: zoneID, family: family, using: db)
+            } catch let error as CloudKitServiceError {
+                // Fail-closed: only `notFound` falls through to the query fallback.
+                guard case .notFound = error else { throw FamilyServiceError.creationFailed }
             }
-            // Inactive GM: reactivate preserving the existing identity.
-            logger.info("Direct point lookup found inactive Guild Master profile '\(fetched.displayName, privacy: .private)'; reactivating")
-            return try await reactivateOrSaveOwner(fetched, in: zoneID, family: family, using: db)
-        } catch let error as CloudKitServiceError {
-            // Fail-closed: only `notFound` falls through to the query fallback.
-            guard case .notFound = error else { throw FamilyServiceError.creationFailed }
         }
 
         let profiles: [Profile]
@@ -74,7 +76,7 @@ extension FamilyService {
         }
         // Prefer the family's actual creator to repair the original identity
         // rather than minting a parallel GM.
-        let existingGM = profiles.first(where: { $0.role == .guildMaster && $0.id == creatorID })
+        let existingGM = profiles.first(where: { $0.role == .guildMaster && creatorID != nil && $0.id == creatorID })
             ?? profiles.first(where: { $0.role == .guildMaster })
             ?? profiles.first(where: { $0.isActive })
         if let gm = existingGM {

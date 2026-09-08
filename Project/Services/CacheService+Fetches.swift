@@ -11,7 +11,7 @@ import SwiftData
 
 @MainActor
 extension CacheService {
-    private static let fetchLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+    private static let fetchLogger = Logger(category: "CacheService")
 
     // MARK: - Family scope guard (DRY)
 

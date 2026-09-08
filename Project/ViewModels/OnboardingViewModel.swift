@@ -42,7 +42,7 @@ struct DetectedHero {
 @MainActor
 @Observable
 final class OnboardingViewModel {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Onboarding")
+    private let logger = Logger(category: "Onboarding")
 
     var userIntent: UserIntent?
 

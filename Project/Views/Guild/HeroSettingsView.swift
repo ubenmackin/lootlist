@@ -14,7 +14,7 @@ struct HeroSettingsView: View {
 
     @Query private var heroRows: [ProfileCache]
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroSettings")
+    private let logger = Logger(category: "HeroSettings")
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
@@ -36,9 +36,7 @@ struct HeroSettingsView: View {
         self.hero = hero
         let targetRecord = hero.recordName
         let targetFamily = hero.familyRecordName
-        _heroRows = Query(filter: #Predicate<ProfileCache> {
-            $0.recordName == targetRecord && $0.familyRecordName == targetFamily
-        })
+        _heroRows = Query(filter: ProfileCache.recordPredicate(recordName: targetRecord, familyRecordName: targetFamily))
         _selectedPolicy = State(initialValue: hero.payoutPolicyEnum)
         _selectedDayOverride = State(initialValue: hero.payoutDayEnum)
     }

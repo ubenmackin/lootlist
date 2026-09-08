@@ -75,13 +75,9 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
             iconSystemName: achievement.iconSystemName,
             category: achievement.category.rawValue,
             requirementType: achievement.requirementType.rawValue,
-            requirementValue: achievement.requirementValue,
-            changeTag: achievement.changeTag,
-            encodedSystemFields: achievement.encodedSystemFields,
-            sourceZoneName: achievement.id.zoneID.zoneName,
-            sourceZoneOwnerName: achievement.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: achievement.id.zoneID)
+            requirementValue: achievement.requirementValue
         )
+        applySystemFields(from: achievement)
     }
 
     // MARK: - CacheMergeable
@@ -94,13 +90,7 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
         category = achievement.category.rawValue
         requirementType = achievement.requirementType.rawValue
         requirementValue = achievement.requirementValue
-        changeTag = achievement.changeTag
-        sourceZoneName = achievement.id.zoneID.zoneName
-        sourceZoneOwnerName = achievement.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: achievement.id.zoneID)
-        if isServerSync, achievement.encodedSystemFields != nil {
-            encodedSystemFields = achievement.encodedSystemFields
-        }
+        applySystemFields(from: achievement, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<AchievementCache> {
@@ -116,5 +106,13 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<AchievementCache> {
         FetchDescriptor<AchievementCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<AchievementCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
     }
 }

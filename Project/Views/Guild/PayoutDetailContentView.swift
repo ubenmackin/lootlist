@@ -27,7 +27,7 @@ struct PayoutDetailContent: View {
         PayoutWeekCalculator.weekLedgerEntries(for: period, from: cachedLedgers)
     }
 
-    private var goalContributions: [(goal: GoalCache, amount: Double)] {
+    private var goalContributions: [(goal: GoalCache, amount: Int64)] {
         PayoutWeekCalculator.goalContributions(for: goals, in: weekBucketEntries)
     }
 
@@ -271,7 +271,7 @@ struct PayoutDetailContent: View {
 struct LedgerDisplayRow: Identifiable {
     let id: String
     let date: Date
-    let amount: Double
+    let amount: Int64
     let source: String
     let bucket: String
     let entry: LedgerEntryCache

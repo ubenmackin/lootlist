@@ -31,7 +31,7 @@ enum PayoutWeekCalculator {
     static func goalContributions(
         for goals: [GoalCache],
         in weekBucketEntries: [LedgerEntryCache]
-    ) -> [(goal: GoalCache, amount: Double)] {
+    ) -> [(goal: GoalCache, amount: Int64)] {
         goals.compactMap { goal in
             let total = GoalProgressCalculator.contributionAmount(for: goal, in: weekBucketEntries)
             return total > 0 ? (goal, total) : nil
@@ -43,7 +43,7 @@ enum PayoutWeekCalculator {
         for period: AllowancePeriodCache,
         ledgerEntries: [LedgerEntryCache],
         goals: [GoalCache]
-    ) -> [(goal: GoalCache, amount: Double)] {
+    ) -> [(goal: GoalCache, amount: Int64)] {
         let entries = weekBucketEntries(for: period, from: ledgerEntries)
         return goalContributions(for: goals, in: entries)
     }
@@ -53,22 +53,22 @@ enum PayoutWeekCalculator {
     static func bucketTotal(
         for kind: BucketKind,
         in weekBucketEntries: [LedgerEntryCache]
-    ) -> Double {
+    ) -> Int64 {
         weekBalances(in: weekBucketEntries)[kind, default: 0]
     }
 
     /// Totals for all buckets that have non-zero activity, keyed by kind.
     static func totalsByBucket(
         in weekBucketEntries: [LedgerEntryCache]
-    ) -> [BucketKind: Double] {
+    ) -> [BucketKind: Int64] {
         weekBalances(in: weekBucketEntries).filter { $0.value != 0 }
     }
 
     /// WHY single-source: counted money plus transfer moves ride one attribution so week sheet matches hub balances.
     private static func weekBalances(
         in weekBucketEntries: [LedgerEntryCache]
-    ) -> [BucketKind: Double] {
-        var balances: [BucketKind: Double] = [:]
+    ) -> [BucketKind: Int64] {
+        var balances: [BucketKind: Int64] = [:]
         for entry in weekBucketEntries {
             // WHY counted-plus-transfer: `isCounted` covers new money while transfers move between buckets.
             guard BucketService.isCounted(entry) || entry.sourceEnum == .transfer else { continue }

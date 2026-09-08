@@ -9,11 +9,17 @@ import CryptoKit
 import Foundation
 
 extension SHA256.Digest {
+    /// WHY single source: every hex rendering shares one formatter so collision suffixes cannot diverge.
+    func hexPrefix(_ byteCount: Int) -> String {
+        prefix(byteCount).map { String(format: "%02x", $0) }.joined()
+    }
+
     var hex: String {
-        map { String(format: "%02x", $0) }.joined()
+        // WHY explicit digest length: Digest is a Sequence so bare count binds to count(where:), not element count.
+        hexPrefix(SHA256.byteCount)
     }
 
     var shortHex: String {
-        prefix(8).map { String(format: "%02x", $0) }.joined()
+        hexPrefix(8)
     }
 }

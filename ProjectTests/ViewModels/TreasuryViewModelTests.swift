@@ -17,7 +17,7 @@ struct TreasuryViewModelTests {
         let state = makeAppState()
         let viewModel = try makeTreasuryViewModel(state)
 
-        let success = await viewModel.logSpending(description: "   ", amount: 10.0)
+        let success = await viewModel.logSpending(description: "   ", amount: 1000)
         #expect(success == false)
         #expect(viewModel.errorMessage == "Describe your spending first.")
     }
@@ -27,7 +27,7 @@ struct TreasuryViewModelTests {
         let state = makeAppState()
         let viewModel = try makeTreasuryViewModel(state)
 
-        let successNegative = await viewModel.logSpending(description: "Spellbook", amount: -5.0)
+        let successNegative = await viewModel.logSpending(description: "Spellbook", amount: -500)
         #expect(successNegative == false)
         #expect(viewModel.errorMessage == "Enter a positive amount.")
 
@@ -65,7 +65,7 @@ struct TreasuryViewModelTests {
         appState.currentProfile = profile
         appState.family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            creatorUserRecordName: "u1",
             payoutPolicy: .perQuest,
             payoutDay: familyPayoutDay,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
@@ -87,7 +87,7 @@ struct TreasuryViewModelTests {
             familyRecordName: "fam1",
             weekOf: currentWeek,
             status: PayoutStatus.payoutPending.rawValue,
-            totalEarned: 25.0,
+            totalEarned: 2500,
             questsCompleted: 3,
             questsTotal: 4,
             paidDate: nil,
@@ -111,11 +111,11 @@ struct TreasuryViewModelTests {
             familyRecordName: "fam1",
             weekOf: currentWeek,
             status: PayoutStatus.paid.rawValue,
-            totalEarned: 25.0,
+            totalEarned: 2500,
             questsCompleted: 3,
             questsTotal: 4,
             paidDate: Date(),
-            paidAmount: 25.0
+            paidAmount: 2500
         )
 
         viewModel.rebuildLists(
@@ -126,9 +126,9 @@ struct TreasuryViewModelTests {
         )
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)
-        #expect(viewModel.weeklyBreakdown?.paidAmount == 25.0)
+        #expect(viewModel.weeklyBreakdown?.paidAmount == 2500)
         #expect(viewModel.allowancePeriod?.status == .paid)
-        #expect(viewModel.allowancePeriod?.paidAmount == 25.0)
+        #expect(viewModel.allowancePeriod?.paidAmount == 2500)
     }
 
     @Test
@@ -467,7 +467,7 @@ struct TreasuryViewModelTests {
             recordName: "l1",
             profileRecordName: "h1",
             familyRecordName: "fam1",
-            amount: -5.0,
+            amount: -500,
             entryDescription: "Toys",
             location: "Home Goods",
             date: Date(),
@@ -477,7 +477,7 @@ struct TreasuryViewModelTests {
             recordName: "l2",
             profileRecordName: "h1",
             familyRecordName: "fam1",
-            amount: -10.0,
+            amount: -1000,
             entryDescription: "Crafts",
             location: "Hobby Lobby",
             date: Date(),
@@ -487,7 +487,7 @@ struct TreasuryViewModelTests {
             recordName: "l3",
             profileRecordName: "h1",
             familyRecordName: "fam1",
-            amount: -15.0,
+            amount: -1500,
             entryDescription: "Tools",
             location: "Home Depot",
             date: Date(),
@@ -497,7 +497,7 @@ struct TreasuryViewModelTests {
             recordName: "l4",
             profileRecordName: "h1",
             familyRecordName: "fam1",
-            amount: -2.0,
+            amount: -200,
             entryDescription: "More Toys",
             location: "home goods",
             date: Date(),
@@ -514,12 +514,12 @@ struct TreasuryViewModelTests {
         let cacheService = try CacheService(inMemory: true)
         let viewModel = try makeTreasuryViewModel(state, cacheService: cacheService)
 
-        let success = await viewModel.logSpending(description: "Hammer", amount: 12.50, location: "Home Depot")
+        let success = await viewModel.logSpending(description: "Hammer", amount: 1250, location: "Home Depot")
         #expect(success == true)
         let cached = cacheService.fetchLedgerEntries(profileRecordName: state.profileName, family: "fam1")
         #expect(cached.count == 1)
         #expect(cached.first?.location == "Home Depot")
-        #expect(cached.first?.amount == -12.50)
+        #expect(cached.first?.amount == -1250)
     }
 
     @Test
@@ -536,19 +536,19 @@ struct TreasuryViewModelTests {
             familyRecordName: "fam1",
             weekOf: periodWeekOfWithOffset,
             status: PayoutStatus.paid.rawValue,
-            totalEarned: 50.0,
+            totalEarned: 5000,
             questsCompleted: 2,
             questsTotal: 2,
             paidDate: Date(),
-            paidAmount: 50.0
+            paidAmount: 5000
         )
 
         viewModel.rebuildLists(logs: [], ledgers: [], quests: [], allowancePeriods: [allowance], scope: .thisWeek, templates: [])
 
         #expect(viewModel.allowancePeriod?.status == .paid)
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)
-        #expect(viewModel.weeklyBreakdown?.paidAmount == 50.0)
-        #expect(viewModel.pendingQuestGold == 0.0)
+        #expect(viewModel.weeklyBreakdown?.paidAmount == 5000)
+        #expect(viewModel.pendingQuestGold == 0)
     }
 
     // MARK: - Bucket Balances & Transfer Preview
@@ -583,7 +583,7 @@ struct TreasuryViewModelTests {
             )
             family = Family(
                 name: "Test Family",
-                createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+                creatorUserRecordName: "u1",
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
@@ -600,7 +600,7 @@ struct TreasuryViewModelTests {
         }
 
         func seed(_ name: String,
-                  amount: Double,
+                  amount: Int64,
                   source: String,
                   bucketKind: String?,
                   fromBucket: String? = nil,
@@ -628,10 +628,10 @@ struct TreasuryViewModelTests {
     @Test
     func `treasury bucket balances credit transfers to destination and debit source`() throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
         scaffold.seed(
             "l-transfer",
-            amount: 3.00,
+            amount: 300,
             source: "transfer",
             bucketKind: BucketKind.shortTermSave.rawValue,
             fromBucket: BucketKind.spend.rawValue,
@@ -640,8 +640,8 @@ struct TreasuryViewModelTests {
 
         let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
 
-        #expect(balances[.spend] == 7.00)
-        #expect(balances[.shortTermSave] == 3.00)
+        #expect(balances[.spend] == 700)
+        #expect(balances[.shortTermSave] == 300)
     }
 
     @Test
@@ -649,7 +649,7 @@ struct TreasuryViewModelTests {
         let scaffold = try TransferScaffold()
         do {
             _ = try await scaffold.buckets.transfer(
-                from: .spend, to: .spend, amount: 1.0,
+                from: .spend, to: .spend, amount: 100,
                 profile: scaffold.hero, family: scaffold.family,
                 transferID: BucketService.deterministicTransferID(
                     dayBucket: WeekMath.dayBucket(for: Date()),
@@ -666,7 +666,7 @@ struct TreasuryViewModelTests {
     @Test
     func `transfer preview rejects zero and negative amounts`() async throws {
         let scaffold = try TransferScaffold()
-        for amount in [0.0, -5.0] {
+        for amount: Int64 in [0, -500] {
             do {
                 _ = try await scaffold.buckets.transfer(
                     from: .spend, to: .shortTermSave, amount: amount,
@@ -690,7 +690,7 @@ struct TreasuryViewModelTests {
         scaffold.appState.currentProfile = nil
         do {
             _ = try await scaffold.buckets.transfer(
-                from: .spend, to: .shortTermSave, amount: 1.0,
+                from: .spend, to: .shortTermSave, amount: 100,
                 profile: scaffold.hero, family: scaffold.family,
                 transferID: BucketService.deterministicTransferID(
                     dayBucket: WeekMath.dayBucket(for: Date()),
@@ -707,12 +707,12 @@ struct TreasuryViewModelTests {
     @Test
     func `transfer preview reports exact insufficient funds from the source bucket`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 2.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 200, source: "quest", bucketKind: BucketKind.spend.rawValue)
         let rowsBeforePreview = scaffold.entries().count
 
         do {
             _ = try await scaffold.buckets.transfer(
-                from: .spend, to: .shortTermSave, amount: 5.00,
+                from: .spend, to: .shortTermSave, amount: 500,
                 profile: scaffold.hero, family: scaffold.family,
                 transferID: BucketService.deterministicTransferID(
                     dayBucket: WeekMath.dayBucket(for: Date()),
@@ -722,7 +722,7 @@ struct TreasuryViewModelTests {
             )
             Issue.record("Overdrafting transfer must throw")
         } catch {
-            #expect(error as? BucketServiceError == .insufficientFunds(available: 2.00, requested: 5.00))
+            #expect(error as? BucketServiceError == .insufficientFunds(available: 200, requested: 500))
         }
         // A rejected preview is strictly read-only: the ledger keeps exactly
         // the seeded funding row and gains nothing from the failed attempt.
@@ -732,12 +732,12 @@ struct TreasuryViewModelTests {
     @Test
     func `confirmed transfer moves balances with deterministic id and replays idempotently`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
         let unixDay = WeekMath.dayBucket(for: Date())
         let transferID = "\(unixDay)-spend-shortTermSave"
         let entry = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 4.00,
+            from: .spend, to: .shortTermSave, amount: 400,
             profile: scaffold.hero, family: scaffold.family,
             transferID: transferID
         )
@@ -751,8 +751,8 @@ struct TreasuryViewModelTests {
         #expect(entry.toBucket == BucketKind.shortTermSave.rawValue)
 
         var balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 6.00)
-        #expect(balances[.shortTermSave] == 4.00)
+        #expect(balances[.spend] == 600)
+        #expect(balances[.shortTermSave] == 400)
         // Two rows total: the seeded funding entry plus exactly ONE transfer
         // ledger row — the debit side is carried by fromBucket attribution,
         // never by a second row.
@@ -761,24 +761,24 @@ struct TreasuryViewModelTests {
         // Same-day duplicate must be rejected via per-day/per-pair guard.
         await #expect(throws: BucketServiceError.duplicateTodayTransfer) {
             _ = try await scaffold.buckets.transfer(
-                from: .spend, to: .shortTermSave, amount: 4.00,
+                from: .spend, to: .shortTermSave, amount: 400,
                 profile: scaffold.hero, family: scaffold.family,
                 transferID: transferID
             )
         }
         #expect(scaffold.entries().count == 2)
         balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 6.00)
-        #expect(balances[.shortTermSave] == 4.00)
+        #expect(balances[.spend] == 600)
+        #expect(balances[.shortTermSave] == 400)
     }
 
     @Test
     func `transfers without transferID are append-only with distinct records`() async throws {
         let scaffold = try TransferScaffold()
-        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
         let entry1 = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 2.00,
+            from: .spend, to: .shortTermSave, amount: 200,
             profile: scaffold.hero, family: scaffold.family,
             transferID: BucketService.deterministicTransferID(
                 dayBucket: WeekMath.dayBucket(for: Date()),
@@ -787,7 +787,7 @@ struct TreasuryViewModelTests {
             )
         )
         let entry2 = try await scaffold.buckets.transfer(
-            from: .spend, to: .longTermSave, amount: 3.00,
+            from: .spend, to: .longTermSave, amount: 300,
             profile: scaffold.hero, family: scaffold.family,
             transferID: BucketService.deterministicTransferID(
                 dayBucket: WeekMath.dayBucket(for: Date()),
@@ -799,8 +799,8 @@ struct TreasuryViewModelTests {
         #expect(entry1.id.recordName != entry2.id.recordName)
         #expect(scaffold.entries().count == 3) // 1 seed + 2 transfers
         let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
-        #expect(balances[.spend] == 5.00)
-        #expect(balances[.shortTermSave] == 2.00)
-        #expect(balances[.longTermSave] == 3.00)
+        #expect(balances[.spend] == 500)
+        #expect(balances[.shortTermSave] == 200)
+        #expect(balances[.longTermSave] == 300)
     }
 }

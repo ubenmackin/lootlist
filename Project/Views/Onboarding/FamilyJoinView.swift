@@ -9,7 +9,7 @@ import os
 import SwiftUI
 
 struct FamilyJoinView: View {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyJoin")
+    private let logger = Logger(category: "FamilyJoin")
 
     @Bindable var viewModel: OnboardingViewModel
 

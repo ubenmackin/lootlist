@@ -22,7 +22,7 @@ extension CKSyncEngineDelegateHandler: HydrationHandling {}
 final class NoopHydrationHandler: HydrationHandling {
     static let shared = NoopHydrationHandler()
     private static var hasLogged = false
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SyncEnqueuing")
+    private static let logger = Logger(category: "SyncEnqueuing")
     func hydrateFromQuery(models _: [some CloudKitRecord], databaseScope _: CKDatabase.Scope, zoneID _: CKRecordZone.ID) async {
         // WHY: doubles carry no engine so hydration has nowhere to ingest; cache writes and enqueues still apply.
         if !Self.hasLogged {
@@ -56,11 +56,24 @@ extension SyncEnqueuing {
 @MainActor
 @Observable
 final class TreasuryService {
-    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TreasuryService")
+    let logger = Logger(category: "TreasuryService")
     let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
     var cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
+    var ledgerService: LedgerService?
+
+    var resolvedLedgerService: LedgerService {
+        if let ledgerService {
+            return ledgerService
+        }
+        return LedgerService(
+            cloudKit: cloudKit,
+            cacheService: cacheService,
+            appState: appState,
+            syncCoordinator: syncCoordinator
+        )
+    }
 
     /// Guards against concurrent settlement of the same period.
     private let inFlightSettlements = Mutex<Set<String>>([])
@@ -90,7 +103,7 @@ final class TreasuryService {
         self.syncCoordinator = syncCoordinator
     }
 
-    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TreasuryService")
+    private static let staticLogger = Logger(category: "TreasuryService")
 
     @_disfavoredOverload
     convenience init(
@@ -131,27 +144,25 @@ final class TreasuryService {
 
     // MARK: - Balance & Weekly Breakdown
 
-    func currentBalance(for profile: Profile) async throws -> Double {
-        let ledgerEntries = try await fetchAllLedgerEntries(profile: profile)
-        // WHY single-count: goal entries reuse counted funds and transfers net to zero across buckets.
-        return ledgerEntries.filter { BucketService.isCounted($0) }.reduce(0.0) { $0 + $1.amount }
+    func currentBalance(for profile: Profile) async throws -> Int64 {
+        try await resolvedLedgerService.currentBalance(for: profile)
     }
 
     struct WeeklyBreakdown: Equatable, Sendable {
         var questsCount: Int = 0
 
-        var goldFromQuests: Double = 0
+        var goldFromQuests: Int64 = 0
 
-        var bonusGold: Double = 0
+        var bonusGold: Int64 = 0
 
-        var totalEarned: Double = 0
+        var totalEarned: Int64 = 0
 
-        var spent: Double = 0
+        var spent: Int64 = 0
 
-        var net: Double = 0
+        var net: Int64 = 0
 
         var payoutStatus: PayoutStatus?
-        var paidAmount: Double?
+        var paidAmount: Int64?
     }
 
     func weeklyBreakdown(profile: Profile,
@@ -165,7 +176,7 @@ final class TreasuryService {
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
         // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
         let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
-        var goldFromQuests = GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: templatesByID)
+        var goldFromQuests = GoldCalculation.totalCreditPennies(for: quests, logs: logs, templatesByID: templatesByID)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         let effectivePolicy = effectivePayoutPolicy(for: profile, family: family)
@@ -182,49 +193,20 @@ final class TreasuryService {
                     return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: questLogs.count, effectiveTarget: target)
                 }.count
                 if fullyCompletedCount < assigned.count {
-                    goldFromQuests = 0.0
+                    goldFromQuests = 0
                 }
             }
         }
 
-        let ledgerEntries: [LedgerEntry] = try await CacheFirst.cacheFirst(
-            type: .ledgerEntry,
-            family: family,
-            cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profile, weekRange] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
-                    .filter { weekRange.contains($0.date) }
-            },
-            map: { [profile] cache in
-                cache.toLedgerEntry(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile, weekRange] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(
-                    format: "profile == %@ AND date >= %@ AND date < %@",
-                    profileRef as CVarArg,
-                    weekRange.lowerBound as CVarArg,
-                    weekRange.upperBound as CVarArg
-                )
-                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            }
-        )
+        let ledgerEntries: [LedgerEntry] = try await resolvedLedgerService.fetchLedgerEntries(profile: profile, in: weekRange)
         let bonusGold = ledgerEntries
             // WHY single-count: goal markers reuse quest/deposit pennies and transfers move between buckets.
             .filter { BucketService.isBonusCounted($0) }
-            .reduce(0.0) { $0 + $1.amount }
+            .reduce(0) { $0 + $1.amount }
         let spent = ledgerEntries
             // WHY counted only: nil-bucket residue would count in spent but not ledgerBalance.
             .filter { $0.amount < 0 && BucketService.isCounted($0) }
-            .reduce(0.0) { $0 + $1.amount }
+            .reduce(0) { $0 + $1.amount }
 
         let totalEarned = goldFromQuests + bonusGold
         return WeeklyBreakdown(
@@ -351,7 +333,7 @@ final class TreasuryService {
     }
 
     func updateAllowance(period: AllowancePeriod,
-                         totalEarned: Double? = nil,
+                         totalEarned: Int64? = nil,
                          questsCompleted: Int? = nil,
                          questsTotal: Int? = nil) async throws -> AllowancePeriod
     {
@@ -430,7 +412,7 @@ final class TreasuryService {
 
         var resolvedProfile: Profile?
         var resolvedFamily: Family?
-        var questGoldToPayout = 0.0
+        var questGoldToPayout: Int64 = 0
         do {
             let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
             let family = try await resolveFamily(recordID: period.family.recordID)
@@ -538,7 +520,7 @@ final class TreasuryService {
                                             weekEnding: weekRange.upperBound)
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
         // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
-        let questGold = GoldCalculation.totalCredit(
+        let questGold = GoldCalculation.totalCreditPennies(
             for: quests,
             logs: logs,
             templatesByID: SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
@@ -557,14 +539,14 @@ final class TreasuryService {
                                               questsCompleted: questsCount)
 
         // WHY future-only: splits credit new money at current percentages, never rebase prior attribution.
-        let totalPennies = Int((questGold * 100).rounded())
-        let priorPennies = Int((priorPaid * 100).rounded())
+        let totalPennies = Int(questGold)
+        let priorPennies = Int(priorPaid)
         let deltaPennies = totalPennies - priorPennies
         guard deltaPennies > 0 else { return saved }
         let rtIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.processRealTimeSettlement")
         await mintRealTimeLedgerEntry(
             periodRecordName: period.id.recordName,
-            amount: Double(deltaPennies) / 100.0,
+            amount: Int64(deltaPennies),
             weekOf: weekOf,
             profile: profile,
             family: CKRecord.Reference(recordID: family.id, action: .none),
@@ -579,7 +561,7 @@ final class TreasuryService {
 
     private func mintRealTimeLedgerEntry(
         periodRecordName: String,
-        amount: Double,
+        amount: Int64,
         weekOf: Date,
         profile: Profile?,
         family: CKRecord.Reference,
@@ -596,9 +578,9 @@ final class TreasuryService {
         let baseRecordName = DeterministicRecordID.realtimePayout(periodRecordName: periodRecordName)
         let payoutRecordName = DeterministicRecordID.payout(periodRecordName: periodRecordName)
 
-        let cachedEntries = cacheService.fetchLedgerEntries(
+        let cachedEntries = resolvedLedgerService.cachedLedgerEntries(
             profileRecordName: profile.id.recordName,
-            family: family.recordID.recordName
+            familyRecordName: family.recordID.recordName
         )
         // WHY batch twin blocks: weekly payout already credited this week, so real-time must not double-count on policy flip.
         if cachedEntries.contains(where: { $0.recordName == payoutRecordName || $0.recordName.hasPrefix("\(payoutRecordName)-") }) {

@@ -61,7 +61,7 @@ struct AchievementServiceTests {
             questCount: 15,
             bestWeeklyCompletion: 1.0,
             longestStreakDays: 8,
-            totalGoldEarned: 120.0,
+            totalGoldEarned: 12000,
             ledgerCount: 12,
             ledgerWeeksCount: 5,
             earlyBirdQualified: true,
@@ -72,7 +72,7 @@ struct AchievementServiceTests {
         #expect(stats.questCount == 15)
         #expect(stats.bestWeeklyCompletion == 1.0)
         #expect(stats.longestStreakDays == 8)
-        #expect(stats.totalGoldEarned == 120.0)
+        #expect(stats.totalGoldEarned == 12000)
         #expect(stats.ledgerCount == 12)
         #expect(stats.ledgerWeeksCount == 5)
         #expect(stats.earlyBirdQualified == true)
@@ -379,7 +379,7 @@ struct AchievementServiceTests {
         let quest1 = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -394,7 +394,7 @@ struct AchievementServiceTests {
         let quest2 = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -446,7 +446,7 @@ struct AchievementServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let hero = makeHero(zoneID)
         let parent = makeParent(zoneID)
-        let family = Family(name: "Test Family", createdBy: parent.id, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Test Family", creatorUserRecordName: parent.id.recordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         let appState = AppState()
         appState.currentProfile = parent
         appState.family = family
@@ -463,7 +463,7 @@ struct AchievementServiceTests {
         let quest1 = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 60,
             scheduleType: .weeklyFlexible,
             targetCount: 3,
@@ -480,7 +480,7 @@ struct AchievementServiceTests {
         let quest2 = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -917,7 +917,7 @@ private extension AchievementServiceTests {
     func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
     }

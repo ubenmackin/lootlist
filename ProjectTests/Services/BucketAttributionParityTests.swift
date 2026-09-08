@@ -14,7 +14,7 @@ struct BucketAttributionParityTests {
     private func makeLedger(
         recordName: String,
         profileRecordName: String = "hero1",
-        amount: Double,
+        amount: Int64,
         source: String,
         bucketKind: String?,
         fromBucket: String? = nil,

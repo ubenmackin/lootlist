@@ -70,7 +70,7 @@ struct SpendingServiceTests {
     private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
     }
@@ -105,12 +105,12 @@ struct SpendingServiceTests {
         let family = makeFamily(zoneID)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
-        let entry = try await service.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Test Buy", amount: 10.0)
-        #expect(entry.amount == -10.0)
+        let entry = try await service.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Test Buy", amount: 1000)
+        #expect(entry.amount == -1000)
 
         let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(!cached.isEmpty, "LedgerEntry must be written to cache immediately")
-        #expect(cached.first?.amount == -10.0)
+        #expect(cached.first?.amount == -1000)
     }
 
     @Test
@@ -128,7 +128,7 @@ struct SpendingServiceTests {
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
-            amount: -15.0,
+            amount: -1500,
             description: "Existing item",
             date: Date(),
             source: "manual",
@@ -188,7 +188,7 @@ struct SpendingServiceTests {
                 family: family,
                 familyRecordName: family.id.recordName,
                 description: "Should not save",
-                amount: 10.0
+                amount: 1000
             )
             #expect(Bool(false), "Expected logManual to throw unauthorized")
         } catch {
@@ -213,7 +213,7 @@ struct SpendingServiceTests {
         let otherHeroID = CKRecord.ID(recordName: "hero2", zoneID: zoneID)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: otherHeroID, action: .none),
-            amount: -10.0,
+            amount: -1000,
             description: "Another hero's entry",
             date: Date(),
             source: "manual",
@@ -232,7 +232,7 @@ struct SpendingServiceTests {
 
         // The entry must remain in cache — the unauthorized delete must not invalidate it.
         let cached = cache.fetchLedgerEntries(profileRecordName: otherHeroID.recordName, family: family.id.recordName)
-        #expect(cached.first?.amount == -10.0, "unauthorized delete must not touch the entry")
+        #expect(cached.first?.amount == -1000, "unauthorized delete must not touch the entry")
     }
 
     @Test
@@ -248,7 +248,7 @@ struct SpendingServiceTests {
         let family = makeFamily(zoneID)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
-            amount: -10.0,
+            amount: -1000,
             description: "Hero's own entry",
             date: Date(),
             source: "manual",
@@ -278,7 +278,7 @@ struct SpendingServiceTests {
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: heroID, action: .none),
-            amount: -10.0,
+            amount: -1000,
             description: "Hero's entry under parent oversight",
             date: Date(),
             source: "manual",
@@ -307,7 +307,7 @@ struct SpendingServiceTests {
         let family = makeFamily(zoneID)
         let questEntry = LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
-            amount: 50.0,
+            amount: 5000,
             description: "Quest earnings",
             date: Date(),
             source: "quest",
@@ -325,7 +325,7 @@ struct SpendingServiceTests {
         }
 
         let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
-        #expect(cached.first?.amount == 50.0, "quest entry must not be deleted")
+        #expect(cached.first?.amount == 5000, "quest entry must not be deleted")
     }
 
     // MARK: - Snapshot fetch family scoping
@@ -340,12 +340,12 @@ struct SpendingServiceTests {
 
         let familyA = Family(
             name: "Family A",
-            createdBy: CKRecord.ID(recordName: "parentA", zoneID: zoneID),
+            creatorUserRecordName: "parentA",
             id: CKRecord.ID(recordName: "famA", zoneID: zoneID)
         )
         let familyB = Family(
             name: "Family B",
-            createdBy: CKRecord.ID(recordName: "parentB", zoneID: zoneID),
+            creatorUserRecordName: "parentB",
             id: CKRecord.ID(recordName: "famB", zoneID: zoneID)
         )
         await cache.upsertFamily(familyA)
@@ -368,7 +368,7 @@ struct SpendingServiceTests {
             recordName: "legacy_famB_entry",
             profileRecordName: hero.id.recordName,
             familyRecordName: familyB.id.recordName,
-            amount: -7.5,
+            amount: -750,
             entryDescription: "Spent in the old family",
             date: Date().addingTimeInterval(-3600),
             source: "manual",
@@ -384,7 +384,7 @@ struct SpendingServiceTests {
             family: familyA,
             familyRecordName: familyA.id.recordName,
             description: "New sword",
-            amount: 12.0
+            amount: 1200
         )
 
         let familyARows = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: familyA.id.recordName)
@@ -415,18 +415,18 @@ struct SpendingServiceTests {
             family: family,
             familyRecordName: family.id.recordName,
             description: "Birthday gift from Grandpa",
-            amount: 25.0
+            amount: 2500
         )
         let entry = try #require(entries.first)
 
         #expect(entries.count == 1)
-        #expect(entry.amount == 25.0)
+        #expect(entry.amount == 2500)
         #expect(entry.source == "deposit")
         #expect(entry.description == "Birthday gift from Grandpa")
 
         let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.count == 1)
-        #expect(cached.first?.amount == 25.0)
+        #expect(cached.first?.amount == 2500)
         #expect(cached.first?.source == "deposit")
     }
 
@@ -449,16 +449,16 @@ struct SpendingServiceTests {
             family: family,
             familyRecordName: family.id.recordName,
             description: "Camp cash",
-            amount: 10.0
+            amount: 1000
         )
 
-        #expect(entry.amount == -10.0)
+        #expect(entry.amount == -1000)
         #expect(entry.source == "withdrawal")
         #expect(entry.description == "Camp cash")
 
         let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.count == 1)
-        #expect(cached.first?.amount == -10.0)
+        #expect(cached.first?.amount == -1000)
         #expect(cached.first?.source == "withdrawal")
     }
 
@@ -480,7 +480,7 @@ struct SpendingServiceTests {
             family: family,
             familyRecordName: family.id.recordName,
             description: "Board game",
-            amount: 15.0,
+            amount: 1500,
             location: "Hobby Lobby"
         )
 
@@ -537,7 +537,7 @@ struct SpendingServiceTests {
     private func seedAttributedEntry(
         _ cache: CacheService,
         recordName: String,
-        amount: Double,
+        amount: Int64,
         source: String,
         bucketKind: String?,
         profileID: CKRecord.ID,
@@ -571,13 +571,13 @@ struct SpendingServiceTests {
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         // Prior week's split payout history: 12.00 / 5.00 / 3.00.
-        seedAttributedEntry(cache, recordName: "seed-spend", amount: 12.00, source: "quest",
+        seedAttributedEntry(cache, recordName: "seed-spend", amount: 1200, source: "quest",
                             bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
                             familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
-        seedAttributedEntry(cache, recordName: "seed-short", amount: 5.00, source: "quest",
+        seedAttributedEntry(cache, recordName: "seed-short", amount: 500, source: "quest",
                             bucketKind: BucketKind.shortTermSave.rawValue, profileID: hero.id,
                             familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
-        seedAttributedEntry(cache, recordName: "seed-long", amount: 3.00, source: "quest",
+        seedAttributedEntry(cache, recordName: "seed-long", amount: 300, source: "quest",
                             bucketKind: BucketKind.longTermSave.rawValue, profileID: hero.id,
                             familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
 
@@ -588,9 +588,9 @@ struct SpendingServiceTests {
             family: family,
             familyRecordName: family.id.recordName,
             description: "Comic book",
-            amount: 6.00
+            amount: 600
         )
-        #expect(entry.amount == -6.00)
+        #expect(entry.amount == -600)
         #expect(entry.source == "manual")
         #expect(entry.bucketKind == BucketKind.spend.rawValue)
 
@@ -600,13 +600,13 @@ struct SpendingServiceTests {
             profileRecordName: hero.id.recordName,
             familyRecordName: family.id.recordName
         )
-        #expect(balances[.spend] == 6.00)
-        #expect(balances[.shortTermSave] == 5.00)
-        #expect(balances[.longTermSave] == 3.00)
+        #expect(balances[.spend] == 600)
+        #expect(balances[.shortTermSave] == 500)
+        #expect(balances[.longTermSave] == 300)
 
         let walletTotal = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
-            .reduce(0.0) { $0 + $1.amount }
-        #expect(walletTotal == 14.00)
+            .reduce(Int64(0)) { $0 + $1.amount }
+        #expect(walletTotal == 1400)
     }
 
     @Test
@@ -620,14 +620,14 @@ struct SpendingServiceTests {
         let hero = makeHero(zoneID)
         let family = makeFamily(zoneID)
 
-        seedAttributedEntry(cache, recordName: "seed-spend", amount: 10.00, source: "quest",
+        seedAttributedEntry(cache, recordName: "seed-spend", amount: 1000, source: "quest",
                             bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
                             familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
-        seedAttributedEntry(cache, recordName: "seed-short", amount: 4.00, source: "quest",
+        seedAttributedEntry(cache, recordName: "seed-short", amount: 400, source: "quest",
                             bucketKind: BucketKind.shortTermSave.rawValue, profileID: hero.id,
                             familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
         // A purchase recorded against the Spend bucket leaves the save buckets intact.
-        seedAttributedEntry(cache, recordName: "purchase-spend", amount: -6.00, source: "manual",
+        seedAttributedEntry(cache, recordName: "purchase-spend", amount: -600, source: "manual",
                             bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
                             familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
 
@@ -635,8 +635,8 @@ struct SpendingServiceTests {
             profileRecordName: hero.id.recordName,
             familyRecordName: family.id.recordName
         )
-        #expect(balances[.spend] == 4.00)
-        #expect(balances[.shortTermSave] == 4.00)
+        #expect(balances[.spend] == 400)
+        #expect(balances[.shortTermSave] == 400)
         #expect(balances[.longTermSave] == nil)
         #expect(balances.count == 2)
     }
@@ -650,7 +650,7 @@ struct SpendingServiceTests {
         let hero = makeHero(zoneID)
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
         let description = "Deterministic Coffee"
-        let amount = 4.50
+        let amount: Int64 = 450
         let location = "Cafe"
 
         // WHY: CloudKit dedupes by recordName — identical payloads must converge
@@ -689,7 +689,7 @@ struct SpendingServiceTests {
         let hero = makeHero(zoneID)
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
         let baseDescription = "Deterministic Lunch"
-        let amount = 9.99
+        let amount: Int64 = 999
 
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
@@ -767,11 +767,11 @@ struct SpendingServiceTests {
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
         let first = try await service.logManual(
             profile: hero, family: family, familyRecordName: family.id.recordName,
-            description: "Idempotent Latte", amount: 5.00, location: "Cafe", date: fixedDate
+            description: "Idempotent Latte", amount: 500, location: "Cafe", date: fixedDate
         )
         let second = try await service.logManual(
             profile: hero, family: family, familyRecordName: family.id.recordName,
-            description: "Idempotent Latte", amount: 5.00, location: "Cafe", date: fixedDate
+            description: "Idempotent Latte", amount: 500, location: "Cafe", date: fixedDate
         )
 
         #expect(first.id.recordName == second.id.recordName, "Idempotent double-run must converge to same recordName")

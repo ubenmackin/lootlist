@@ -55,10 +55,10 @@ struct DailyLoginBannerView: View {
         HStack(spacing: DesignSystemConstants.Padding.small) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
             Text("Daily Reward — claimed")
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, DesignSystemConstants.Padding.small)
@@ -73,7 +73,7 @@ struct DailyLoginBannerView: View {
         VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.medium) {
             Text("🎁 Daily Adventurer Reward")
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundStyle(.primary)
 
             HStack(spacing: DesignSystemConstants.Padding.small) {
                 ForEach(1 ... dailyLoginService.maxCycleDay, id: \.self) { day in
@@ -88,7 +88,7 @@ struct DailyLoginBannerView: View {
             } label: {
                 Text(status == .claimedToday ? "Claimed Today ✓" : "Claim Reward")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, DesignSystemConstants.Padding.medium)
                     .background(status == .claimedToday ? Color.secondary : Color(DesignSystemConstants.Colors.pendingAmber))
@@ -135,11 +135,11 @@ struct DailyLoginBannerView: View {
                 if isClaimed {
                     Image(systemName: "checkmark")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                 } else {
                     Text("\(dailyLoginService.rewards[day] ?? 5)")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(isCurrent ? Color(DesignSystemConstants.Colors.pendingAmber) : .secondary)
+                        .foregroundStyle(isCurrent ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
                 }
             }
             .overlay(
@@ -150,7 +150,7 @@ struct DailyLoginBannerView: View {
 
             Text("Day \(day)")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)

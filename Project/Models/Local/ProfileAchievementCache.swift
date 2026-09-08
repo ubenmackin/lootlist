@@ -55,13 +55,9 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
             achievementRecordName: pa.achievement.recordID.recordName,
             profileRecordName: pa.profile.recordID.recordName,
             familyRecordName: pa.family.recordID.recordName,
-            earnedDate: pa.earnedDate,
-            changeTag: pa.changeTag,
-            encodedSystemFields: pa.encodedSystemFields,
-            sourceZoneName: pa.id.zoneID.zoneName,
-            sourceZoneOwnerName: pa.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: pa.id.zoneID)
+            earnedDate: pa.earnedDate
         )
+        applySystemFields(from: pa)
     }
 
     // MARK: - CacheMergeable
@@ -71,13 +67,7 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
         profileRecordName = pa.profile.recordID.recordName
         familyRecordName = pa.family.recordID.recordName
         earnedDate = pa.earnedDate
-        changeTag = pa.changeTag
-        sourceZoneName = pa.id.zoneID.zoneName
-        sourceZoneOwnerName = pa.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: pa.id.zoneID)
-        if isServerSync, pa.encodedSystemFields != nil {
-            encodedSystemFields = pa.encodedSystemFields
-        }
+        applySystemFields(from: pa, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<ProfileAchievementCache> {
@@ -93,5 +83,13 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<ProfileAchievementCache> {
         FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<ProfileAchievementCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
     }
 }

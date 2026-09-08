@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImageIO
 import UIKit
 
 enum AvatarPreset: String, CaseIterable, Sendable {
@@ -211,18 +212,32 @@ final class AvatarService {
         )
     }
 
-    static func resizeImageData(_ data: Data, maxDimension: CGFloat) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        let ratio = min(maxDimension / image.size.width, maxDimension / image.size.height)
-        let newSize = CGSize(
-            width: image.size.width * ratio,
-            height: image.size.height * ratio
-        )
-        let renderer = UIGraphicsImageRenderer(size: newSize)
-        let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
-        }
-        return resized.jpegData(compressionQuality: AppConstants.UserInterface.avatarJpegCompression)
+    nonisolated static func resizeImageData(_ data: Data, maxDimension: CGFloat) async -> Data? {
+        await Task.detached(priority: .utility) {
+            let maxPixels = Int(maxDimension)
+            guard maxPixels > 0, !data.isEmpty else { return nil }
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            let decodeOptions: CFDictionary = [
+                kCGImageSourceShouldAllowFloat as String: true,
+                kCGImageSourceCreateThumbnailFromImageAlways as String: true,
+                kCGImageSourceCreateThumbnailWithTransform as String: true,
+                kCGImageSourceShouldCache as String: false,
+                kCGImageSourceThumbnailMaxPixelSize as String: maxPixels
+            ] as CFDictionary
+            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions) else {
+                return nil
+            }
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(output, "public.jpeg" as CFString, 1, nil) else {
+                return nil
+            }
+            let encodeOptions: CFDictionary = [
+                kCGImageDestinationLossyCompressionQuality as String: 0.85
+            ] as CFDictionary
+            CGImageDestinationAddImage(destination, thumbnail, encodeOptions)
+            guard CGImageDestinationFinalize(destination) else { return nil }
+            return output as Data
+        }.value
     }
 }
 

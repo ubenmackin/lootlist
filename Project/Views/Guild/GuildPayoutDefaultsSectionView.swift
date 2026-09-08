@@ -9,7 +9,7 @@ import os
 import SwiftUI
 
 struct GuildPayoutDefaultsSectionView: View {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GuildPayoutDefaults")
+    private let logger = Logger(category: "GuildPayoutDefaults")
 
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService

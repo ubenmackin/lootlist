@@ -13,7 +13,7 @@ import os
 
 /// Transfer-specific errors surfaced to the UI with human-readable descriptions.
 enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
-    case insufficientFunds(available: Double, requested: Double)
+    case insufficientFunds(available: Int64, requested: Int64)
     case sameBucket
     case invalidAmount
     case unauthorized
@@ -23,7 +23,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case let .insufficientFunds(available, requested):
-            "You only have \(CurrencyFormatter.string(available)) in this bucket — can't transfer \(CurrencyFormatter.string(requested))."
+            "You only have \(CurrencyFormatter.string(pennies: available)) in this bucket — can't transfer \(CurrencyFormatter.string(pennies: requested))."
         case .sameBucket:
             "Pick two different buckets to move money between."
         case .invalidAmount:
@@ -45,8 +45,8 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
 @MainActor
 @Observable
 final class BucketService {
-    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BucketService")
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BucketService")
+    private static let staticLogger = Logger(category: "BucketService")
+    private let logger = Logger(category: "BucketService")
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
     let appState: AppState
@@ -156,7 +156,7 @@ final class BucketService {
     }
 
     /// Single-source attribution: credits bucketKind; transfers also debit fromBucket so one row moves both sides.
-    nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
+    nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Int64]) {
         // WHY bucket-only: nil-bucket rows are wiped residue, never live money.
         guard let kind = entry.bucketKindEnum else { return }
         // WHY single-count: goal entries reuse counted funds, not new money.
@@ -173,12 +173,12 @@ final class BucketService {
     }
 
     /// WHY parity: counted excludes goal/transfer/nil-bucket so ledger total matches bucket total; transfers net zero via debit+credit.
-    nonisolated static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+    nonisolated static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Int64 {
         ledgers.filter { $0.profileRecordName == profileRecordName && Self.isCounted($0) }.reduce(0) { $0 + $1.amount }
     }
 
-    nonisolated static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
-        var balances: [BucketKind: Double] = [:]
+    nonisolated static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Int64] {
+        var balances: [BucketKind: Int64] = [:]
         for entry in ledgers where entry.profileRecordName == profileRecordName {
             applyBucketAttribution(entry, to: &balances)
         }
@@ -187,23 +187,23 @@ final class BucketService {
 
     /// WHY cache-first: Spend warnings read already-fetched @Query rows via
     /// attribution so sheets never wait on CloudKit.
-    nonisolated static func resolvedSpendBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+    nonisolated static func resolvedSpendBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Int64 {
         bucketBalances(for: ledgers, profileRecordName: profileRecordName)[.spend] ?? 0
     }
 
     /// WHY one helper: bucket sum is the total on every surface; matches ledgerBalance (transfers net zero).
-    nonisolated static func totalBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+    nonisolated static func totalBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Int64 {
         bucketBalances(for: ledgers, profileRecordName: profileRecordName).values.reduce(0, +)
     }
 
     /// WHY one sum: precomputed bucket parts combine identically on every surface.
-    nonisolated static func totalBalance(bucketBalances: [BucketKind: Double]) -> Double {
+    nonisolated static func totalBalance(bucketBalances: [BucketKind: Int64]) -> Int64 {
         bucketBalances.values.reduce(0, +)
     }
 
     // Balance per bucket via `applyBucketAttribution` over ledger entries with `bucketKind`.
     // WHY: profile pushdown — store predicate scopes by profile so 1500 ledgers fetch ~500 per child, not all rows.
-    func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Double] {
+    func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Int64] {
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: familyRecordName
@@ -221,13 +221,13 @@ final class BucketService {
     /// allowing unlimited transfers per day without record name collisions.
     func transfer(from: BucketKind,
                   to: BucketKind,
-                  amount: Double,
+                  amount: Int64,
                   profile: Profile,
                   family: Family,
                   at date: Date) async throws -> LedgerEntry
     {
         let ms = Int(date.timeIntervalSince1970 * 1000)
-        let cents = Int((abs(amount) * 100).rounded())
+        let cents = Int(abs(amount))
         let transferID = "\(ms)-\(cents)-\(from.rawValue)-\(to.rawValue)"
         return try await transferInternal(
             from: from,
@@ -243,7 +243,7 @@ final class BucketService {
     /// Legacy deterministic-ID entry point — retained for existing callers and tests.
     func transfer(from: BucketKind,
                   to: BucketKind,
-                  amount: Double,
+                  amount: Int64,
                   profile: Profile,
                   family: Family,
                   transferID: String) async throws -> LedgerEntry
@@ -276,7 +276,7 @@ final class BucketService {
 
     private func transferInternal(from: BucketKind,
                                   to: BucketKind,
-                                  amount: Double,
+                                  amount: Int64,
                                   profile: Profile,
                                   family: Family,
                                   transferID: String,
@@ -285,7 +285,7 @@ final class BucketService {
         guard from != to else {
             throw BucketServiceError.sameBucket
         }
-        guard amount.isFinite, amount > 0 else {
+        guard amount > 0 else {
             throw BucketServiceError.invalidAmount
         }
 
@@ -364,13 +364,13 @@ final class BucketService {
 
     /// WHY deterministic extension: hash all discriminating fields including the date key mirrored from
     /// identity matching so divergent dates fork on the first attempt on every device, never a random fork.
-    private func extendedTransferID(base: String, amount: Double, from: BucketKind, to: BucketKind, date: Date, attempt: Int) -> String {
-        let cents = Int((abs(amount) * 100).rounded())
+    private func extendedTransferID(base: String, amount: Int64, from: BucketKind, to: BucketKind, date: Date, attempt: Int) -> String {
+        let cents = Int(abs(amount))
         // WHY mirror identity: legacy IDs discriminate by UTC day while ms IDs discriminate by millisecond.
         let dateKey = isLegacyTransferID(base) ? String(WeekMath.dayBucket(for: date)) : String(Int(date.timeIntervalSince1970 * 1000))
         let payload = "\(base)|\(cents)|\(from.rawValue)|\(to.rawValue)|\(dateKey)|\(attempt)"
         let hash = SHA256.hash(data: Data(payload.utf8))
-        let hex = hash.prefix(4).map { String(format: "%02x", $0) }.joined()
+        let hex = hash.hexPrefix(4)
         return "\(base)-\(hex)"
     }
 
@@ -378,23 +378,19 @@ final class BucketService {
         transferID.split(separator: "-").count == 3
     }
 
-    private func isSameMillisecond(_ lhs: Date, _ rhs: Date) -> Bool {
-        abs(lhs.timeIntervalSince1970 - rhs.timeIntervalSince1970) < 0.001
-    }
-
-    private func isIdenticalTransfer(_ existing: LedgerEntryCache, amount: Double, from: BucketKind, to: BucketKind, date: Date, transferID: String) -> Bool {
+    private func isIdenticalTransfer(_ existing: LedgerEntryCache, amount: Int64, from: BucketKind, to: BucketKind, date: Date, transferID: String) -> Bool {
         guard existing.source == LedgerSource.transfer.rawValue else { return false }
         guard existing.fromBucket == from.rawValue, existing.toBucket == to.rawValue else { return false }
         guard existing.bucketKind == to.rawValue else { return false }
-        let existingCents = Int((abs(existing.amount) * 100).rounded())
-        let requestCents = Int((abs(amount) * 100).rounded())
+        let existingCents = Int(abs(existing.amount))
+        let requestCents = Int(abs(amount))
         guard existingCents == requestCents else { return false }
         // WHY day discrimination: legacy IDs carry only day+pair so same-day retries dedupe while cross-day reuse extends.
         if isLegacyTransferID(transferID) {
             guard WeekMath.dayBucket(for: existing.date) == WeekMath.dayBucket(for: date) else { return false }
         } else {
             // WHY ms discrimination: ms-cents IDs already encode the instant so only the same millisecond replays idempotently.
-            guard isSameMillisecond(existing.date, date) else { return false }
+            guard DeterministicRecordID.isSameMillisecond(existing.date, date) else { return false }
         }
         return true
     }
@@ -404,17 +400,5 @@ final class BucketService {
     /// Primitive overload for off-MainActor callers — pass split triple directly to avoid MainActor hop.
     nonisolated static func isDefaultSplit(spend: Int, short: Int, long: Int) -> Bool {
         spend == 100 && short == 0 && long == 0
-    }
-
-    /// Transfers are no longer restricted to once per day. Retained for backwards compatibility.
-    @available(*, deprecated, message: "Transfers are no longer restricted to once per day.")
-    func hasTransferredToday(
-        profileRecordName _: String,
-        familyRecordName _: String,
-        dayBucket _: Int,
-        from _: BucketKind,
-        to _: BucketKind
-    ) -> Bool {
-        false
     }
 }

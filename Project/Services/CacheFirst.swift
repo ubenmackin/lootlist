@@ -9,10 +9,7 @@ import CloudKit
 import Foundation
 import os
 
-private let cacheFirstLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-    category: "CacheFirst"
-)
+private let cacheFirstLogger = Logger(category: "CacheFirst")
 
 /// Generic cache-first scaffold that consolidates six duplicated read paths.
 ///
@@ -107,5 +104,42 @@ enum CacheFirst {
             }
         }
         return false
+    }
+
+    /// WHY single source: quest-log and payout paths patch CloudKit-missing
+    /// keys over the cached snapshot identically; drift under-counts rewards.
+    @MainActor
+    static func stitch<T: CloudKitRecord>(
+        needed: Set<String>,
+        cached: [T],
+        fetchMissing: ([String]) async throws -> [T]
+    ) async throws -> [T] where T.ID == CKRecord.ID {
+        guard !needed.isEmpty else { return [] }
+        var map = Dictionary(uniqueKeysWithValues: cached.map { ($0.id.recordName, $0) })
+        let missing = needed.filter { map[$0] == nil }
+        if missing.isEmpty {
+            return cached.filter { needed.contains($0.id.recordName) }
+        }
+        let fetched = try await fetchMissing(Array(missing))
+        for item in fetched {
+            map[item.id.recordName] = item
+        }
+        return Array(map.values).filter { needed.contains($0.id.recordName) }
+    }
+
+    /// WHY single gate: stitched merge when fresh, direct missing fetch
+    /// otherwise so brand-new-hero reads still resolve without cache writes.
+    @MainActor
+    static func resolveWithCache<T: CloudKitRecord>(
+        needed: Set<String>,
+        isAuthoritative: Bool,
+        fetchCached: () -> [T],
+        fetchMissing: ([String]) async throws -> [T]
+    ) async throws -> [T] where T.ID == CKRecord.ID {
+        if isAuthoritative {
+            return try await stitch(needed: needed, cached: fetchCached(), fetchMissing: fetchMissing)
+        }
+        guard !needed.isEmpty else { return [] }
+        return try await fetchMissing(Array(needed))
     }
 }

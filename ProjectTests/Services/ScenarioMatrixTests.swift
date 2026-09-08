@@ -82,7 +82,6 @@ struct ScenarioMatrixTests {
     private func makeFamily(zoneID: CKRecordZone.ID, payoutPolicy: PayoutPolicy = .perQuest) -> Family {
         Family(
             name: "Guild Matrix Family",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
             payoutPolicy: payoutPolicy,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -94,29 +93,27 @@ struct ScenarioMatrixTests {
     private func makeHeroCache(
         recordName: String,
         displayName: String,
-        xpTotal: Int = 0,
-        level: Int = 1,
-        iCloudUserRecordName: String = "u1",
-        avatarClass: String = "warrior",
-        payoutPolicy: String = "perQuest"
+        payoutPolicy: String = "perQuest",
+        familyRecordName: String = "fam1",
+        iCloudUserRecordName: String? = nil
     ) -> ProfileCache {
         ProfileCache(
             recordName: recordName,
-            familyRecordName: "fam1",
+            familyRecordName: familyRecordName,
             displayName: displayName,
             role: "hero",
-            xpTotal: xpTotal,
+            xpTotal: 0,
             avatarName: nil,
             customAvatarImageData: nil,
             isActive: true,
-            level: level,
-            iCloudUserRecordName: iCloudUserRecordName,
-            avatarClass: avatarClass,
+            level: 1,
+            iCloudUserRecordName: iCloudUserRecordName ?? "u_\(recordName)",
+            avatarClass: nil,
             payoutPolicy: payoutPolicy
         )
     }
 
-    /// Builds a `QuestCache` row for the shared "fam1" guild with the boilerplate
+    /// Builds a `QuestCache` row for the shared "fam1" guild with boilerplate
     /// fields every scenario shares (active, no description, autoApprove, gm1
     /// creator) filled in.
     private func makeQuestCache(
@@ -124,7 +121,7 @@ struct ScenarioMatrixTests {
         templateRecordName: String,
         weekOf: Date,
         questName: String,
-        goldReward: Double,
+        goldReward: Int64,
         xpReward: Int,
         assigneeRecordName: String = "hero1",
         rarity: String = "common",
@@ -211,7 +208,7 @@ struct ScenarioMatrixTests {
 
         #expect(vm.heroes.isEmpty)
         #expect(vm.weekSummary?.heroSummaries.isEmpty == true)
-        #expect(vm.weekSummary?.totalEarned == 0.0)
+        #expect(vm.weekSummary?.totalEarned == 0)
         #expect(vm.weekSummary?.totalQuestsCompleted == 0)
     }
 
@@ -225,24 +222,17 @@ struct ScenarioMatrixTests {
         let hero1 = makeHeroCache(
             recordName: "hero1",
             displayName: "Hero Alpha",
-            xpTotal: 150,
-            level: 3,
-            iCloudUserRecordName: "u1",
-            avatarClass: "warrior"
+            payoutPolicy: "perQuest"
         )
         let hero2 = makeHeroCache(
             recordName: "hero2",
             displayName: "Hero Beta",
-            xpTotal: 300,
-            level: 5,
-            iCloudUserRecordName: "u2",
-            avatarClass: "mage"
+            payoutPolicy: "perQuest"
         )
         let hero3 = makeHeroCache(
             recordName: "hero3",
             displayName: "Hero Gamma",
-            iCloudUserRecordName: "u3",
-            avatarClass: "rogue"
+            payoutPolicy: "perQuest"
         )
 
         let quest1 = makeQuestCache(
@@ -250,7 +240,7 @@ struct ScenarioMatrixTests {
             templateRecordName: "tmpl1",
             weekOf: currentWeek,
             questName: "Clean Room",
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 30
         )
         let quest2 = makeQuestCache(
@@ -258,7 +248,7 @@ struct ScenarioMatrixTests {
             templateRecordName: "tmpl2",
             weekOf: currentWeek,
             questName: "Slay Dragon",
-            goldReward: 50.0,
+            goldReward: 5000,
             xpReward: 100,
             assigneeRecordName: "hero2",
             rarity: "rare"
@@ -295,13 +285,13 @@ struct ScenarioMatrixTests {
         let summary2 = try #require(vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero2" }))
         let summary3 = try #require(vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero3" }))
 
-        #expect(summary1.weeklyGoldEarned == 15.0)
+        #expect(summary1.weeklyGoldEarned == 1500)
         #expect(summary1.weeklyQuestsCompleted == 1)
 
-        #expect(summary2.weeklyGoldEarned == 0.0)
+        #expect(summary2.weeklyGoldEarned == 0)
         #expect(summary2.weeklyQuestsCompleted == 0)
 
-        #expect(summary3.weeklyGoldEarned == 0.0)
+        #expect(summary3.weeklyGoldEarned == 0)
         #expect(summary3.weeklyQuestsCompleted == 0)
     }
 
@@ -319,7 +309,7 @@ struct ScenarioMatrixTests {
                 templateRecordName: "t1",
                 weekOf: today,
                 questName: "Task 1",
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 20
             )
         ]
@@ -330,7 +320,7 @@ struct ScenarioMatrixTests {
                 templateRecordName: "t2",
                 weekOf: today,
                 questName: "Task A",
-                goldReward: 20.0,
+                goldReward: 2000,
                 xpReward: 40,
                 assigneeRecordName: "hero2",
                 isAllOrNothing: true
@@ -340,7 +330,7 @@ struct ScenarioMatrixTests {
                 templateRecordName: "t3",
                 weekOf: today,
                 questName: "Task B",
-                goldReward: 30.0,
+                goldReward: 3000,
                 xpReward: 60,
                 assigneeRecordName: "hero2",
                 rarity: "rare",
@@ -382,7 +372,7 @@ struct ScenarioMatrixTests {
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldHero2 == 0.0)
+        #expect(goldHero2 == 0)
     }
 
     @Test
@@ -407,7 +397,7 @@ struct ScenarioMatrixTests {
                 templateRecordName: "tmpl1",
                 weekOf: today,
                 questName: "Override Task 1",
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 20
             ),
             makeQuestCache(
@@ -415,7 +405,7 @@ struct ScenarioMatrixTests {
                 templateRecordName: "tmpl2",
                 weekOf: today,
                 questName: "Override Task 2",
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 20
             )
         ]
@@ -437,7 +427,7 @@ struct ScenarioMatrixTests {
             payoutPolicy: heroProfile.payoutPolicy,
             weekRange: weekRange
         )
-        #expect(overrideGold == 0.0)
+        #expect(overrideGold == 0)
 
         // ...where the family's perQuest policy would have paid the completed quest.
         let familyPolicyGold = GoldCalculation.netWeeklyGold(
@@ -471,7 +461,7 @@ struct ScenarioMatrixTests {
         let quest = Quest(
             template: tmplRef,
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .parentVerify,
@@ -520,7 +510,7 @@ struct ScenarioMatrixTests {
             templateRecordName: "tmpl1",
             weekOf: today,
             questName: "Read 3 Books",
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 60,
             scheduleType: "weekly",
             targetCount: 3,
@@ -550,7 +540,7 @@ struct ScenarioMatrixTests {
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldPartial == 0.0)
+        #expect(goldPartial == 0)
 
         let threeLogs = twoLogs + [
             makeLog(
@@ -594,12 +584,12 @@ struct ScenarioMatrixTests {
         sut.cloudKit.activeIsOwner = true
         sut.appState.currentProfile = hero
 
-        _ = try await spendingService.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Bought Sword", amount: 50.0)
+        _ = try await spendingService.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Bought Sword", amount: 5000)
 
         let entries = sut.cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
-        let balance = entries.reduce(0.0) { $0 + $1.amount }
+        let balance = entries.reduce(Int64(0)) { $0 + $1.amount }
 
-        #expect(balance == -50.0)
+        #expect(balance == -5000)
     }
 
     @Test
@@ -607,7 +597,7 @@ struct ScenarioMatrixTests {
         let sut = try makeSUT()
         let zoneID = makeZoneID()
         let weekOf = WeekMath.mondayOfWeek(for: Date())
-        let goldReward = 25.0
+        let goldReward: Int64 = 2500
 
         let family = makeFamily(zoneID: zoneID, payoutPolicy: .realTime)
         let hero = makeHero(idName: "hero1", displayName: "RealTime Hero", zoneID: zoneID, payoutPolicy: .realTime)
@@ -690,7 +680,7 @@ struct ScenarioMatrixTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -750,7 +740,7 @@ struct ScenarioMatrixTests {
                 templateRecordName: "tmpl\(index)",
                 weekOf: today,
                 questName: "All-or-Nothing Quest \(index)",
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 20,
                 isAllOrNothing: true
             )
@@ -769,7 +759,7 @@ struct ScenarioMatrixTests {
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldPartial == 0.0)
+        #expect(goldPartial == 0)
 
         // 4 of 4 completed quests -> full 40.0 payout.
         let fourLogs = threeLogs + [makeLog(recordName: "aon_log_4", questRecordName: "aon_q4", completedDate: today, weekOf: today)]

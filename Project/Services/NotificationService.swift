@@ -37,7 +37,7 @@ struct ProductionWeeklySummaryProvider: WeeklySummaryProviding, Sendable {
 @MainActor
 @Observable
 final class NotificationService {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NotificationService")
+    private let logger = Logger(category: "NotificationService")
 
     static let verificationCategoryID = "questLog.verification"
     static let verificationApproveActionID = "questLog.verification.approve"

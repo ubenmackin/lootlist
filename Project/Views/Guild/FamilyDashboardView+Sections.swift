@@ -14,14 +14,16 @@ import SwiftUI
 // hosts an extension that reaches into FamilyDashboardView's @State/@Environment.
 // WHY: single shared weekly-amount point for dashboard/hub sparklines and payout charts;
 // String id is the UTC dayKey for bucketed points, recordName for per-period points.
+// WHY Int64 pennies: allowance periods and ledger entries carry whole pennies,
+// so the point keeps integer math and renders via CurrencyFormatter.
 struct WeeklyEarningPoint: Identifiable {
     let id: String
     let weekStart: Date
     let label: String
-    let amount: Double
+    let amount: Int64
     let isPaid: Bool
 
-    init(id: String, weekStart: Date, label: String, amount: Double, isPaid: Bool = false) {
+    init(id: String, weekStart: Date, label: String, amount: Int64, isPaid: Bool = false) {
         self.id = id
         self.weekStart = weekStart
         self.label = label

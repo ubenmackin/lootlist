@@ -78,9 +78,9 @@ struct QuestManagerView: View {
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let assignmentFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = QuestTemplateCache.activeFamilyPredicate(familyRecordName: targetFamily)
+        let assignmentFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
 
         _cachedTemplates = Query(
             filter: templateFilter,
@@ -184,256 +184,68 @@ struct QuestManagerView: View {
 
     @ViewBuilder
     private var sidebar: some View {
-        if viewModel == nil {
+        if let vm = viewModel {
+            QuestManagerSidebarView(
+                viewModel: vm,
+                selection: $sidebarSelection,
+                searchText: searchText,
+                onAssign: { template, hero in
+                    Task { @MainActor @Sendable [template, hero] in
+                        await assignTemplate(template, to: hero)
+                    }
+                }
+            )
+        } else {
             ProgressView()
-        } else if let vm = viewModel {
-            List {
-                Section("Heroes") {
-                    let allCount = filteredAssignmentsForCounts(vm: vm, heroRecordName: nil).count
-                    Button {
-                        sidebarSelection = .allHeroes
-                    } label: {
-                        Label {
-                            HStack {
-                                Text("All Heroes")
-                                Spacer()
-                                Text("\(allCount)")
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "person.3.fill")
-                        }
-                    }
-                    .tag(SidebarSelection.allHeroes)
-                    .dropDestination(for: String.self) { (_: [String], _: CGPoint) -> Bool in
-                        // Drop on All Heroes is ignored — need a specific hero target.
-                        false
-                    }
-
-                    ForEach(vm.heroes) { hero in
-                        let count = filteredAssignmentsForCounts(vm: vm, heroRecordName: hero.recordName).count
-                        Button {
-                            sidebarSelection = .hero(hero.recordName)
-                        } label: {
-                            HStack {
-                                Text(hero.displayName)
-                                Spacer()
-                                Text("\(count)")
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .tag(SidebarSelection.hero(hero.recordName))
-                        .dropDestination(for: String.self) { items, _ in
-                            guard let templateRecordName = items.first,
-                                  let templateCache = vm.templates.first(where: { $0.recordName == templateRecordName })
-                            else { return false }
-                            // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
-                            let templateZoneID = appState.resolvedFamilyZoneID(fallbackRecord: templateCache)
-                            let heroZoneID = appState.resolvedFamilyZoneID(fallbackRecord: hero)
-                            let templateSnapshot = templateCache.toQuestTemplate(zoneID: templateZoneID)
-                            let heroSnapshot = hero.toProfile(zoneID: heroZoneID)
-                            Task { @MainActor @Sendable [templateSnapshot, heroSnapshot] in
-                                await assignTemplate(templateSnapshot, to: heroSnapshot)
-                            }
-                            return true
-                        }
-                    }
-                }
-
-                Section("Templates") {
-                    let activeCount = filteredTemplatesForCounts(vm: vm, isActive: true).count
-                    Button {
-                        sidebarSelection = .templatesActive
-                    } label: {
-                        HStack {
-                            Label("Active", systemImage: "doc.fill")
-                            Spacer()
-                            Text("\(activeCount)")
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(SidebarSelection.templatesActive)
-                    let archivedCount = filteredTemplatesForCounts(vm: vm, isActive: false).count
-                    Button {
-                        sidebarSelection = .templatesArchived
-                    } label: {
-                        HStack {
-                            Label("Archived", systemImage: "archivebox")
-                            Spacer()
-                            Text("\(archivedCount)")
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(SidebarSelection.templatesArchived)
-                }
-            }
-            .listStyle(.sidebar)
         }
     }
 
     private var contentColumn: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            Group {
-                if let vm = viewModel {
-                    switch sidebarSelection {
-                    case .templatesActive, .templatesArchived:
-                        if width > DesignSystemConstants.Layout.iPadTableThreshold {
-                            templateTable(vm: vm)
-                        } else {
-                            templatesTab(vm: vm)
-                        }
-                    case .allHeroes, .hero:
-                        if width > DesignSystemConstants.Layout.iPadTableThreshold {
-                            assignmentTable(vm: vm)
-                        } else {
-                            assignmentsTab(vm: vm)
-                        }
-                    }
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+        Group {
+            if let vm = viewModel {
+                QuestManagerListSectionView(
+                    viewModel: vm,
+                    sidebarSelection: sidebarSelection,
+                    searchText: searchText,
+                    selectedTemplateID: $selectedTemplateID,
+                    selectedAssignmentID: $selectedAssignmentID,
+                    inspectorNewKind: $inspectorNewKind,
+                    templateSortOrder: $templateSortOrder,
+                    assignmentSortOrder: $assignmentSortOrder,
+                    isSubmitting: isSubmitting,
+                    familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+                    sweepDeferred: vm.sweepDeferred,
+                    isAssignmentsEmpty: cachedAssignments.isEmpty,
+                    isSyncing: lifecycleCoordinator?.isSyncing == true,
+                    onEditTemplate: { editingTemplateCache = $0 },
+                    onEditQuest: { editingQuestID = SheetRecordID(id: $0) },
+                    onDeactivateTemplate: { handleDeactivateTemplate($0) },
+                    onReactivateTemplate: { handleReactivateTemplate($0) },
+                    onUnassignQuest: { handleUnassignQuest($0) }
+                )
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 extension QuestManagerView {
-    private func templateTable(vm: QuestManagerViewModel) -> some View {
-        let filtered: [QuestTemplateCache] = filteredTemplates(vm: vm)
-        let sorted: [QuestTemplateCache] = sortedTemplates(filtered)
-        return templateTableContent(sorted: sorted, filteredIsEmpty: filtered.isEmpty)
-    }
-
-    private func templateTableContent(sorted: [QuestTemplateCache], filteredIsEmpty: Bool) -> some View {
-        let nameColumn = TableColumn("Name", value: \QuestTemplateCache.name) { template in
-            Text(template.name)
-                .onDrag { NSItemProvider(object: template.recordName as NSString) }
-        }
-        let rewardColumn = TableColumn("Reward", value: \QuestTemplateCache.goldReward) { template in
-            Text(CurrencyFormatter.string(template.goldReward))
-        }
-        let scheduleColumn = TableColumn("Schedule", value: \QuestTemplateCache.scheduleType) { template in
-            Text(template.scheduleTypeEnum?.displayName ?? template.scheduleType)
-        }
-        let statusColumn = TableColumn("Status") { (template: QuestTemplateCache) in
-            Text(template.isActive ? "Active" : "Archived")
-                .foregroundStyle(template.isActive ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
-        }
-        return Table(sorted, selection: $selectedTemplateID, sortOrder: $templateSortOrder) {
-            nameColumn
-            rewardColumn
-            scheduleColumn
-            statusColumn
-        }
-        .onChange(of: selectedTemplateID) { _, newValue in
-            if !newValue.isEmpty {
-                selectedAssignmentID = []
-                inspectorNewKind = nil
-            }
-        }
-        .overlay {
-            if filteredIsEmpty {
-                ContentUnavailableView("No templates", systemImage: "doc.text.magnifyingglass", description: Text("Create reusable quest blueprints to assign to your heroes."))
-            }
-        }
-    }
-
-    private func assignmentTable(vm: QuestManagerViewModel) -> some View {
-        let filtered: [QuestCache] = filteredAssignments(vm: vm)
-        let sorted: [QuestCache] = sortedAssignments(filtered, vm: vm)
-        return assignmentTableContent(sorted: sorted, filteredIsEmpty: filtered.isEmpty, vm: vm)
-    }
-
-    private func assignmentTableContent(sorted: [QuestCache], filteredIsEmpty: Bool, vm: QuestManagerViewModel) -> some View {
-        let heroColumn = TableColumn("Hero", value: \QuestCache.assigneeRecordName) { quest in
-            Text(heroName(for: quest.assigneeRecordName, vm: vm))
-        }
-        let questColumn = TableColumn("Quest", value: \QuestCache.questName) { quest in
-            Text(quest.questName)
-        }
-        let rewardColumn = TableColumn("Reward", value: \QuestCache.goldReward) { quest in
-            Text(CurrencyFormatter.string(quest.goldReward))
-        }
-        let approvalColumn = TableColumn("Approval", value: \QuestCache.approvalMode) { quest in
-            Text(quest.approvalModeEnum?.displayName ?? quest.approvalMode)
-        }
-        return Table(sorted, selection: $selectedAssignmentID, sortOrder: $assignmentSortOrder) {
-            heroColumn
-            questColumn
-            rewardColumn
-            approvalColumn
-        }
-        .onChange(of: selectedAssignmentID) { _, newValue in
-            if !newValue.isEmpty {
-                selectedTemplateID = []
-                inspectorNewKind = nil
-            }
-        }
-        .overlay {
-            if filteredIsEmpty {
-                ContentUnavailableView("No assignments", systemImage: "calendar.badge.exclamationmark", description: Text("Tap + to assign a quest to a hero."))
-            }
-        }
-    }
-
     private var inspectorColumn: some View {
         Group {
             if let vm = viewModel {
-                if let kind = inspectorNewKind {
-                    switch kind {
-                    case .template:
-                        TemplateManagerView(viewModel: vm, editing: nil, onCancel: {
-                            clearInspectorSelection()
-                        })
-                    case .assignment:
-                        QuestAssignmentView(viewModel: vm, familyRecordName: appState.family?.id.recordName, onCancel: {
-                            clearInspectorSelection()
-                        })
-                    }
-                } else if let tid = selectedTemplateID.first,
-                          let cache = vm.templates.first(where: { $0.persistentModelID == tid })
-                {
-                    TemplateManagerView(viewModel: vm, editing: cache, onCancel: {
-                        clearInspectorSelection()
-                    })
-                } else if let aid = selectedAssignmentID.first,
-                          let cache = vm.activeAssignments.first(where: { $0.persistentModelID == aid })
-                {
-                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: cache)
-                    let quest = cache.toQuest(zoneID: zoneID)
-                    QuestAssignmentView(mode: .edit(questRecordName: quest.id.recordName), viewModel: vm, familyRecordName: appState.family?.id.recordName, onCancel: {
-                        clearInspectorSelection()
-                    })
-                } else {
-                    ContentUnavailableView(
-                        "Select a row",
-                        systemImage: "sidebar.right",
-                        description: Text("Choose a template or assignment to inspect. Drag a template onto a hero to assign it.")
-                    )
-                }
+                QuestManagerInspectorView(
+                    viewModel: vm,
+                    selectedTemplateID: selectedTemplateID,
+                    selectedAssignmentID: selectedAssignmentID,
+                    inspectorNewKind: inspectorNewKind,
+                    familyRecordName: familyRecordName,
+                    onClear: { clearInspectorSelection() }
+                )
             } else {
                 ProgressView()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(DesignSystemConstants.Colors.background))
-        .toolbar {
-            if inspectorNewKind != nil || !selectedTemplateID.isEmpty || !selectedAssignmentID.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        clearInspectorSelection()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close inspector")
-                }
             }
         }
     }
@@ -943,7 +755,58 @@ extension QuestManagerView {
     }
 
     private func heroName(for recordName: String, vm: QuestManagerViewModel) -> String {
-        vm.heroes.first { $0.recordName == recordName }?.displayName ?? "Unknown Hero"
+        vm.heroName(for: recordName)
+    }
+
+    @MainActor
+    private func handleDeactivateTemplate(_ template: QuestTemplateCache) {
+        guard !isSubmitting, let vm = viewModel else { return }
+        isSubmitting = true
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+        let snapshot = template.toQuestTemplate(zoneID: zoneID)
+        Task { @MainActor @Sendable [snapshot] in
+            defer { isSubmitting = false }
+            do {
+                try await vm.deactivateTemplate(snapshot)
+            } catch {
+                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+            }
+        }
+    }
+
+    @MainActor
+    private func handleReactivateTemplate(_ template: QuestTemplateCache) {
+        guard !isSubmitting, let vm = viewModel else { return }
+        isSubmitting = true
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+        let snapshot = template.toQuestTemplate(zoneID: zoneID)
+        Task { @MainActor @Sendable [snapshot] in
+            defer { isSubmitting = false }
+            do {
+                try await vm.reactivateTemplate(snapshot)
+            } catch {
+                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+            }
+        }
+    }
+
+    @MainActor
+    private func handleUnassignQuest(_ quest: QuestCache) {
+        guard !isSubmitting, let vm = viewModel else { return }
+        isSubmitting = true
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: quest)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+        let snapshot = quest.toQuest(zoneID: zoneID)
+        Task { @MainActor @Sendable [snapshot] in
+            defer { isSubmitting = false }
+            do {
+                try await vm.unassignQuest(snapshot)
+            } catch {
+                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+            }
+        }
     }
 
     private func clearInspectorSelection() {

@@ -28,7 +28,7 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
     case notFound
     case unauthorized
     case invalidConfig
-    case insufficientFunds(available: Double, requested: Double)
+    case insufficientFunds(available: Int64, requested: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -39,7 +39,7 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
         case .invalidConfig:
             "Goal configuration is invalid."
         case let .insufficientFunds(available, requested):
-            "You only have \(CurrencyFormatter.string(available)) saved — that goal needs \(CurrencyFormatter.string(requested))."
+            "You only have \(CurrencyFormatter.string(pennies: available)) saved — that goal needs \(CurrencyFormatter.string(pennies: requested))."
         }
     }
 }
@@ -50,14 +50,8 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
 @MainActor
 @Observable
 final class GoalService {
-    private static let staticLogger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "GoalService"
-    )
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "GoalService"
-    )
+    private static let staticLogger = Logger(category: "GoalService")
+    private let logger = Logger(category: "GoalService")
 
     private let cloudKit: any CloudKitServiceProtocol
     let cacheService: any CacheServicing
@@ -519,10 +513,9 @@ final class GoalService {
         }
         let balances = BucketService.bucketBalances(for: purchaseLedgers, profileRecordName: profileRecordName)
         let available = balances[bucket] ?? 0
-        let requested = Double(goal.targetAmountPennies) / 100.0
-        // WHY pennies comparison: Double sums drift by fractions of a cent, so the gate stays exact.
-        let availablePennies = Int((available * 100).rounded())
-        guard availablePennies >= goal.targetAmountPennies else {
+        let requested = goal.targetAmountPennies
+        // WHY pennies comparison: integer balances stay exact with no drift.
+        guard available >= requested else {
             throw GoalServiceError.insufficientFunds(available: available, requested: requested)
         }
 
@@ -556,7 +549,7 @@ final class GoalService {
 
         triggerGoalCompletionFeedback(goalName: goal.name, profile: goal.profile, family: family)
 
-        let formattedAmount = CurrencyFormatter.string(requested)
+        let formattedAmount = CurrencyFormatter.string(pennies: requested)
         logger.info("Purchased goal \"\(goal.name, privacy: .private)\" for \(formattedAmount, privacy: .public)")
 
         return updated
@@ -637,12 +630,12 @@ final class GoalService {
             // WHY cumulative-aware: same event reuses one ID across settlements, so shortfall adds to prior total instead of regressing.
             let existingPennies: Int64 = {
                 guard let existing = cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) else { return 0 }
-                return Int64((existing.amount * 100).rounded())
+                return existing.amount
             }()
             let cumulativePennies = existingPennies + alloc.allocatedPennies
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                amount: Double(cumulativePennies) / 100.0,
+                amount: cumulativePennies,
                 description: "Goal Contribution",
                 date: contributionDate,
                 source: LedgerSource.goal.rawValue,
@@ -744,7 +737,7 @@ final class GoalService {
 
         return entries
             .reduce(into: Int64(0)) { acc, entry in
-                acc += Int64((entry.amount * 100).rounded())
+                acc += entry.amount
             }
     }
 

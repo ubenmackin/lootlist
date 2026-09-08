@@ -27,7 +27,7 @@ struct GoldCalculationTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 0,
@@ -56,7 +56,7 @@ struct GoldCalculationTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 3,
@@ -85,7 +85,7 @@ struct GoldCalculationTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 3,
@@ -114,7 +114,7 @@ struct GoldCalculationTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 2,
@@ -143,7 +143,7 @@ struct GoldCalculationTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 0,
@@ -171,7 +171,7 @@ struct GoldCalculationTests {
         let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 0,
@@ -198,7 +198,7 @@ struct GoldCalculationTests {
             weekOf: Date(),
             questName: "Stale Quest",
             isActive: true,
-            goldReward: 9.0,
+            goldReward: 900,
             xpReward: 50,
             rarity: "common",
             scheduleType: QuestSchedule.specificDays.rawValue,

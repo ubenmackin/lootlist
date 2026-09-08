@@ -103,7 +103,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            creatorUserRecordName: "gm1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -127,7 +127,7 @@ extension TreasuryServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -159,7 +159,7 @@ extension TreasuryServiceTests {
 
         let cached = try #require(cache.fetchAllowancePeriods(profileRecordName: heroID.recordName, family: "fam1").first)
         #expect(cached.status == PayoutStatus.paid.rawValue)
-        #expect(cached.paidAmount == 25.0)
+        #expect(cached.paidAmount == 2500)
     }
 
     // MARK: - Mixed identity/parent guards on internal settlement helpers
@@ -201,7 +201,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -246,7 +246,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: guildMasterID,
+            creatorUserRecordName: guildMasterID.recordName,
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -258,7 +258,7 @@ extension TreasuryServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: targetHeroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -290,8 +290,8 @@ extension TreasuryServiceTests {
         )
         let period = try #require(result, "A parent acting on a real-time hero must not be dropped")
         #expect(period.profile.recordID == targetHero.id, "Settlement must target the hero's period")
-        #expect(period.totalEarned == 25.0, "Parent-verified gold must settle on the hero's period")
-        #expect(period.paidAmount == 25.0)
+        #expect(period.totalEarned == 2500, "Parent-verified gold must settle on the hero's period")
+        #expect(period.paidAmount == 2500)
     }
 
     @Test
@@ -328,7 +328,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -374,7 +374,7 @@ extension TreasuryServiceTests {
 
         await #expect(throws: FamilyServiceError.unauthorized) {
             try await treasury.updateAllowance(period: period,
-                                               totalEarned: 25.0,
+                                               totalEarned: 2500,
                                                questsCompleted: 1)
         }
     }
@@ -405,7 +405,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -419,7 +419,7 @@ extension TreasuryServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -448,9 +448,9 @@ extension TreasuryServiceTests {
                                                                    family: family,
                                                                    date: monday)
         let period = try #require(settled, "Triple guard must let self-settlement reach a period")
-        #expect(period.totalEarned == 25.0, "Settlement must propagate hero's earnings")
+        #expect(period.totalEarned == 2500, "Settlement must propagate hero's earnings")
         #expect(period.questsCompleted == 1)
-        #expect(period.paidAmount == 25.0)
+        #expect(period.paidAmount == 2500)
     }
 
     @Test
@@ -486,7 +486,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: guildMasterID,
+            creatorUserRecordName: guildMasterID.recordName,
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -536,7 +536,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: guildMasterID,
+            creatorUserRecordName: guildMasterID.recordName,
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -554,9 +554,9 @@ extension TreasuryServiceTests {
         appState.currentProfile = guildMaster
 
         let updated = try await treasury.updateAllowance(period: period,
-                                                         totalEarned: 50.0,
+                                                         totalEarned: 5000,
                                                          questsCompleted: 1)
-        #expect(updated.totalEarned == 50.0)
+        #expect(updated.totalEarned == 5000)
         #expect(updated.questsCompleted == 1)
     }
 
@@ -596,7 +596,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: guildMasterID,
+            creatorUserRecordName: guildMasterID.recordName,
             payoutDay: .sunday,
             id: familyID
         )
@@ -609,7 +609,7 @@ extension TreasuryServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -632,7 +632,7 @@ extension TreasuryServiceTests {
         // AND non-empty) and the breakdown's bonusGold is cache-sourced.
         let bonus = LedgerEntry(
             profile: CKRecord.Reference(recordID: heroID, action: .none),
-            amount: 5.0,
+            amount: 500,
             description: "Bonus",
             date: monday,
             source: "manual",
@@ -680,8 +680,8 @@ extension TreasuryServiceTests {
             "updateAllowance must resolve profile + family from cache when fresh; no CloudKit fetch"
         )
 
-        // Sourced from cache: 25.0 (quest gold) + 5.0 (bonus ledger) = 30.0.
-        #expect(updated.totalEarned == 30.0)
+        // Sourced from cache: 2500 (quest gold) + 500 (bonus ledger) = 3000.
+        #expect(updated.totalEarned == 3000)
         #expect(updated.questsCompleted == 1)
     }
 
@@ -713,7 +713,7 @@ extension TreasuryServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: familyID
         )
@@ -726,7 +726,7 @@ extension TreasuryServiceTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -750,7 +750,7 @@ extension TreasuryServiceTests {
         // CloudKit query and the readCallCount == 0 gate fails.
         let bonus = LedgerEntry(
             profile: CKRecord.Reference(recordID: heroID, action: .none),
-            amount: 7.0,
+            amount: 700,
             description: "Bonus",
             date: monday,
             source: "manual",
@@ -782,10 +782,10 @@ extension TreasuryServiceTests {
         )
 
         // The cache-sourced result: one completed quest out of one assigned,
-        // so allOrNothing does NOT zero the gold — 25.0 (quest) + 7.0
-        // (bonus ledger) = 32.0 flows through.
-        #expect(breakdown.goldFromQuests == 25.0)
+        // so allOrNothing does NOT zero the gold — 2500 (quest) + 700
+        // (bonus ledger) = 3200 flows through.
+        #expect(breakdown.goldFromQuests == 2500)
         #expect(breakdown.questsCount == 1)
-        #expect(breakdown.totalEarned == 32.0)
+        #expect(breakdown.totalEarned == 3200)
     }
 }

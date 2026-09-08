@@ -13,7 +13,7 @@ struct QuestAssignmentView: View {
     var mode: Mode
     @Bindable var viewModel: QuestManagerViewModel
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestAssignment")
+    private let logger = Logger(category: "QuestAssignment")
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
@@ -32,7 +32,7 @@ struct QuestAssignmentView: View {
         self.onCancel = onCancel
 
         let targetFamily = familyRecordName ?? ""
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
         _cachedCompletions = Query(filter: completionFilter)
     }
 
@@ -532,9 +532,9 @@ struct QuestAssignmentView: View {
         }
 
         // WHY shared parser: comma decimals must parse in every locale.
-        let gold: Double? = {
-            guard let value = CurrencyFormatter.decimalDouble(from: goldOverrideText),
-                  value.isFinite, value >= 0 else { return nil }
+        let gold: Int64? = {
+            guard let value = CurrencyFormatter.pennies(from: goldOverrideText),
+                  value >= 0 else { return nil }
             return value
         }()
         // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
@@ -597,7 +597,7 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "Quest name is required.", type: .error)
             return
         }
-        guard let gold = CurrencyFormatter.decimalDouble(from: quickGoldText), gold.isFinite, gold >= 0 else {
+        guard let gold = CurrencyFormatter.pennies(from: quickGoldText), gold >= 0 else {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
@@ -657,7 +657,7 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "Quest name is required.", type: .error)
             return
         }
-        guard let gold = CurrencyFormatter.decimalDouble(from: quickGoldText), gold.isFinite, gold >= 0 else {
+        guard let gold = CurrencyFormatter.pennies(from: quickGoldText), gold >= 0 else {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
@@ -696,7 +696,7 @@ struct QuestAssignmentView: View {
             return
         }
 
-        guard let gold = CurrencyFormatter.decimalDouble(from: editGoldText), gold.isFinite, gold >= 0 else {
+        guard let gold = CurrencyFormatter.pennies(from: editGoldText), gold >= 0 else {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }

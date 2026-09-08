@@ -58,7 +58,7 @@ struct DataMigrationsCoordinatorTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),
@@ -89,7 +89,7 @@ struct DataMigrationsCoordinatorTests {
         let template = QuestTemplate(
             name: "Sweep Floor",
             description: "Sweep",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             createdBy: familyRef,
@@ -100,7 +100,7 @@ struct DataMigrationsCoordinatorTests {
         let quest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),

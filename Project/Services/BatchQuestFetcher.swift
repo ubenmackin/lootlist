@@ -10,7 +10,7 @@ import Foundation
 import os
 
 enum BatchQuestFetcher {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BatchQuestFetcher")
+    private static let logger = Logger(category: "BatchQuestFetcher")
 
     @MainActor
     static func fetchMissingQuests<T: CloudKitRecord>(
@@ -18,40 +18,28 @@ enum BatchQuestFetcher {
         family: Family,
         cloudKit: any CloudKitServiceProtocol
     ) async throws -> [T] where T.ID == CKRecord.ID {
-        var map: [String: T] = [:]
         guard !names.isEmpty else { return [] }
-        let chunkSize = 100
-        for start in stride(from: 0, to: names.count, by: chunkSize) {
-            let end = min(start + chunkSize, names.count)
-            let chunk = Array(names[start ..< end])
-            let predicate = NSPredicate(format: "recordName IN %@", chunk)
-            do {
-                let fetched: [T] = try await cloudKit.query(
-                    T.self,
-                    predicate: predicate,
-                    in: family.id.zoneID
-                )
-                for item in fetched {
-                    map[item.id.recordName] = item
-                }
-            } catch {
-                logger.warning("Batch fetch failed for quest chunk: \(error, privacy: .private)")
-                throw error
-            }
-        }
-        let stillMissing = names.filter { map[$0] == nil }
-        if !stillMissing.isEmpty {
-            for recordName in stillMissing {
-                let recordID = CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
-                do {
-                    let fetched: T = try await cloudKit.fetch(T.self, id: recordID)
-                    map[fetched.id.recordName] = fetched
-                } catch {
-                    logger.warning("Failed to fetch quest \(recordName, privacy: .private): \(error, privacy: .private)")
-                    throw error
+        // WHY direct fetch by ID: recordName is not server-queryable, so the predicate path always misses on device and degrades to N sequential fetches.
+        let uniqueNames = Array(Set(names))
+        let zoneID = family.id.zoneID
+        return try await withThrowingTaskGroup(of: T.self, returning: [T].self) { group in
+            for recordName in uniqueNames {
+                group.addTask {
+                    let recordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+                    do {
+                        return try await cloudKit.fetch(T.self, id: recordID)
+                    } catch {
+                        logger.warning("Failed to fetch \(T.recordType, privacy: .public) \(recordName, privacy: .private): \(error, privacy: .private)")
+                        throw error
+                    }
                 }
             }
+            var collected: [T] = []
+            collected.reserveCapacity(uniqueNames.count)
+            for try await item in group {
+                collected.append(item)
+            }
+            return collected
         }
-        return Array(map.values)
     }
 }

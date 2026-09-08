@@ -22,7 +22,7 @@ struct DeterministicSpendingIDTests {
     }
 
     private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
-        Family(name: "Test Guild", createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        Family(name: "Test Guild", creatorUserRecordName: "parent1", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
     }
 
     private func makeHero(_ zoneID: CKRecordZone.ID) -> Profile {
@@ -73,7 +73,7 @@ struct DeterministicSpendingIDTests {
             family: family,
             familyRecordName: family.id.recordName,
             description: "Deterministic Coffee",
-            amount: 4.50,
+            amount: 450,
             location: "Cafe",
             date: date
         )
@@ -82,7 +82,7 @@ struct DeterministicSpendingIDTests {
             family: family,
             familyRecordName: family.id.recordName,
             description: "Deterministic Coffee",
-            amount: 4.50,
+            amount: 450,
             location: "Cafe",
             date: date
         )
@@ -107,7 +107,7 @@ struct DeterministicSpendingIDTests {
         ck.activeIsOwner = true
         state.currentProfile = hero
         let svc = SpendingService(cloudKit: ck, cacheService: cache, appState: state)
-        let base = try await svc.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: desc, amount: 9.99, location: "Cafe A", date: date)
+        let base = try await svc.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: desc, amount: 999, location: "Cafe A", date: date)
         let baseName = base.id.recordName
 
         func divergent(_ location: String) async throws -> String {
@@ -116,7 +116,7 @@ struct DeterministicSpendingIDTests {
             let cache2 = try CacheService(inMemory: true)
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: hero.id, action: .none),
-                amount: -9.99,
+                amount: -999,
                 description: desc,
                 location: "Cafe A",
                 date: date,
@@ -137,7 +137,7 @@ struct DeterministicSpendingIDTests {
                 family: family,
                 familyRecordName: family.id.recordName,
                 description: desc,
-                amount: 9.99,
+                amount: 999,
                 location: location,
                 date: date
             )

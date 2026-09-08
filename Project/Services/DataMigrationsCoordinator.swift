@@ -11,7 +11,7 @@ import os
 
 @MainActor
 final class DataMigrationsCoordinator {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+    private let logger = Logger(category: "DataMigrations")
     private let defaults: UserDefaults
 
     enum MigrationError: LocalizedError {
@@ -103,7 +103,7 @@ final class DataMigrationsCoordinator {
 extension DataMigrationsCoordinator {
     static func questNameBackfillV1(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "QuestNameBackfillV1", version: 1) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard let activeZone = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping quest name backfill.")
                 return
@@ -114,27 +114,70 @@ extension DataMigrationsCoordinator {
                 logger.info("No quests need name backfill.")
                 return
             }
-            var hadFailures = false
-            for quest in needsBackfill {
-                do {
-                    var updated = quest
-                    if let template = try await fetchRecordOrNil(
-                        QuestTemplate.self,
-                        id: quest.template.recordID,
-                        cloudKit: cloudKit
-                    ) {
-                        updated.name = template.name
-                    } else {
-                        logger.warning("Template missing for quest \(quest.id.recordName, privacy: .private); reconciling with fallback title.")
-                        updated.name = "Quest"
+            // WHY dedupe by template so shared templates fetch once, not once per quest.
+            let templateNames = Set(needsBackfill.map(\.template.recordID.recordName))
+            // WHY concurrent fetch collapses N sequential round-trips into one batched phase; missing templates resolve to nil fallback while hard errors abort before any write.
+            let templatesByName: [String: QuestTemplate]
+            do {
+                templatesByName = try await withThrowingTaskGroup(of: (String, QuestTemplate?).self, returning: [String: QuestTemplate].self) { group in
+                    for templateName in templateNames {
+                        group.addTask {
+                            let templateID = CKRecord.ID(recordName: templateName, zoneID: activeZone)
+                            let template = try await fetchRecordOrNil(
+                                QuestTemplate.self,
+                                id: templateID,
+                                cloudKit: cloudKit
+                            )
+                            return (templateName, template)
+                        }
                     }
-                    _ = try await cloudKit.save(updated)
-                } catch {
-                    logger.error("Failed to backfill quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
-                    hadFailures = true
+                    var collected: [String: QuestTemplate] = [:]
+                    collected.reserveCapacity(templateNames.count)
+                    for try await (templateName, template) in group {
+                        if let template {
+                            collected[templateName] = template
+                        }
+                    }
+                    return collected
+                }
+            } catch {
+                logger.error("Template batch fetch failed, aborting quest name backfill before writes: \(error, privacy: .private)")
+                throw error
+            }
+            var updatedQuests: [Quest] = []
+            updatedQuests.reserveCapacity(needsBackfill.count)
+            for quest in needsBackfill {
+                var updated = quest
+                if let template = templatesByName[quest.template.recordID.recordName] {
+                    updated.name = template.name
+                } else {
+                    logger.warning("Template missing for quest \(quest.id.recordName, privacy: .private); reconciling with fallback title.")
+                    updated.name = "Quest"
+                }
+                updatedQuests.append(updated)
+            }
+            // WHY concurrent saves collapse N sequential writes into one batched phase; failures collect then throw so the versioned flag retries the remainder instead of marking
+            // partial success complete.
+            var failedRecordNames: [String] = []
+            await withTaskGroup(of: String?.self) { group in
+                for quest in updatedQuests {
+                    group.addTask {
+                        do {
+                            _ = try await cloudKit.save(quest)
+                            return nil
+                        } catch {
+                            logger.error("Failed to backfill quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
+                            return quest.id.recordName
+                        }
+                    }
+                }
+                for await failed in group {
+                    if let failed {
+                        failedRecordNames.append(failed)
+                    }
                 }
             }
-            if hadFailures {
+            if !failedRecordNames.isEmpty {
                 throw MigrationError.incompleteBackfill("Quest name backfill had save errors; migration marked incomplete for retry")
             }
         }
@@ -148,7 +191,7 @@ extension DataMigrationsCoordinator {
 
     static func questLedgerBackfillV1(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService?) -> MigrationStep {
         MigrationStep(id: "QuestLedgerBackfillV1", version: 1) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard let zoneID = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping ledger backfill.")
                 return
@@ -189,7 +232,7 @@ extension DataMigrationsCoordinator {
                                 $0.date >= period.weekOf &&
                                 $0.date < weekEnd
                         }
-                        .reduce(0.0) { $0 + $1.amount }
+                        .reduce(0) { $0 + $1.amount }
                     paidAmount = max(0, paidAmount - depositBonusSum)
                     guard paidAmount > 0 else { continue }
                 } else {
@@ -228,7 +271,7 @@ extension DataMigrationsCoordinator {
         cacheService: CacheService?
     ) -> MigrationStep {
         MigrationStep(id: "AchievementMigrationV1", version: 1) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard let zoneID = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping achievement migration.")
                 return
@@ -274,7 +317,7 @@ extension DataMigrationsCoordinator {
         syncCoordinator: CKSyncEngineCoordinator? = nil
     ) -> MigrationStep {
         MigrationStep(id: "heroNotificationPreferenceBackfillV1", version: 1) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard let zoneID = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping notification preference backfill.")
                 return
@@ -345,7 +388,7 @@ extension DataMigrationsCoordinator {
         syncCoordinator: CKSyncEngineCoordinator? = nil
     ) -> MigrationStep {
         MigrationStep(id: "allowancePeriodSeedV1", version: 1) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard let zoneID = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping allowance period seed.")
                 return
@@ -407,7 +450,7 @@ extension DataMigrationsCoordinator {
     /// savings-config/claim/bucket fields) is an incompatible SwiftData change, so the destructive store
     static func schemaV8SavingsResetMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "SchemaV8SavingsResetMarker", version: 8) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard cloudKit.activeFamilyZoneID != nil else {
                 logger.info("No active family zone; nothing to record for schema V8.")
                 return
@@ -425,7 +468,7 @@ extension DataMigrationsCoordinator {
     /// the store is at V10. Fail-open without an active zone mirrors V8.
     static func schemaV10LedgerIndexMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "SchemaV10LedgerIndexMarker", version: 10) {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            let logger = Logger(category: "DataMigrations")
             guard cloudKit.activeFamilyZoneID != nil else {
                 logger.info("No active family zone; nothing to record for schema V10.")
                 return
@@ -469,5 +512,131 @@ extension DataMigrationsCoordinator {
                 logger.info("Purged \(deleted) parent allowance periods.")
             }
         }
+    }
+
+    /// Converts legacy Double-dollar money fields to Int64 pennies with round
+    /// half up. Double-run safe: domain decoding coerces legacy dollars to
+    /// pennies and re-saving converges, nil paidAmount stays nil, and the
+    /// versioned runner flag prevents reruns.
+    static func currencyToPenniesV1(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) -> MigrationStep {
+        MigrationStep(id: "CurrencyToPenniesV1", version: 1) {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            guard let zoneID = cloudKit.activeFamilyZoneID else {
+                logger.info("No active family zone, skipping currency to pennies migration.")
+                return
+            }
+            let isOwner = cloudKit.activeIsOwner
+            var converted = 0
+            var hadFailures = false
+
+            // WHY domain round-trip: init(record:) coerces legacy Double
+            // dollars via dollarsToPennies (round half up) while Int64 rows
+            // pass through unchanged, so re-saving converges idempotently.
+            // WHY save-all: the typed query erases Double-vs-Int encoding, so
+            // every row rewrites deterministically; values converge and the
+            // versioned flag keeps reruns from repeating the pass.
+            let allowanceResult = await convertRecords(
+                AllowancePeriod.self,
+                cloudKit: cloudKit,
+                zoneID: zoneID,
+                isOwner: isOwner,
+                cacheUpsert: { await cacheService?.upsertAllowancePeriod($0) },
+                syncCoordinator: syncCoordinator,
+                logger: logger
+            )
+            converted += allowanceResult.converted
+            hadFailures = hadFailures || allowanceResult.hadFailures
+
+            let ledgerResult = await convertRecords(
+                LedgerEntry.self,
+                cloudKit: cloudKit,
+                zoneID: zoneID,
+                isOwner: isOwner,
+                cacheUpsert: { await cacheService?.upsertLedgerEntry($0) },
+                syncCoordinator: syncCoordinator,
+                logger: logger
+            )
+            converted += ledgerResult.converted
+            hadFailures = hadFailures || ledgerResult.hadFailures
+
+            let questResult = await convertRecords(
+                Quest.self,
+                cloudKit: cloudKit,
+                zoneID: zoneID,
+                isOwner: isOwner,
+                cacheUpsert: { await cacheService?.upsertQuest($0) },
+                syncCoordinator: syncCoordinator,
+                logger: logger
+            )
+            converted += questResult.converted
+            hadFailures = hadFailures || questResult.hadFailures
+
+            let templateResult = await convertRecords(
+                QuestTemplate.self,
+                cloudKit: cloudKit,
+                zoneID: zoneID,
+                isOwner: isOwner,
+                cacheUpsert: { await cacheService?.upsertQuestTemplate($0) },
+                syncCoordinator: syncCoordinator,
+                logger: logger
+            )
+            converted += templateResult.converted
+            hadFailures = hadFailures || templateResult.hadFailures
+
+            let rewardResult = await convertRecords(
+                RewardEvent.self,
+                cloudKit: cloudKit,
+                zoneID: zoneID,
+                isOwner: isOwner,
+                cacheUpsert: { await cacheService?.upsertRewardEvent($0) },
+                syncCoordinator: syncCoordinator,
+                logger: logger
+            )
+            converted += rewardResult.converted
+            hadFailures = hadFailures || rewardResult.hadFailures
+
+            if hadFailures {
+                throw MigrationError.incompleteBackfill("Currency to pennies had save errors; migration marked incomplete for retry")
+            }
+            logger.info("Currency to pennies migration converted \(converted) records.")
+        }
+    }
+
+    @discardableResult
+    private static func convertRecords<T: CloudKitRecord>(
+        _ type: T.Type,
+        cloudKit: any CloudKitServiceProtocol,
+        zoneID: CKRecordZone.ID,
+        isOwner: Bool,
+        cacheUpsert: ((T) async -> Void)?,
+        syncCoordinator: CKSyncEngineCoordinator?,
+        logger: Logger
+    ) async -> (converted: Int, hadFailures: Bool) where T.ID == CKRecord.ID {
+        var converted = 0
+        var hadFailures = false
+        do {
+            let records = try await cloudKit.query(type, predicate: NSPredicate(value: true), in: zoneID)
+            for record in records {
+                do {
+                    let saved = try await cloudKit.save(record, in: zoneID, using: nil)
+                    if let cacheUpsert {
+                        await cacheUpsert(saved)
+                    }
+                    syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
+                    converted += 1
+                } catch {
+                    logger.error("Failed to convert \(String(describing: type)) \(record.id.recordName, privacy: .private): \(error, privacy: .private)")
+                    hadFailures = true
+                }
+            }
+        } catch {
+            logger.error("Currency migration \(String(describing: type)) query failed: \(error, privacy: .private)")
+            hadFailures = true
+        }
+        return (converted, hadFailures)
     }
 }

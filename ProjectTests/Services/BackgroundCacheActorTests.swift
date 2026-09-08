@@ -65,7 +65,7 @@ struct BackgroundCacheActorTests {
         ))
         ctx.insert(LedgerEntryCache(
             recordName: "\(prefix)ledgerEntry", profileRecordName: "hero",
-            familyRecordName: "fam", amount: 5.0, entryDescription: "Bonus", date: now,
+            familyRecordName: "fam", amount: 500, entryDescription: "Bonus", date: now,
             source: "manual"
         ))
         ctx.insert(AllowancePeriodCache(
@@ -430,7 +430,7 @@ struct BackgroundCacheActorTests {
         let quest1 = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -443,7 +443,7 @@ struct BackgroundCacheActorTests {
         let quest2 = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 100,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -469,7 +469,7 @@ struct BackgroundCacheActorTests {
         let updated = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 99.0,
+            goldReward: 9900,
             xpReward: 999,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -485,7 +485,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(QuestCache.self, in: container) == 1)
         let quests = try fetchAll(QuestCache.self, in: container)
         #expect(quests.first?.questName == "Updated Quest")
-        #expect(quests.first?.goldReward == 99.0)
+        #expect(quests.first?.goldReward == 9900)
     }
 
     @Test
@@ -511,7 +511,7 @@ struct BackgroundCacheActorTests {
         let template1 = QuestTemplate(
             name: "Clean Room",
             description: "Tidy up",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -522,7 +522,7 @@ struct BackgroundCacheActorTests {
         let template2 = QuestTemplate(
             name: "Walk Dog",
             description: "Take the dog for a walk",
-            defaultGold: 10.0,
+            defaultGold: 1000,
             xpReward: 100,
             scheduleType: .weeklyFlexible,
             approvalMode: .parentVerify,
@@ -643,14 +643,14 @@ struct BackgroundCacheActorTests {
 
         let entry1 = LedgerEntry(
             profile: ref("hero"),
-            amount: 5.0,
+            amount: 500,
             description: "Bonus",
             family: ref("fam"),
             id: CKRecord.ID(recordName: "entry1")
         )
         let entry2 = LedgerEntry(
             profile: ref("hero"),
-            amount: 10.0,
+            amount: 1000,
             description: "Reward",
             family: ref("fam"),
             id: CKRecord.ID(recordName: "entry2")
@@ -806,7 +806,7 @@ struct BackgroundCacheActorTests {
 
         let entry = LedgerEntry(
             profile: ref("hero"),
-            amount: 5.0,
+            amount: 500,
             description: "Bonus",
             family: ref("fam"),
             id: CKRecord.ID(recordName: "idem_entry")
@@ -861,12 +861,12 @@ struct BackgroundCacheActorTests {
         let ctx = ModelContext(container)
         ctx.insert(LedgerEntryCache(
             recordName: "transfer-pending", profileRecordName: "hero",
-            familyRecordName: "fam", amount: 2.5, entryDescription: "Move",
+            familyRecordName: "fam", amount: 250, entryDescription: "Move",
             date: now, source: "transfer", fromBucket: "spend", toBucket: "shortTermSave"
         ))
         ctx.insert(LedgerEntryCache(
             recordName: "stale-synced", profileRecordName: "hero",
-            familyRecordName: "fam", amount: 1.0, entryDescription: "Old",
+            familyRecordName: "fam", amount: 100, entryDescription: "Old",
             date: now, source: "manual", changeTag: "v1"
         ))
         try ctx.save()

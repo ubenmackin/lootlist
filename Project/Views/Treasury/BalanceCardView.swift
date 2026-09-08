@@ -8,13 +8,13 @@
 import SwiftUI
 
 struct BalanceCardView: View {
-    let balance: Double?
+    let balance: Int64?
 
     let weekOf: Date?
 
     let status: PayoutStatus?
 
-    var pendingPayoutAmount: Double?
+    var pendingPayoutAmount: Int64?
 
     var body: some View {
         VStack(spacing: 16) {

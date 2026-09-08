@@ -30,7 +30,7 @@ struct LevelProgress: Equatable, Sendable {
 @MainActor
 @Observable
 final class XPService {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "XPService")
+    private let logger = Logger(category: "XPService")
     nonisolated static let stepBase: Int = AppConstants.Experience.stepBase
 
     nonisolated static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence

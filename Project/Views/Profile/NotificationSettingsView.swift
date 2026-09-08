@@ -40,9 +40,7 @@ struct NotificationSettingsView: View {
 
         let profileName = profileCache.recordName
         let familyName = profileCache.familyRecordName
-        let filter = #Predicate<NotificationPreferenceCache> {
-            $0.profileRecordName == profileName && $0.familyRecordName == familyName
-        }
+        let filter = NotificationPreferenceCache.profilePredicate(familyRecordName: familyName, profileRecordName: profileName)
         _cachedPreferences = Query(filter: filter)
     }
 

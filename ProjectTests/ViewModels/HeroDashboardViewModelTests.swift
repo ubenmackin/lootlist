@@ -67,7 +67,7 @@ struct HeroDashboardViewModelTests {
         let appState = AppState()
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         appState.family = family
@@ -78,7 +78,7 @@ struct HeroDashboardViewModelTests {
         let profile = Profile(
             displayName: "Test Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: CKRecord.ID(recordName: "hero1", zoneID: zoneID),
             family: familyRef,
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
@@ -92,7 +92,7 @@ struct HeroDashboardViewModelTests {
     }
 
     @Test
-    func `rebuildLists derives earnedThisWeek from cache`() {
+    func `rebuildLists counts completed quests within current week`() {
         let test = makeHarness()
         let viewModel = HeroDashboardViewModel(appState: test.appState)
 
@@ -105,7 +105,7 @@ struct HeroDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Complete Dragon",
             isActive: true,
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.specificDays.rawValue,
@@ -129,7 +129,7 @@ struct HeroDashboardViewModelTests {
 
         viewModel.rebuildLists(quests: [quest], logs: [log], templates: [], allowancePeriods: [])
 
-        #expect(viewModel.earnedThisWeek == 15.0)
+        #expect(viewModel.earnedThisWeek == 1500)
         #expect(viewModel.isFullyCompleted(for: quest))
     }
 
@@ -147,7 +147,7 @@ struct HeroDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Complete Goblin",
             isActive: true,
-            goldReward: 20.0,
+            goldReward: 2000,
             xpReward: 5,
             rarity: "uncommon",
             scheduleType: QuestSchedule.specificDays.rawValue,
@@ -176,7 +176,7 @@ struct HeroDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Complete Dragon",
             isActive: true,
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.specificDays.rawValue,
@@ -205,7 +205,7 @@ struct HeroDashboardViewModelTests {
             allowancePeriods: []
         )
 
-        #expect(viewModel.earnedThisWeek == 15.0)
+        #expect(viewModel.earnedThisWeek == 1500)
         #expect(viewModel.isFullyCompleted(for: approvedQuest))
         #expect(!viewModel.isFullyCompleted(for: quest))
     }
@@ -340,7 +340,7 @@ struct HeroDashboardViewModelTests {
             weekOf: monday,
             questName: "Boundary Quest",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 5,
             rarity: "common",
             scheduleType: QuestSchedule.specificDays.rawValue,
@@ -395,7 +395,7 @@ struct HeroDashboardViewModelTests {
             payoutPolicy: .perQuest,
             weekRange: weekRange
         )
-        #expect(excluded == 0.0)
+        #expect(excluded == 0)
         #expect(!weekRange.contains(nextMonday))
 
         let mixed = GoldCalculation.netWeeklyGold(
@@ -427,7 +427,7 @@ struct HeroDashboardViewModelTests {
             weekOf: monday,
             questName: "Q",
             isActive: true,
-            goldReward: 20.0,
+            goldReward: 2000,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.specificDays.rawValue,
@@ -454,11 +454,11 @@ struct HeroDashboardViewModelTests {
             familyRecordName: "fam1",
             weekOf: periodNoon,
             status: PayoutStatus.paid.rawValue,
-            totalEarned: 20.0,
+            totalEarned: 2000,
             questsCompleted: 1,
             questsTotal: 1,
             paidDate: Date(),
-            paidAmount: 20.0
+            paidAmount: 2000
         )
 
         let isPaid = [paidPeriod].contains { (period: AllowancePeriodCache) -> Bool in
@@ -476,11 +476,11 @@ struct HeroDashboardViewModelTests {
             familyRecordName: "fam1",
             weekOf: nextMonday,
             status: PayoutStatus.paid.rawValue,
-            totalEarned: 20.0,
+            totalEarned: 2000,
             questsCompleted: 1,
             questsTotal: 1,
             paidDate: Date(),
-            paidAmount: 20.0
+            paidAmount: 2000
         )
         let isPaidOtherWeek = [otherPeriod].contains { (period: AllowancePeriodCache) -> Bool in
             let matchesProfile = period.profileRecordName == "hero1"
@@ -521,7 +521,7 @@ struct HeroDashboardViewModelTests {
 
         func seedLedger(
             _ name: String,
-            amount: Double,
+            amount: Int64,
             source: String,
             bucketKind: String?,
             fromBucket: String? = nil,
@@ -541,7 +541,7 @@ struct HeroDashboardViewModelTests {
             _ = cache.saveContext()
         }
 
-        func quest(_ name: String, weekOf: Date, goldReward: Double = 10.0) -> QuestCache {
+        func quest(_ name: String, weekOf: Date, goldReward: Int64 = 1000) -> QuestCache {
             QuestCache(
                 recordName: name,
                 familyRecordName: SampleData.familyID.recordName,
@@ -580,27 +580,27 @@ struct HeroDashboardViewModelTests {
     @Test
     func `hub aggregates total available balance from per-bucket balances`() throws {
         let harness = try ChildHubHarness()
-        harness.seedLedger("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
-        harness.seedLedger("l-spend-out", amount: -2.50, source: "manual", bucketKind: BucketKind.spend.rawValue)
-        harness.seedLedger("l-short-in", amount: 6.25, source: "quest", bucketKind: BucketKind.shortTermSave.rawValue)
+        harness.seedLedger("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        harness.seedLedger("l-spend-out", amount: -250, source: "manual", bucketKind: BucketKind.spend.rawValue)
+        harness.seedLedger("l-short-in", amount: 625, source: "quest", bucketKind: BucketKind.shortTermSave.rawValue)
 
         harness.viewModel.rebuild(quests: [], logs: [], templates: [], goals: [])
 
-        #expect(harness.viewModel.bucketBalance(.spend) == 7.50)
-        #expect(harness.viewModel.bucketBalance(.shortTermSave) == 6.25)
+        #expect(harness.viewModel.bucketBalance(.spend) == 750)
+        #expect(harness.viewModel.bucketBalance(.shortTermSave) == 625)
         #expect(harness.viewModel.bucketBalance(.longTermSave) == 0)
-        #expect(harness.viewModel.availableBalance == 13.75)
+        #expect(harness.viewModel.availableBalance == 1375)
     }
 
     @Test
     func `hub balances debit the transfer source and credit the destination`() throws {
         let harness = try ChildHubHarness()
-        harness.seedLedger("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        harness.seedLedger("l-spend-in", amount: 1000, source: "quest", bucketKind: BucketKind.spend.rawValue)
         // One transfer row moves money twice: the balance aggregator credits
         // its bucketKind destination AND debits its fromBucket source.
         harness.seedLedger(
             "transfer-hero_maya-1-spend-shortTermSave",
-            amount: 3.00,
+            amount: 300,
             source: "transfer",
             bucketKind: BucketKind.shortTermSave.rawValue,
             fromBucket: BucketKind.spend.rawValue,
@@ -609,9 +609,9 @@ struct HeroDashboardViewModelTests {
 
         harness.viewModel.rebuild(quests: [], logs: [], templates: [], goals: [])
 
-        #expect(harness.viewModel.bucketBalance(.spend) == 7.00)
-        #expect(harness.viewModel.bucketBalance(.shortTermSave) == 3.00)
-        #expect(harness.viewModel.availableBalance == 10.00)
+        #expect(harness.viewModel.bucketBalance(.spend) == 700)
+        #expect(harness.viewModel.bucketBalance(.shortTermSave) == 300)
+        #expect(harness.viewModel.availableBalance == 1000)
     }
 
     @Test
@@ -637,7 +637,7 @@ struct HeroDashboardViewModelTests {
     @Test
     func `active goal projection fills the oldest open goal first with FIFO saved pennies`() throws {
         let harness = try ChildHubHarness()
-        harness.seedLedger("l-short-in", amount: 30.00, source: "quest", bucketKind: BucketKind.shortTermSave.rawValue)
+        harness.seedLedger("l-short-in", amount: 3000, source: "quest", bucketKind: BucketKind.shortTermSave.rawValue)
         let goals = SampleData.createSampleGoals().map { GoalCache(from: $0) }
 
         harness.viewModel.rebuild(quests: [], logs: [], templates: [], goals: goals)
@@ -662,7 +662,7 @@ struct HeroDashboardViewModelTests {
                 weekOf: currentWeek,
                 questName: name,
                 isActive: true,
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 10,
                 rarity: "common",
                 scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -700,7 +700,7 @@ struct HeroDashboardViewModelTests {
                 weekOf: currentWeek,
                 questName: name,
                 isActive: true,
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 10,
                 rarity: "common",
                 scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -759,7 +759,7 @@ struct HeroDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "AON Quest",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -777,7 +777,7 @@ struct HeroDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Single",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,

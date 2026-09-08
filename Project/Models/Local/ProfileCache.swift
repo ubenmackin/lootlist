@@ -202,13 +202,9 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
             matchEnabled: profile.matchEnabled,
             matchRateBps: profile.matchRateBps,
             matchMonthlyCapPennies: profile.matchMonthlyCapPennies,
-            changeTag: profile.changeTag,
-            lastSyncedXP: profile.xp,
-            encodedSystemFields: profile.encodedSystemFields,
-            sourceZoneName: profile.id.zoneID.zoneName,
-            sourceZoneOwnerName: profile.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: profile.id.zoneID)
+            lastSyncedXP: profile.xp
         )
+        applySystemFields(from: profile)
     }
 
     // MARK: - CacheMergeable
@@ -247,18 +243,12 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         matchEnabled = profile.matchEnabled
         matchRateBps = profile.matchRateBps
         matchMonthlyCapPennies = profile.matchMonthlyCapPennies
-        changeTag = profile.changeTag
-        sourceZoneName = profile.id.zoneID.zoneName
-        sourceZoneOwnerName = profile.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: profile.id.zoneID)
+        applySystemFields(from: profile, isServerSync: isServerSync)
         if isServerSync {
             // Advance baseline to prevent cumulative delta drift on next conflict.
             // Without this, clientDelta = clientXP - lastSyncedXP double-counts
             // prior deltas (Bug A). lastSyncedXP must track the last server-confirmed XP.
             lastSyncedXP = profile.xp
-            if profile.encodedSystemFields != nil {
-                encodedSystemFields = profile.encodedSystemFields
-            }
         }
     }
 
@@ -275,5 +265,22 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<ProfileCache> {
         FetchDescriptor<ProfileCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<ProfileCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: single-row reads stay index-bound on the composite key.
+    static func recordPredicate(recordName: String, familyRecordName: String) -> Predicate<ProfileCache> {
+        let targetRecord = recordName
+        let targetFamily = familyRecordName
+        return #Predicate<ProfileCache> {
+            $0.recordName == targetRecord && $0.familyRecordName == targetFamily
+        }
     }
 }

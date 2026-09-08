@@ -69,7 +69,7 @@ struct FamilyDashboardViewModelTests {
         fetcher: MockFamilyProfileFetcher = MockFamilyProfileFetcher(),
         family: Family? = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1")
+            creatorUserRecordName: "owner1"
         )
     ) -> SUT {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -265,7 +265,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Hero 1 Quest",
             isActive: true,
-            goldReward: 20.0,
+            goldReward: 2000,
             xpReward: 50,
             rarity: "common",
             scheduleType: "daily",
@@ -283,7 +283,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Hero 2 Quest",
             isActive: true,
-            goldReward: 50.0,
+            goldReward: 5000,
             xpReward: 100,
             rarity: "rare",
             scheduleType: "daily",
@@ -321,8 +321,8 @@ struct FamilyDashboardViewModelTests {
         let hero1Summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero1" }))
         let hero2Summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero2" }))
 
-        #expect(hero1Summary.weeklyGoldEarned == 20.0)
-        #expect(hero2Summary.weeklyGoldEarned == 0.0)
+        #expect(hero1Summary.weeklyGoldEarned == 2000)
+        #expect(hero2Summary.weeklyGoldEarned == 0)
     }
 
     @Test
@@ -354,7 +354,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Multi Task Quest",
             isActive: true,
-            goldReward: 20.0,
+            goldReward: 2000,
             xpReward: 50,
             rarity: "common",
             scheduleType: "daily",
@@ -426,7 +426,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "RealTime Quest",
             isActive: true,
-            goldReward: 25.0,
+            goldReward: 2500,
             xpReward: 30,
             rarity: "common",
             scheduleType: "daily",
@@ -466,7 +466,7 @@ struct FamilyDashboardViewModelTests {
         #expect(summary.heroSummaries.first?.weeklyGoldEarned ?? 0 > 0)
         // But pendingPayoutAmount must be 0 because real-time heroes have no
         // pending weekly batch — their gold is already settled via rt- entries.
-        #expect(summary.pendingPayoutAmount == 0.0)
+        #expect(summary.pendingPayoutAmount == 0)
         // totalEarned still shows the gross amount earned (for display purposes),
         // but the pending amount (what the view uses for "pending" labels) is zero.
         #expect(summary.totalEarned > 0)
@@ -522,7 +522,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "RT Quest",
             isActive: true,
-            goldReward: 50.0,
+            goldReward: 5000,
             xpReward: 30,
             rarity: "common",
             scheduleType: "daily",
@@ -541,7 +541,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Standard Quest",
             isActive: true,
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 30,
             rarity: "common",
             scheduleType: "daily",
@@ -591,12 +591,12 @@ struct FamilyDashboardViewModelTests {
 
         let summary = try #require(sut.vm.weekSummary)
         // totalEarned includes both heroes' gold
-        #expect(summary.totalEarned == 80.0)
+        #expect(summary.totalEarned == 8000)
         // pendingPayoutAmount only includes the standard hero
-        #expect(summary.pendingPayoutAmount == 30.0)
+        #expect(summary.pendingPayoutAmount == 3000)
         // Real-time hero contribution excluded from pending
         #expect(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_rt" })?.weeklyGoldEarned ?? 0 > 0)
-        #expect(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_std" })?.weeklyGoldEarned ?? 0 == 30.0)
+        #expect(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_std" })?.weeklyGoldEarned ?? 0 == 3000)
     }
 
     @Test
@@ -629,7 +629,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Standard Quest",
             isActive: true,
-            goldReward: 30.0,
+            goldReward: 3000,
             xpReward: 30,
             rarity: "common",
             scheduleType: "daily",
@@ -660,11 +660,11 @@ struct FamilyDashboardViewModelTests {
             familyRecordName: familyName,
             weekOf: currentWeek.addingTimeInterval(6 * 3600),
             status: PayoutStatus.paid.rawValue,
-            totalEarned: 30.0,
+            totalEarned: 3000,
             questsCompleted: 1,
             questsTotal: 1,
             paidDate: today,
-            paidAmount: 30.0
+            paidAmount: 3000
         )
 
         sut.vm.rebuildLists(
@@ -680,9 +680,9 @@ struct FamilyDashboardViewModelTests {
 
         let summary = try #require(sut.vm.weekSummary)
         // Since the period is paid, pendingPayoutAmount must be 0
-        #expect(summary.pendingPayoutAmount == 0.0)
+        #expect(summary.pendingPayoutAmount == 0)
         let heroSummary = try #require(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_std" }))
-        #expect(heroSummary.weeklyGoldEarned == 0.0)
+        #expect(heroSummary.weeklyGoldEarned == 0)
     }
 
     // MARK: - Dashboard aggregates
@@ -729,23 +729,23 @@ struct FamilyDashboardViewModelTests {
         let ledgers = [
             LedgerEntryCache(
                 recordName: "l_ava_quest", profileRecordName: "hero1", familyRecordName: "fam1",
-                amount: 12.25, entryDescription: "Quest reward", date: Date(), source: "quest",
+                amount: 1225, entryDescription: "Quest reward", date: Date(), source: "quest",
                 bucketKind: BucketKind.spend.rawValue
             ),
             LedgerEntryCache(
                 recordName: "l_ava_snack", profileRecordName: "hero1", familyRecordName: "fam1",
-                amount: -4.00, entryDescription: "Snack", date: Date(), source: "manual",
+                amount: -400, entryDescription: "Snack", date: Date(), source: "manual",
                 bucketKind: BucketKind.spend.rawValue
             ),
             LedgerEntryCache(
                 recordName: "l_ben_deposit", profileRecordName: "hero2", familyRecordName: "fam1",
-                amount: 8.50, entryDescription: "Deposit", date: Date(), source: "deposit",
+                amount: 850, entryDescription: "Deposit", date: Date(), source: "deposit",
                 bucketKind: BucketKind.spend.rawValue
             ),
             // Parent wallet rows are not child outflow.
             LedgerEntryCache(
                 recordName: "l_dad_wallet", profileRecordName: "parent1", familyRecordName: "fam1",
-                amount: 500.00, entryDescription: "Parent wallet", date: Date(), source: "deposit",
+                amount: 50000, entryDescription: "Parent wallet", date: Date(), source: "deposit",
                 bucketKind: BucketKind.spend.rawValue
             )
         ]
@@ -761,8 +761,8 @@ struct FamilyDashboardViewModelTests {
             templates: []
         )
 
-        // 12.25 - 4.00 + 8.50, parent's 500.00 excluded
-        #expect(sut.vm.familyOutflow == 16.75)
+        // 1225 - 400 + 850, parent's 50000 excluded
+        #expect(sut.vm.familyOutflow == 1675)
     }
 
     @Test
@@ -796,12 +796,12 @@ struct FamilyDashboardViewModelTests {
         let ledgers = [
             LedgerEntryCache(
                 recordName: "l_ava", profileRecordName: "hero1", familyRecordName: "fam1",
-                amount: 10.00, entryDescription: "Quest reward", date: Date(), source: "quest",
+                amount: 1000, entryDescription: "Quest reward", date: Date(), source: "quest",
                 bucketKind: BucketKind.spend.rawValue
             ),
             LedgerEntryCache(
                 recordName: "l_ben", profileRecordName: "hero2", familyRecordName: "fam1",
-                amount: 2.50, entryDescription: "Deposit", date: Date(), source: "deposit",
+                amount: 250, entryDescription: "Deposit", date: Date(), source: "deposit",
                 bucketKind: BucketKind.spend.rawValue
             )
         ]
@@ -815,7 +815,7 @@ struct FamilyDashboardViewModelTests {
             weekOf: currentWeek,
             questName: "Ava Quest",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 50,
             rarity: "common",
             scheduleType: "daily",
@@ -830,7 +830,7 @@ struct FamilyDashboardViewModelTests {
             familyRecordName: "fam1",
             name: "Ava Template",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 50,
             rarity: "common",
             specificDays: nil,
@@ -858,11 +858,11 @@ struct FamilyDashboardViewModelTests {
         #expect(sut.vm.childAccountCards.map(\.profile.recordName) == ["hero1", "hero2"])
 
         let avaCard = try #require(sut.vm.childAccountCards.first { $0.profile.recordName == "hero1" })
-        #expect(avaCard.balance == 10.00)
+        #expect(avaCard.balance == 1000)
         #expect(avaCard.pendingReviewCount == 2)
 
         let benCard = try #require(sut.vm.childAccountCards.first { $0.profile.recordName == "hero2" })
-        #expect(benCard.balance == 2.50)
+        #expect(benCard.balance == 250)
         #expect(benCard.pendingReviewCount == 1)
     }
 }

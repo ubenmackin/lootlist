@@ -30,7 +30,7 @@ struct HeroHomeView: View {
     @State private var showingJourneyMap = false
     @State private var checklistSheetItem: HeroChecklistCardView.ChecklistItem?
 
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroHomeView")
+    private static let logger = Logger(category: "HeroHomeView")
 
     private let familyRecordName: String?
 
@@ -40,97 +40,29 @@ struct HeroHomeView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        let targetFamily = familyRecordName ?? ""
+        let targetFamily = HubQueryProvider.targetFamily(familyRecordName)
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "HeroHomeView")
-        // WHY: predicate pushdown — family+profile at store when identity resolves, family-only fallback otherwise
+        // WHY shared provider: family+profile at store when identity resolves, family-only fallback otherwise
         // so hub surfaces never render silent-empty; secondary in-memory guards scope to the active profile.
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
-            let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
-            let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
-            let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-            let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-            let currentProfileFilter = #Predicate<ProfileCache> {
-                $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-            }
+        let targetProfile = profileRecordName.sanitizedNilIfEmpty
+        let questFilter = HubQueryProvider.questFilter(family: targetFamily, profile: targetProfile)
+        let completionFilter = HubQueryProvider.completionFilter(family: targetFamily, profile: targetProfile)
+        let allowanceFilter = HubQueryProvider.allowanceFilter(family: targetFamily, profile: targetProfile)
+        let gemLedgerFilter = HubQueryProvider.gemFilter(family: targetFamily, profile: targetProfile)
+        let goalFilter = HubQueryProvider.goalFilter(family: targetFamily, profile: targetProfile)
+        let currentProfileFilter = HubQueryProvider.currentProfileFilter(family: targetFamily, profile: targetProfile)
+        let templateFilter = HubQueryProvider.templateFilter(family: targetFamily)
+        let profileFilter = HubQueryProvider.profileFilter(family: targetFamily)
 
-            // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
-            _cachedQuests = Query(
-                filter: questFilter,
-                sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
-            )
-            _cachedCompletions = Query(
-                filter: completionFilter,
-                sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
-            )
-            _cachedTemplates = Query(
-                filter: templateFilter,
-                sort: \QuestTemplateCache.name
-            )
-            _cachedProfiles = Query(
-                filter: profileFilter,
-                sort: \ProfileCache.displayName
-            )
-            _cachedAllowancePeriods = Query(
-                filter: allowanceFilter,
-                sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
-            )
-            _cachedGemLedgers = Query(
-                filter: gemLedgerFilter,
-                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
-            )
-            _currentProfileRows = Query(
-                filter: currentProfileFilter,
-                sort: \ProfileCache.displayName
-            )
-            _cachedGoals = Query(
-                filter: goalFilter,
-                sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
-            )
-        } else {
-            let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-            let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-            let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
-            let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
-            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-            let currentProfileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-
-            // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
-            _cachedQuests = Query(
-                filter: questFilter,
-                sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
-            )
-            _cachedCompletions = Query(
-                filter: completionFilter,
-                sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
-            )
-            _cachedTemplates = Query(
-                filter: templateFilter,
-                sort: \QuestTemplateCache.name
-            )
-            _cachedProfiles = Query(
-                filter: profileFilter,
-                sort: \ProfileCache.displayName
-            )
-            _cachedAllowancePeriods = Query(
-                filter: allowanceFilter,
-                sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
-            )
-            _cachedGemLedgers = Query(
-                filter: gemLedgerFilter,
-                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
-            )
-            _currentProfileRows = Query(
-                filter: currentProfileFilter,
-                sort: \ProfileCache.displayName
-            )
-            _cachedGoals = Query(
-                filter: goalFilter,
-                sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
-            )
-        }
+        // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
+        _cachedQuests = Query(filter: questFilter, sort: HubQueryProvider.questSort())
+        _cachedCompletions = Query(filter: completionFilter, sort: HubQueryProvider.completionSort())
+        _cachedTemplates = Query(filter: templateFilter, sort: HubQueryProvider.templateSort())
+        _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
+        _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: HubQueryProvider.allowanceSort())
+        _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: HubQueryProvider.gemSort())
+        _currentProfileRows = Query(filter: currentProfileFilter, sort: \ProfileCache.displayName)
+        _cachedGoals = Query(filter: goalFilter, sort: HubQueryProvider.goalSort())
     }
 
     /// Queried cache row for the active hero profile. Nil when the session
@@ -162,11 +94,11 @@ struct HeroHomeView: View {
     // MARK: - Checklist
 
     private var hasFirstGoal: Bool {
-        // WHY shared predicate: the checklist and the wishlist must agree on what counts as a goal; completed rows still count.
-        if let targetName = profileRecordName ?? appState.currentProfile?.id.recordName {
-            return cachedGoals.contains { $0.profileRecordName == targetName && $0.isListedGoal }
-        }
-        return cachedGoals.contains(where: \.isListedGoal)
+        // WHY ViewModel-owned: checklist/wishlist agreement lives in HeroDashboardViewModel via HubQueryProvider.
+        HeroDashboardViewModel.hasListedGoal(
+            goals: cachedGoals,
+            profileName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
     }
 
     private var hasCompletedFirstQuest: Bool {
@@ -217,7 +149,7 @@ struct HeroHomeView: View {
     /// Single helper for the default-split check so `shouldShowChecklist` and
     /// `scrollContent` share one computation path instead of diverging overloads.
     private func splitIsDefault(for row: ProfileCache) -> Bool {
-        BucketService.isDefaultSplit(spend: row.splitPercentSpend, short: row.splitPercentShort, long: row.splitPercentLong)
+        HeroDashboardViewModel.splitIsDefault(spend: row.splitPercentSpend, short: row.splitPercentShort, long: row.splitPercentLong)
     }
 
     /// Writes the scoped key (family+profile isolation) so completion here never leaks into another family's prime gate.
@@ -366,191 +298,22 @@ struct HeroHomeView: View {
         gemsBalance.map { "Gem Shop, \($0) gems available" } ?? "Gem Shop, gem balance unavailable"
     }
 
-    // MARK: - Integrated Player Card
+    // MARK: - Integrated Player Card (focused section)
 
     @ViewBuilder
     private var playerCard: some View {
         if let row = currentProfileRow {
-            let progress = xpService.levelProgress(profileCache: row)
-            let earned = viewModel?.earnedThisWeek ?? 0
-            let streak = row.dailyLoginStreakDays
-            let shields = row.streakShields
-            let completed = viewModel?.completedQuestCount ?? 0
-            let total = profileQuests.count
-
-            VStack(spacing: 12) {
-                playerCardTopRow(row: row, progress: progress)
-
-                Divider()
-                    .overlay(Color.secondary.opacity(0.15))
-
-                playerCardStatsRow(
-                    earned: earned,
-                    streak: streak,
-                    shields: shields,
-                    completed: completed,
-                    total: total
-                )
-            }
-            .padding(DesignSystemConstants.Padding.standard)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
+            HeroHomePlayerCardView(
+                row: row,
+                progress: xpService.levelProgress(profileCache: row),
+                earned: Double(viewModel?.earnedThisWeek ?? 0),
+                streak: row.dailyLoginStreakDays,
+                shields: row.streakShields,
+                completed: viewModel?.completedQuestCount ?? 0,
+                total: profileQuests.count,
+                familyName: appState.family?.name
             )
         }
-    }
-
-    private func playerCardTopRow(row: ProfileCache, progress: LevelProgress) -> some View {
-        HStack(spacing: 12) {
-            ProfileAvatarView(profileCache: row)
-                .frame(width: 56, height: 56)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(row.displayName)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-
-                    // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
-                    if FeatureFlags.rpgImmersive {
-                        Text("Lv. \(progress.currentLevel)")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(Color(DesignSystemConstants.Colors.accentBlue))
-                            )
-                    }
-
-                    Spacer(minLength: 0)
-
-                    if let familyName = appState.family?.name, !familyName.isEmpty {
-                        familyNamePill(familyName)
-                    }
-                }
-
-                xpProgressBar(progress: progress.progress)
-            }
-        }
-    }
-
-    private func xpProgressBar(progress: Double) -> some View {
-        GeometryReader { geo in
-            let rawWidth = geo.size.width
-            let trackWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth : 0
-            let rawProgress = CGFloat(progress)
-            let safeProgress: CGFloat = (rawProgress.isFinite && rawProgress > 0) ? min(rawProgress, 1) : 0
-            let fillWidth = trackWidth * safeProgress
-            let safeFillWidth: CGFloat = (fillWidth.isFinite && fillWidth > 0) ? fillWidth : 0
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color(DesignSystemConstants.Colors.background))
-
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
-                    .frame(width: safeFillWidth)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: progress)
-            }
-        }
-        .frame(height: 6)
-    }
-
-    private func playerCardStatsRow(
-        earned: Double,
-        streak: Int,
-        shields: Int,
-        completed: Int,
-        total: Int
-    ) -> some View {
-        HStack(spacing: 0) {
-            // Weekly Haul
-            HStack(spacing: 6) {
-                Image(systemName: "banknote.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("This Week")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(CurrencyFormatter.string(earned))
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.primary)
-                }
-            }
-
-            Spacer()
-
-            // Streak & Shields
-            HStack(spacing: 6) {
-                Image(systemName: "flame.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Streak")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 4) {
-                        Text("\(streak)d")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                        if shields > 0 {
-                            Text("🛡️\(shields)")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Quests Progress
-            HStack(spacing: 6) {
-                Image(systemName: "checklist")
-                    .font(.subheadline)
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Quests")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("\(completed)/\(total)")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.primary)
-                }
-            }
-        }
-    }
-
-    private func familyNamePill(_ name: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "shield.fill")
-                .font(.caption2)
-            Text(name)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
-        )
-        .overlay(
-            Capsule()
-                .strokeBorder(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.35), lineWidth: 1)
-        )
-        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
     }
 
     // MARK: - Helpers
@@ -558,9 +321,8 @@ struct HeroHomeView: View {
     private var gemsBalance: Int? {
         guard let profile = appState.currentProfile else { return nil }
         let targetRecordName = profile.id.recordName
-        let matching = cachedGemLedgers.filter { $0.profileRecordName == targetRecordName }
-        if !matching.isEmpty {
-            return matching.reduce(0) { $0 + $1.amount }
+        if let cached = HeroDashboardViewModel.cachedGemTotal(ledgers: cachedGemLedgers, profileName: targetRecordName) {
+            return cached
         }
         let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
         do {
@@ -622,94 +384,36 @@ struct HeroHomeView: View {
     }
 
     private var checklistNotificationSheet: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                NotificationPrimeCard()
-                    .padding(.top, 32)
-                    .padding(.horizontal, 24)
-
-                Button {
-                    Task {
-                        HapticsService.lightImpact()
-                        do {
-                            _ = try await notificationService.enableNotificationsAfterPrime()
-                        } catch {
-                            Self.logger.debug("Notification prime authorization failed: \(error, privacy: .private)")
-                        }
-                        markNotificationPrimeSeen()
-                        checklistSheetItem = nil
-                    }
-                } label: {
-                    Text("Turn On")
-                        .font(.headline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(DesignSystemConstants.Colors.accentBlue))
-                .padding(.horizontal, 24)
-                .accessibilityIdentifier("heroChecklist.enableNotificationsButton")
-
-                Button {
+        HeroHomeNotificationPrimeSheetView(
+            onEnable: {
+                Task {
                     HapticsService.lightImpact()
+                    do {
+                        _ = try await notificationService.enableNotificationsAfterPrime()
+                    } catch {
+                        Self.logger.debug("Notification prime authorization failed: \(error, privacy: .private)")
+                    }
                     markNotificationPrimeSeen()
                     checklistSheetItem = nil
-                } label: {
-                    Text("Maybe Later")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
                 }
-                .accessibilityIdentifier("heroChecklist.skipNotificationsButton")
-
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 16)
-            .navigationTitle("Alerts")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { checklistSheetItem = nil }
-                }
-            }
-        }
+            },
+            onSkip: {
+                HapticsService.lightImpact()
+                markNotificationPrimeSeen()
+                checklistSheetItem = nil
+            },
+            onClose: { checklistSheetItem = nil }
+        )
     }
 
     private var checklistFirstQuestSheet: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Text(FlavorTextProvider.questCompleteHint)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 32)
-                    .padding(.horizontal, 24)
-                Text(FlavorTextProvider.questHelpHowTo)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                Spacer()
-                Button {
-                    HapticsService.lightImpact()
-                    checklistSheetItem = nil
-                } label: {
-                    Text("Got it!")
-                        .font(.headline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(DesignSystemConstants.Colors.primaryGreen))
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+        HeroHomeFirstQuestSheetView(
+            onClose: { checklistSheetItem = nil },
+            onAcknowledge: {
+                HapticsService.lightImpact()
+                checklistSheetItem = nil
             }
-            .navigationTitle("First Quest")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { checklistSheetItem = nil }
-                }
-            }
-        }
+        )
     }
 
     @MainActor

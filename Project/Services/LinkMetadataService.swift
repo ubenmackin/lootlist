@@ -19,7 +19,7 @@ struct ResolvedLinkMetadata: Sendable, Equatable {
 /// Asynchronously resolves webpage metadata (title and preview image URL) from URLs.
 @MainActor
 final class LinkMetadataService {
-    private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LinkMetadata")
+    private nonisolated static let logger = Logger(category: "LinkMetadata")
 
     private final class MetadataBox: NSObject {
         let metadata: ResolvedLinkMetadata

@@ -8,13 +8,14 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 /// Reconciles active Profile cache with CloudKit share participants, deactivating departed members.
 @MainActor
 final class FamilyShareReconciler {
     private let familyService: FamilyService
     private let defaults: UserDefaults
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyShare")
+    private let logger = Logger(category: "FamilyShare")
 
     /// Passes an identity must be observed absent from the participant list
     /// before its profile is deactivated, riding out CloudKit's asynchronous
@@ -22,7 +23,8 @@ final class FamilyShareReconciler {
     private let absenceThreshold = AppConstants.CloudKit.shareAbsenceThreshold
 
     private var isStarted = false
-    private var observerTask: Task<Void, Never>?
+    // WHY: handle must stay cancellable from nonisolated deinit without hopping to MainActor.
+    private nonisolated let observerTask = Mutex<Task<Void, Never>?>(nil)
 
     init(familyService: FamilyService, defaults: UserDefaults = .standard) {
         self.familyService = familyService
@@ -30,30 +32,40 @@ final class FamilyShareReconciler {
     }
 
     deinit {
-        observerTask?.cancel()
+        // WHY: last resort only; owner lifecycle tears down explicitly so cancellation never depends on deinit timing.
+        observerTask.withLock { $0?.cancel() }
     }
 
     func start() {
         guard !isStarted else { return }
         isStarted = true
-        observerTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "FamilyShareReconciler observer must hop to MainActor")
-            #endif
-            for await _ in NotificationCenter.default.notifications(named: .syncDidComplete) {
-                guard let self else { return }
+        observerTask.withLock { stored in
+            stored = Task { @MainActor [weak self] in
                 #if DEBUG
-                    assert(Thread.isMainThread)
+                    assert(Thread.isMainThread, "FamilyShareReconciler observer must hop to MainActor")
                 #endif
-                await self.reconcileIfOwner()
+                for await _ in NotificationCenter.default.notifications(named: .syncDidComplete) {
+                    guard let self else { return }
+                    #if DEBUG
+                        assert(Thread.isMainThread)
+                    #endif
+                    await self.reconcileIfOwner()
+                }
             }
         }
     }
 
     func stop() {
+        tearDown()
+    }
+
+    /// Explicit teardown for owner lifecycle; cancels the sync observer.
+    func tearDown() {
         isStarted = false
-        observerTask?.cancel()
-        observerTask = nil
+        observerTask.withLock { task in
+            task?.cancel()
+            task = nil
+        }
     }
 
     /// Reconciles active non-owner profiles against the family's `CKShare` participant list.

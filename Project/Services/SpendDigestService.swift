@@ -14,7 +14,7 @@ import Synchronization
 /// hero spend debits, replacing the retired per-spend buzz.
 @MainActor
 final class SpendDigestService {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SpendDigest")
+    private let logger = Logger(category: "SpendDigest")
 
     /// Local hour the rollup becomes due.
     nonisolated static let digestHour = 9
@@ -91,9 +91,9 @@ final class SpendDigestService {
             let spends = cacheService.fetchLedgerEntries(profileRecordName: hero.recordName, family: familyName)
                 .filter { $0.date >= windowStart && $0.date < now && $0.amount < 0 && BucketService.isCounted($0) }
             guard !spends.isEmpty else { continue }
-            let total = spends.reduce(0.0) { $0 + abs($1.amount) }
+            let total = spends.reduce(0) { $0 + abs($1.amount) }
             let noun = spends.count == 1 ? "spend" : "spends"
-            lines.append("\(hero.displayName) \(CurrencyFormatter.string(total)) in \(spends.count) \(noun)")
+            lines.append("\(hero.displayName) \(CurrencyFormatter.string(pennies: total)) in \(spends.count) \(noun)")
         }
         guard !lines.isEmpty else { return nil }
         // WHY sliding label: the window spans two calendar days, so copy names the interval, not yesterday.

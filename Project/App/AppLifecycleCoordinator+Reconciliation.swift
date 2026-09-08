@@ -243,15 +243,7 @@ extension AppLifecycleCoordinator {
     /// recordNames) ensure CloudKit dedupes re-enqueued saves across devices.
     func enqueueUnsyncedLocalRecords(family: Family, zoneID: CKRecordZone.ID) async {
         let now = Date()
-        let shouldProceed: Bool = state.withLock { flags in
-            if let last = flags.lastUnsyncedEnqueueAt,
-               now.timeIntervalSince(last) < Self.unsyncedEnqueueDebounceInterval
-            {
-                return false
-            }
-            flags.lastUnsyncedEnqueueAt = now
-            return true
-        }
+        let shouldProceed: Bool = syncGate.consumeUnsyncedTrigger(now: now)
         guard shouldProceed else {
             logger.debug("Unsynced re-enqueue throttled: within debounce window")
             return

@@ -21,7 +21,9 @@ struct RewardEvent: Identifiable, Equatable, Sendable, CloudKitRecord {
     var profile: CKRecord.Reference
     var questCompletion: CKRecord.Reference
     var xpAmount: Int
-    var goldAmount: Double
+    /// Whole pennies — legacy `gold` prefix retained per architecture; render
+    /// only through `CurrencyFormatter`.
+    var goldAmount: Int64
     var timestamp: Date
     var family: CKRecord.Reference
 
@@ -29,7 +31,7 @@ struct RewardEvent: Identifiable, Equatable, Sendable, CloudKitRecord {
         profile: CKRecord.Reference,
         questCompletion: CKRecord.Reference,
         xpAmount: Int,
-        goldAmount: Double,
+        goldAmount: Int64,
         timestamp: Date = Date(),
         family: CKRecord.Reference,
         id: CKRecord.ID
@@ -65,7 +67,7 @@ struct RewardEvent: Identifiable, Equatable, Sendable, CloudKitRecord {
         self.questCompletion = questCompletion
 
         xpAmount = record.extractOptional("xpAmount") ?? 0
-        goldAmount = record.extractOptional("goldAmount") ?? 0.0
+        goldAmount = record.penniesOptional(forKey: "goldAmount") ?? 0
 
         guard let timestamp = record["timestamp"] as? Date else {
             throw CKDecodingError.missingField("timestamp")
@@ -91,5 +93,9 @@ struct RewardEvent: Identifiable, Equatable, Sendable, CloudKitRecord {
 
     static func recordID(completionRecordName: String, zoneID: CKRecordZone.ID) -> CKRecord.ID {
         CKRecord.ID(recordName: "reward-\(completionRecordName)", zoneID: zoneID)
+    }
+
+    var formattedGoldAmount: String {
+        CurrencyFormatter.string(pennies: goldAmount)
     }
 }

@@ -101,13 +101,9 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
             approvalMode: derivedApprovalMode.rawValue,
             verifiedByRecordName: completion.verifiedBy?.recordID.recordName,
             verifiedDate: completion.verifiedDate,
-            xpCredited: completion.xpCredited,
-            changeTag: completion.changeTag,
-            encodedSystemFields: completion.encodedSystemFields,
-            sourceZoneName: completion.id.zoneID.zoneName,
-            sourceZoneOwnerName: completion.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: completion.id.zoneID)
+            xpCredited: completion.xpCredited
         )
+        applySystemFields(from: completion)
     }
 
     // MARK: - CacheMergeable
@@ -125,13 +121,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
         verifiedByRecordName = completion.verifiedBy?.recordID.recordName
         verifiedDate = completion.verifiedDate
         xpCredited = isServerSync ? (xpCredited ?? completion.xpCredited) : completion.xpCredited
-        changeTag = completion.changeTag
-        sourceZoneName = completion.id.zoneID.zoneName
-        sourceZoneOwnerName = completion.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: completion.id.zoneID)
-        if isServerSync, completion.encodedSystemFields != nil {
-            encodedSystemFields = completion.encodedSystemFields
-        }
+        applySystemFields(from: completion, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestCompletionCache> {
@@ -147,5 +137,45 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<QuestCompletionCache> {
         FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<QuestCompletionCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY single source: hero-scoped reads push family+completer to the store instead of scanning.
+    static func completerPredicate(familyRecordName: String, completerRecordName: String) -> Predicate<QuestCompletionCache> {
+        let targetFamily = familyRecordName
+        let targetCompleter = completerRecordName
+        return #Predicate<QuestCompletionCache> {
+            $0.familyRecordName == targetFamily && $0.completerRecordName == targetCompleter
+        }
+    }
+
+    /// WHY single source: detail screens scope to one quest within the family partition.
+    static func questPredicate(familyRecordName: String, questRecordName: String) -> Predicate<QuestCompletionCache> {
+        let targetFamily = familyRecordName
+        let targetQuest = questRecordName
+        return #Predicate<QuestCompletionCache> {
+            $0.familyRecordName == targetFamily && $0.questRecordName == targetQuest
+        }
+    }
+
+    /// WHY single source: the badge count shares the pending definition with no extra fetch.
+    static func pendingPredicate(familyRecordName: String) -> Predicate<QuestCompletionCache> {
+        let targetFamily = familyRecordName
+        let pendingStatus = VerificationStatus.pending.rawValue
+        return #Predicate<QuestCompletionCache> {
+            $0.familyRecordName == targetFamily && $0.verificationStatus == pendingStatus
+        }
+    }
+
+    /// WHY fail-closed: empty scope returns zero rows via the index, never an unscoped scan.
+    static func emptyPredicate() -> Predicate<QuestCompletionCache> {
+        #Predicate<QuestCompletionCache> { $0.familyRecordName == "__empty__" }
     }
 }

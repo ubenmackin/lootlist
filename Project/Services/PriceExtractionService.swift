@@ -19,10 +19,7 @@ struct ExtractedPrice: Sendable {
 
 @MainActor
 enum PriceExtractionService {
-    private nonisolated static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "PriceExtraction"
-    )
+    private nonisolated static let logger = Logger(category: "PriceExtraction")
 
     nonisolated static func extractPrice(from url: URL) async -> ExtractedPrice? {
         guard let html = await fetchRawHTML(for: url) else { return nil }
@@ -54,20 +51,9 @@ enum PriceExtractionService {
     private nonisolated static func stripScriptsAndStyles(from html: String) -> String {
         var cleaned = html
         // Remove script/style blocks — they add noise and can contain false price matches.
-        let patterns = [
-            "<script[^>]*>.*?</script>",
-            "<style[^>]*>.*?</style>"
-        ]
-        for pattern in patterns {
-            let regex: NSRegularExpression
-            do {
-                regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators])
-            } catch {
-                continue
-            }
-            let range = NSRange(cleaned.startIndex..., in: cleaned)
-            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
-        }
+        // WHY inline (?is): case-insensitive + dot-matches-newlines keeps prior strip semantics.
+        cleaned = cleaned.replacing(/(?is)<script[^>]*>.*?<\/script>/, with: "")
+        cleaned = cleaned.replacing(/(?is)<style[^>]*>.*?<\/style>/, with: "")
         return cleaned
     }
 
@@ -191,18 +177,8 @@ enum PriceExtractionService {
 
     private nonisolated static func extractMetaAmount(for key: String, in html: String) -> String? {
         // Scan meta tags and match property/name containing key, then pull content attribute.
-        let metaPattern = "<meta[^>]+>"
-        let metaRegex: NSRegularExpression
-        do {
-            metaRegex = try NSRegularExpression(pattern: metaPattern, options: .caseInsensitive)
-        } catch {
-            return nil
-        }
-        let range = NSRange(html.startIndex..., in: html)
-        let matches = metaRegex.matches(in: html, options: [], range: range)
-        for match in matches {
-            guard let tagRange = Range(match.range, in: html) else { continue }
-            let tag = String(html[tagRange])
+        for match in html.matches(of: /(?i)<meta[^>]+>/) {
+            let tag = String(match.output)
             if tag.lowercased().contains(key.lowercased()) {
                 if let content = extractContentAttribute(from: tag) {
                     return content
@@ -226,19 +202,8 @@ enum PriceExtractionService {
             }
         }
         // JSON-LD priceCurrency
-        let currencyPattern = #"priceCurrency"\s*:\s*["']?([A-Za-z]{3})["']?"#
-        let currencyRegex: NSRegularExpression
-        do {
-            currencyRegex = try NSRegularExpression(pattern: currencyPattern, options: .caseInsensitive)
-        } catch {
-            return CurrencyFormatter.currencyCode
-        }
-        let range = NSRange(html.startIndex..., in: html)
-        if let match = currencyRegex.firstMatch(in: html, options: [], range: range),
-           match.numberOfRanges > 1,
-           let currencyRange = Range(match.range(at: 1), in: html)
-        {
-            let code = String(html[currencyRange]).uppercased()
+        if let match = html.firstMatch(of: /(?i)"priceCurrency"\s*:\s*["']?([A-Za-z]{3})["']?/) {
+            let code = String(match.output.1).uppercased()
             if code.count == 3 {
                 return code
             }
@@ -247,36 +212,15 @@ enum PriceExtractionService {
     }
 
     private nonisolated static func extractJSONLDPrice(from html: String) -> String? {
-        let pattern = #""price"\s*:\s*["']?([0-9]+(?:[.,][0-9]+)?)["']?"#
-        let priceRegex: NSRegularExpression
-        do {
-            priceRegex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-        } catch {
-            return nil
-        }
-        let range = NSRange(html.startIndex..., in: html)
-        if let match = priceRegex.firstMatch(in: html, options: [], range: range),
-           match.numberOfRanges > 1,
-           let priceRange = Range(match.range(at: 1), in: html)
-        {
-            return String(html[priceRange])
+        if let match = html.firstMatch(of: /(?i)"price"\s*:\s*["']?([0-9]+(?:[.,][0-9]+)?)["']?/) {
+            return String(match.output.1)
         }
         return nil
     }
 
     private nonisolated static func extractContentAttribute(from tag: String) -> String? {
-        let pattern = #"content\s*=\s*["']([^"']+)["']"#
-        let contentRegex: NSRegularExpression
-        do {
-            contentRegex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-        } catch {
-            return nil
-        }
-        let range = NSRange(tag.startIndex..., in: tag)
-        guard let match = contentRegex.firstMatch(in: tag, options: [], range: range),
-              match.numberOfRanges > 1,
-              let contentRange = Range(match.range(at: 1), in: tag) else { return nil }
-        let content = String(tag[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = tag.firstMatch(of: /(?i)content\s*=\s*["']([^"']+)["']/) else { return nil }
+        let content = String(match.output.1).trimmingCharacters(in: .whitespacesAndNewlines)
         return content.isEmpty ? nil : content
     }
 
@@ -289,17 +233,8 @@ enum PriceExtractionService {
             return direct
         }
         // Fallback: extract first numeric token.
-        let numPattern = #"([0-9]+(?:\.[0-9]+)?)"#
-        let numberRegex: NSRegularExpression
-        do {
-            numberRegex = try NSRegularExpression(pattern: numPattern)
-        } catch {
-            return nil
-        }
-        if let match = numberRegex.firstMatch(in: cleaned, options: [], range: NSRange(cleaned.startIndex..., in: cleaned)),
-           let numberRange = Range(match.range(at: 1), in: cleaned)
-        {
-            return Double(String(cleaned[numberRange]))
+        if let match = cleaned.firstMatch(of: /([0-9]+(?:\.[0-9]+)?)/) {
+            return Double(String(match.output.1))
         }
         return nil
     }

@@ -23,7 +23,6 @@ struct FamilyServiceTests {
         appState.familyZoneID = zoneID
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         appState.family = family
@@ -46,7 +45,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -121,7 +119,6 @@ struct FamilyServiceTests {
         appState.isZoneOwner = cloudKit.activeIsOwner
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         appState.family = family
@@ -148,7 +145,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -195,7 +191,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -249,7 +244,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -303,7 +297,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -358,7 +351,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let ckHero = Profile(
@@ -411,7 +403,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -454,7 +445,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -502,7 +492,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -557,7 +546,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -572,7 +560,7 @@ struct FamilyServiceTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -618,7 +606,6 @@ struct FamilyServiceTests {
         // Empty family: no profiles seeded in the cache or the CloudKit mock.
         let family = Family(
             name: "Empty Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -638,7 +625,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let parent = Profile(
@@ -734,7 +720,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -776,7 +761,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -825,7 +809,6 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )

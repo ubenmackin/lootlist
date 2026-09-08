@@ -10,7 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct iCloudStatusView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "iCloudStatusView")
+    private static let logger = Logger(category: "iCloudStatusView")
     @Environment(AppState.self) private var appState
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
@@ -58,19 +58,19 @@ struct iCloudStatusView: View {
         // leaking cross-family rows into a multifamily device.
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "iCloudStatusView")
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let notificationFilter = #Predicate<NotificationPreferenceCache> { $0.familyRecordName == targetFamily }
-        let familyFilter = #Predicate<FamilyCache> { $0.recordName == targetFamily }
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
-        let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let questFilter = QuestCache.familyIncludingInactivePredicate(familyRecordName: targetFamily)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
+        let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let notificationFilter = NotificationPreferenceCache.familyPredicate(familyRecordName: targetFamily)
+        let familyFilter = FamilyCache.recordPredicate(recordName: targetFamily)
+        let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+        let gemLedgerFilter = GemLedgerCache.familyPredicate(familyRecordName: targetFamily)
+        let rewardEventFilter = RewardEventCache.familyPredicate(familyRecordName: targetFamily)
 
         _allProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
         _allQuests = Query(filter: questFilter, sort: \QuestCache.weekOf)

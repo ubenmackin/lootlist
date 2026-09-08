@@ -23,7 +23,9 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
 
     var profile: CKRecord.Reference
 
-    var amount: Double
+    /// Whole pennies (signed) — integer storage avoids floating-point drift;
+    /// render only through `CurrencyFormatter`.
+    var amount: Int64
 
     var description: String
     var location: String?
@@ -70,7 +72,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         }
         self.profile = profile
 
-        amount = try record.extract("amount")
+        amount = try record.pennies(forKey: "amount")
         description = try record.extract("description")
         location = record["location"] as? String
 
@@ -110,7 +112,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     /// non-deduping record name, defeating CloudKit cross-device dedupe.
     /// Every money movement passes its deterministic id explicitly.
     init(profile: CKRecord.Reference,
-         amount: Double,
+         amount: Int64,
          description: String,
          location: String? = nil,
          date: Date = Date(),
@@ -133,13 +135,17 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         self.toBucket = toBucket
         self.family = family
     }
+
+    var formattedAmount: String {
+        CurrencyFormatter.string(pennies: amount)
+    }
 }
 
 /// Single-count contract (bucket-only): counted = bucketKind != nil && source != goal && source != transfer; bonus = counted && source != quest.
 /// WHY bucket-only: nil-bucket rows are wiped residue, never live money.
 protocol LedgerEntryProtocol {
     var sourceEnum: LedgerSource? { get }
-    var amount: Double { get }
+    var amount: Int64 { get }
     var bucketKind: String? { get }
 }
 

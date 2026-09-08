@@ -11,9 +11,23 @@ import SwiftUI
 struct QuestCompletionEffectView: View {
     private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "QuestCompletionEffectView")
     let xpEarned: Int
-    let goldEarned: Double?
+    let goldEarned: Int64?
     let rarity: QuestRarity
     @Binding var isShowing: Bool
+
+    init(xpEarned: Int, goldEarned: Int64?, rarity: QuestRarity, isShowing: Binding<Bool>) {
+        self.xpEarned = xpEarned
+        self.goldEarned = goldEarned
+        self.rarity = rarity
+        self._isShowing = isShowing
+    }
+
+    init(xpEarned: Int, goldEarned: Double?, rarity: QuestRarity, isShowing: Binding<Bool>) {
+        self.xpEarned = xpEarned
+        self.goldEarned = goldEarned.map { CurrencyFormatter.dollarsToPennies($0) }
+        self.rarity = rarity
+        self._isShowing = isShowing
+    }
 
     @Environment(SoundManager.self) private var soundManager
 
@@ -58,12 +72,12 @@ struct QuestCompletionEffectView: View {
                         // Celebrates completion directly while immersive RPG layer is hidden.
                         Text("Quest Complete!")
                             .font(.headline.bold())
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
 
                         if !flavorText.isEmpty {
                             Text(flavorText)
                                 .font(.caption.italic())
-                                .foregroundColor(.white.opacity(0.9))
+                                .foregroundStyle(.white.opacity(0.9))
                         }
                     }
                     .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
@@ -74,7 +88,7 @@ struct QuestCompletionEffectView: View {
                     if let amount = goldEarned {
                         Text("+" + CurrencyFormatter.string(amount))
                             .font(.subheadline.bold())
-                            .foregroundColor(Color.gold)
+                            .foregroundStyle(Color.gold)
                             .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
                             .scaleEffect(goldScale)
                             .opacity(goldOpacity)

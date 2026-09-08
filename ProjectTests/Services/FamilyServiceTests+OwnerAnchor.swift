@@ -136,7 +136,7 @@ extension FamilyServiceTests {
                 family: family,
                 familyRecordName: family.id.recordName,
                 description: "Gift from Grandpa",
-                amount: 25.0
+                amount: 2500
             )
             #expect(Bool(false), "Expected unauthorized")
         } catch {
@@ -163,7 +163,7 @@ extension FamilyServiceTests {
                 family: family,
                 familyRecordName: family.id.recordName,
                 description: "Camp cash",
-                amount: 10.0
+                amount: 1000
             )
             #expect(Bool(false), "Expected unauthorized")
         } catch {

@@ -33,7 +33,7 @@ extension Notification.Name {
 /// Routes notification taps and actionable category responses.
 @MainActor
 final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NotificationRouter")
+    private static let logger = Logger(category: "NotificationRouter")
 
     /// Cold-start tap retention buffer.
     private let pendingRoute = Mutex<NotificationRoute?>(nil)

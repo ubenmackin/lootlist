@@ -163,7 +163,7 @@ struct CloudKitLiveIntegrationTests {
             let quest = Quest(
                 template: templateRef,
                 assignee: CKRecord.Reference(recordID: profileID, action: .none),
-                goldReward: 15.0,
+                goldReward: 1500,
                 xpReward: 50,
                 scheduleType: .weeklyFlexible,
                 isAllOrNothing: false,
@@ -178,7 +178,7 @@ struct CloudKitLiveIntegrationTests {
 
             let savedQuest = try await cloudKitService.save(quest, in: zoneID)
             #expect(savedQuest.name == "Defeat the Integration Dragon")
-            #expect(savedQuest.goldReward == 15.0)
+            #expect(savedQuest.goldReward == 1500)
 
             // Point lookup fetch verification for all domain hierarchy levels
             let fetchedFamily = try await cloudKitService.fetch(Family.self, id: familyID)
@@ -190,7 +190,7 @@ struct CloudKitLiveIntegrationTests {
 
             let fetchedQuest = try await cloudKitService.fetch(Quest.self, id: questID)
             #expect(fetchedQuest.name == savedQuest.name)
-            #expect(fetchedQuest.goldReward == 15.0)
+            #expect(fetchedQuest.goldReward == 1500)
             #expect(fetchedQuest.family.recordID.recordName == familyID.recordName)
 
             // Query verification: queries within the custom zone complete safely

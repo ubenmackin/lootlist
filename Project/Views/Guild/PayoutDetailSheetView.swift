@@ -18,7 +18,7 @@ struct PayoutDetailSheet: View {
         PayoutWeekCalculator.weekBucketEntries(for: period, from: ledgerEntries)
     }
 
-    private var goalContributions: [(goal: GoalCache, amount: Double)] {
+    private var goalContributions: [(goal: GoalCache, amount: Int64)] {
         PayoutWeekCalculator.goalContributions(for: goals, in: weekBucketEntries)
     }
 

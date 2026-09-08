@@ -853,7 +853,7 @@ struct AppLifecycleCoordinatorTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: childProfile.id, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 10,
             scheduleType: .weeklyFlexible,
             weekOf: WeekMath.weekOf(date: Date()),

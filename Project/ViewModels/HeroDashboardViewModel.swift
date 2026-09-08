@@ -31,7 +31,7 @@ final class HeroDashboardViewModel {
     private(set) var weekQuests: [QuestCache] = []
 
     private(set) var streak: Int = 0
-    private(set) var earnedThisWeek: Double = 0
+    private(set) var earnedThisWeek: Int64 = 0
     private(set) var availableTemplatesCount: Int = 0
     private(set) var logsByQuestRecordName: [String: QuestCompletionCache] = [:]
     private(set) var allLogsByQuestRecordName: [String: [QuestCompletionCache]] = [:]
@@ -152,6 +152,28 @@ final class HeroDashboardViewModel {
         }
     }
 
+    // MARK: - Hub Helpers (pure, no CloudKit)
+
+    /// WHY ViewModel-owned: listed-goal agreement lived in HeroHome body;
+    /// checklist and wishlist share one predicate via HubQueryProvider.
+    nonisolated static func hasListedGoal(goals: [GoalCache], profileName: String?) -> Bool {
+        HubQueryProvider.hasListedGoal(goals: goals, profileName: profileName)
+    }
+
+    /// Cached gem total; nil when no rows so the view can fall back to the service read.
+    nonisolated static func cachedGemTotal(ledgers: [GemLedgerCache], profileName: String) -> Int? {
+        HubQueryProvider.cachedGemTotal(ledgers: ledgers, profileName: profileName)
+    }
+
+    /// Default-split check shared by the hero checklist gate.
+    nonisolated static func splitIsDefault(spend: Int, short: Int, long: Int) -> Bool {
+        BucketService.isDefaultSplit(spend: spend, short: short, long: long)
+    }
+
+    nonisolated static func firstName(displayName: String?) -> String? {
+        HubQueryProvider.firstName(displayName: displayName)
+    }
+
     // MARK: - Helpers
 
     func logs(for quest: QuestCache) -> [QuestCompletionCache] {
@@ -180,7 +202,7 @@ final class HeroDashboardViewModel {
         payoutPolicy: PayoutPolicy?,
         payoutDay: PayoutDay,
         templatesByID: [String: QuestTemplateCache]
-    ) -> Double {
+    ) -> Int64 {
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         // Compare normalized week starts rather than isDate(inSameDayAs:) to
         // avoid daylight-boundary mismatches when stored weekOf values straddle
@@ -191,10 +213,10 @@ final class HeroDashboardViewModel {
                 WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
         }
         if isPaid {
-            return 0.0
+            return 0
         }
         let weekRange = WeekMath.weekRange(starting: weekOf)
-        return GoldCalculation.netWeeklyGold(
+        return GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: logs,
             profileRecordName: profileRecordName,

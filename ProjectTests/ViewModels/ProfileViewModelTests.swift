@@ -54,7 +54,7 @@ struct ProfileViewModelTests {
             weekOf: currentWeek,
             questName: "Clean Room",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 5,
             rarity: "common",
             scheduleType: QuestSchedule.specificDays.rawValue,
@@ -81,7 +81,7 @@ struct ProfileViewModelTests {
             recordName: "ledger_payout",
             profileRecordName: test.profileName,
             familyRecordName: test.familyName,
-            amount: 10.0,
+            amount: 1000,
             entryDescription: "Weekly Allowance Payout",
             location: nil,
             date: Date(),
@@ -92,7 +92,7 @@ struct ProfileViewModelTests {
             recordName: "ledger_bonus",
             profileRecordName: test.profileName,
             familyRecordName: test.familyName,
-            amount: 5.0,
+            amount: 500,
             entryDescription: "Extra Loot",
             location: nil,
             date: Date(),
@@ -103,7 +103,7 @@ struct ProfileViewModelTests {
             recordName: "ledger_spending",
             profileRecordName: test.profileName,
             familyRecordName: test.familyName,
-            amount: -3.0,
+            amount: -300,
             entryDescription: "Health Potion",
             location: "Magic Shop",
             date: Date(),
@@ -120,9 +120,9 @@ struct ProfileViewModelTests {
             payoutDay: .sunday
         )
 
-        // Wallet balance must equal ledger sum (10.0 + 5.0 - 3.0 = 12.0)
-        // and NOT double-count questLog (which would inflate it to 22.0).
-        #expect(viewModel.goldBalance == 12.0)
+        // Wallet balance must equal ledger sum (1000 + 500 - 300 = 1200 pennies)
+        // and NOT double-count questLog (which would inflate it to 2200 pennies).
+        #expect(viewModel.goldBalance == 1200)
     }
 
     @Test
@@ -134,7 +134,7 @@ struct ProfileViewModelTests {
             recordName: "l1",
             profileRecordName: test.profileName,
             familyRecordName: test.familyName,
-            amount: 20.0,
+            amount: 2000,
             entryDescription: "Deposit",
             location: nil,
             date: Date(),
@@ -145,7 +145,7 @@ struct ProfileViewModelTests {
             recordName: "l2",
             profileRecordName: "other_hero",
             familyRecordName: test.familyName,
-            amount: 50.0,
+            amount: 5000,
             entryDescription: "Other Deposit",
             location: nil,
             date: Date(),
@@ -162,7 +162,7 @@ struct ProfileViewModelTests {
             payoutDay: .sunday
         )
 
-        #expect(viewModel.goldBalance == 20.0)
+        #expect(viewModel.goldBalance == 2000)
     }
 
     // MARK: - Avatar Emoji Selection

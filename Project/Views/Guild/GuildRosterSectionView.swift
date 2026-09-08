@@ -9,7 +9,7 @@ import os
 import SwiftUI
 
 struct GuildRosterSectionView: View {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GuildRosterSection")
+    private let logger = Logger(category: "GuildRosterSection")
 
     @Bindable var viewModel: FamilyDashboardViewModel
     let onRebuild: () -> Void

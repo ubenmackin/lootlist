@@ -50,7 +50,8 @@ struct ProfileStats: Sendable {
     let questCount: Int
     let bestWeeklyCompletion: Double
     let longestStreakDays: Int
-    let totalGoldEarned: Double
+    /// Whole pennies earned across quests.
+    let totalGoldEarned: Int64
     let ledgerCount: Int
     let ledgerWeeksCount: Int
     let earlyBirdQualified: Bool
@@ -61,7 +62,7 @@ struct ProfileStats: Sendable {
         questCount: Int,
         bestWeeklyCompletion: Double,
         longestStreakDays: Int,
-        totalGoldEarned: Double = 0,
+        totalGoldEarned: Int64 = 0,
         ledgerCount: Int,
         ledgerWeeksCount: Int = 0,
         earlyBirdQualified: Bool,
@@ -83,7 +84,7 @@ struct ProfileStats: Sendable {
 @MainActor
 @Observable
 final class AchievementService {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AchievementService")
+    private let logger = Logger(category: "AchievementService")
 
     let cacheService: CacheService?
     var syncCoordinator: CKSyncEngineCoordinator?
@@ -843,7 +844,7 @@ private extension AchievementService {
             [:]
         }
 
-        var totalGold: Double = 0
+        var totalGold: Int64 = 0
         var dailyCompletionDates: Set<Int> = []
         var earlyBird = false
         var approvedCountByQuest: [CKRecord.ID: Int] = [:]
@@ -864,7 +865,7 @@ private extension AchievementService {
             if let quest = questCache[questID] {
                 // WHY day count wins: legacy rows keep stale targetCount after template gains days.
                 let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-                totalGold += GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)
+                totalGold += GoldCalculation.creditPennies(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)
             }
         }
 

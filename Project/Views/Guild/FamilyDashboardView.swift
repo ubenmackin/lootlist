@@ -10,7 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct FamilyDashboardView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboardView")
+    private static let logger = Logger(category: "FamilyDashboardView")
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
@@ -54,14 +54,14 @@ struct FamilyDashboardView: View {
         // cards, and the pending approval queue across all profiles. Adding a profile
         // predicate here would incorrectly narrow the cache slice and break aggregation;
         // family-only scoping with stable sorts is the correct isolation boundary for this screen.
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
+        let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
         _cachedProfiles = Query(
             filter: profileFilter,
             sort: \ProfileCache.displayName
@@ -514,34 +514,17 @@ private extension FamilyDashboardView {
     private var earningSparklineHeader: some View {
         if horizontalSizeClass == .regular {
             let points = sparklinePoints
-            let total = points.reduce(0) { $0 + $1.amount }
+            let total = FamilyDashboardViewModel.sparklineTotal(for: points)
             FamilyDashboardSparklineCard(points: points, total: total)
         }
     }
 
     private var sparklinePoints: [WeeklyEarningPoint] {
-        let payoutDay = appState.family?.payoutDay ?? .sunday
-        let currentStart = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
-        var result: [WeeklyEarningPoint] = []
-        let sourcePeriods = cachedAllowancePeriods
-        for offset in 0 ..< 6 {
-            let weekStart = WeekMath.weekStart(byAddingWeeks: -(5 - offset), to: currentStart)
-            let weekRange = WeekMath.weekRange(starting: weekStart)
-            let total: Double = sourcePeriods.filter {
-                weekRange.contains($0.weekOf)
-            }.reduce(0) { $0 + $1.totalEarned }
-            let label = weekStart.formatted(.dateTime.month(.abbreviated).day())
-            let heroFiltered: Double
-            if let selected = selectedChildRecordName {
-                heroFiltered = sourcePeriods.filter {
-                    $0.profileRecordName == selected && weekRange.contains($0.weekOf)
-                }.reduce(0) { $0 + $1.totalEarned }
-                result.append(WeeklyEarningPoint(id: WeekMath.dayKey(for: weekStart), weekStart: weekStart, label: label, amount: heroFiltered))
-            } else {
-                result.append(WeeklyEarningPoint(id: WeekMath.dayKey(for: weekStart), weekStart: weekStart, label: label, amount: total))
-            }
-        }
-        return result
+        FamilyDashboardViewModel.sparklinePoints(
+            periods: cachedAllowancePeriods,
+            payoutDay: appState.family?.payoutDay ?? .sunday,
+            selectedProfile: selectedChildRecordName
+        )
     }
 
     // MARK: - Child Accounts Grid
@@ -629,162 +612,39 @@ private extension FamilyDashboardView {
         .accessibilityIdentifier("dashboard.childAccount-\(card.profile.recordName)")
     }
 
-    // MARK: - Pending Approval Queue (file-private; consolidated for Swift 6 isolation)
+    // MARK: - Pending Approval Queue (focused section)
 
-    @ViewBuilder
     func pendingApprovalQueueSection() -> some View {
-        let pending = pendingCompletions
-        if !pending.isEmpty, appState.currentProfile?.role != .hero {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader("PENDING APPROVAL QUEUE") {
-                    Text("\(pending.count)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(Color(DesignSystemConstants.Colors.pendingAmber))
-                        )
+        FamilyDashboardPendingQueueView(
+            pending: pendingCompletions,
+            profiles: cachedProfiles,
+            quests: cachedQuests,
+            viewerIsHero: appState.currentProfile?.role == .hero,
+            onApprove: { completion in
+                let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
+                // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+                Task { @MainActor @Sendable [domainLog] in
+                    await approveCompletion(domainLog)
                 }
-
-                VStack(spacing: 8) {
-                    ForEach(pending, id: \.recordName) { completion in
-                        pendingApprovalRow(completion)
-                    }
+            },
+            onReject: { completion in
+                let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
+                // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+                Task { @MainActor @Sendable [domainLog] in
+                    await rejectCompletion(domainLog)
                 }
             }
-            .padding(DesignSystemConstants.Padding.standard)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.40), lineWidth: 1.5)
-            )
-            .id("pendingQueueAnchor")
-        }
+        )
     }
 
     var pendingCompletions: [QuestCompletionCache] {
-        cachedCompletions.filter { $0.verificationStatus == VerificationStatus.pending.rawValue }
+        FamilyDashboardViewModel.pendingCompletions(from: cachedCompletions)
     }
 
     var pendingCount: Int {
         pendingCompletions.count
-    }
-
-    @ViewBuilder
-    func pendingApprovalRow(_ completion: QuestCompletionCache) -> some View {
-        let heroName = cachedProfiles.first { $0.recordName == completion.completerRecordName }?.displayName ?? "Hero"
-        let quest = cachedQuests.first { $0.recordName == completion.questRecordName }
-        let questName = quest?.questName ?? "Quest"
-        let goldAmount = quest?.goldReward ?? 0
-        let scheduleLabel = quest?.scheduleTypeEnum?.displayName ?? ""
-
-        VStack(alignment: .leading, spacing: 8) {
-            pendingRowHeader(questName: questName, heroName: heroName, scheduleLabel: scheduleLabel)
-            pendingRowActions(completion: completion, questName: questName, goldAmount: goldAmount)
-        }
-        .padding(DesignSystemConstants.Padding.small)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small)
-                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-        )
-        .hoverEffect(.highlight)
-        .contextMenu {
-            pendingRowMenu(completion: completion)
-        }
-    }
-
-    private func pendingRowHeader(questName: String, heroName: String, scheduleLabel: String) -> some View {
-        FamilyDashboardPendingRowHeader(questName: questName, heroName: heroName, scheduleLabel: scheduleLabel)
-    }
-
-    private func pendingRowActions(completion: QuestCompletionCache, questName: String, goldAmount: Double) -> some View {
-        HStack(spacing: 10) {
-            pendingRejectButton(completion: completion, questName: questName)
-            pendingApproveButton(completion: completion, questName: questName, goldAmount: goldAmount)
-        }
-    }
-
-    private func pendingRejectButton(completion: QuestCompletionCache, questName: String) -> some View {
-        Button {
-            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
-            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-            Task { @MainActor @Sendable [domainLog] in
-                await rejectCompletion(domainLog)
-            }
-        } label: {
-            Text("Reject")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule()
-                        .fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12))
-                )
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Reject \(questName)")
-        .accessibilityIdentifier("dashboard.rejectButton-\(completion.recordName)")
-    }
-
-    private func pendingApproveButton(completion: QuestCompletionCache, questName: String, goldAmount: Double) -> some View {
-        let showsAmount = goldAmount > 0
-        let approvalLabel = CurrencyFormatter.string(goldAmount)
-        return Button {
-            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
-            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-            Task { @MainActor @Sendable [domainLog] in
-                await approveCompletion(domainLog)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("Approve")
-                if showsAmount {
-                    Text(approvalLabel)
-                        .font(.caption.weight(.bold).monospacedDigit())
-                }
-            }
-            .font(.caption.weight(.bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                Capsule()
-                    .fill(Color(DesignSystemConstants.Colors.primaryGreen))
-            )
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Approve \(questName) for \(approvalLabel)")
-        .accessibilityIdentifier("dashboard.approveButton-\(completion.recordName)")
-    }
-
-    @ViewBuilder
-    private func pendingRowMenu(completion: QuestCompletionCache) -> some View {
-        Button {
-            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
-            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-            Task { @MainActor @Sendable [domainLog] in await approveCompletion(domainLog) }
-        } label: {
-            Label("Approve", systemImage: "checkmark.circle.fill")
-        }
-        Button(role: .destructive) {
-            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
-            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-            Task { @MainActor @Sendable [domainLog] in await rejectCompletion(domainLog) }
-        } label: {
-            Label("Reject", systemImage: "xmark.circle.fill")
-        }
     }
 
     @MainActor
@@ -817,61 +677,17 @@ private extension FamilyDashboardView {
         }
     }
 
-    // MARK: - Weekly Summary & Payout
+    // MARK: - Weekly Summary & Payout (focused section)
 
-    @ViewBuilder
     func weeklySummarySection(summary: WeekendSummary?) -> some View {
-        if let summary {
-            let lootDayTitle = appState.family?.payoutDay.lootDayTitle ?? "Sunday Allowance Day"
-            let isPending = summary.pendingPayoutAmount > 0
-            let allRealTime = summary.heroSummaries.allSatisfy {
-                ($0.profile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest) == .realTime
-            }
-            weeklySummaryCard(summary: summary, lootDayTitle: lootDayTitle, isPending: isPending, allRealTime: allRealTime)
-        }
-    }
-
-    private func weeklySummaryCard(summary: WeekendSummary, lootDayTitle: String, isPending: Bool, allRealTime: Bool) -> some View {
-        let showsSettled = allRealTime && summary.totalEarned > 0
-        let subtitle = weeklySubtitle(lootDayTitle: lootDayTitle, isPending: isPending, showsSettled: showsSettled)
-        let subtitleColor = showsSettled ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary
-        let showsPayout = isPending && appState.currentProfile?.role != .hero
-        return VStack(alignment: .leading, spacing: 12) {
-            FamilyDashboardWeeklySummaryHeader(
-                title: "This Week's Earnings",
-                subtitle: subtitle,
-                subtitleColor: subtitleColor,
-                weekOf: summary.weekOf
-            )
-            DashboardTotalsRow(summary: summary, isPending: isPending)
-            if showsPayout {
-                ProcessPayoutButtonView(
-                    summary: summary,
-                    isProcessingPayout: isProcessingPayout,
-                    onConfirmPayout: processPayout
-                )
-                .padding(.top, 4)
-            }
-        }
-        .padding(DesignSystemConstants.Padding.standard)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+        FamilyDashboardWeeklySummaryView(
+            summary: summary,
+            lootDayTitle: appState.family?.payoutDay.lootDayTitle ?? "Sunday Allowance Day",
+            viewerIsHero: appState.currentProfile?.role == .hero,
+            familyPayoutPolicy: appState.family?.payoutPolicy,
+            isProcessingPayout: isProcessingPayout,
+            onConfirmPayout: processPayout
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
-        )
-    }
-
-    private func weeklySubtitle(lootDayTitle: String, isPending: Bool, showsSettled: Bool) -> String {
-        if showsSettled {
-            return "\(lootDayTitle) · Real-time Settled"
-        }
-        if isPending {
-            return "\(lootDayTitle) · Pending Payout"
-        }
-        return lootDayTitle
     }
 
     @MainActor

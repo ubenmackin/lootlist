@@ -11,7 +11,7 @@ import SwiftUI
 
 /// Read-only transaction history for a child profile, grouped by date into daily sections.
 struct ChildLedgerView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ChildLedgerView")
+    private static let logger = Logger(category: "ChildLedgerView")
     /// WHY Sendable styles: per-cell labels reuse value types without shared mutable formatters.
     private static let shortTimeStyle = Date.FormatStyle(date: .omitted, time: .shortened)
 
@@ -36,9 +36,7 @@ struct ChildLedgerView: View {
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "ChildLedgerView")
         let targetProfile = profileRecordName ?? ""
-        let ledgerFilter = #Predicate<LedgerEntryCache> {
-            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
-        }
+        let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _allLedgers = Query(
             filter: ledgerFilter,
             sort: \LedgerEntryCache.date,
@@ -333,9 +331,9 @@ struct ChildLedgerView: View {
 
     /// Returns a signed amount string: "+$X.XX" for credits, "-$X.XX" for debits,
     /// absolute-value for zero.
-    private func formattedAmount(_ amount: Double, isCredit: Bool) -> String {
+    private func formattedAmount(_ amount: Int64, isCredit: Bool) -> String {
         if amount == 0 {
-            return CurrencyFormatter.string(0.0)
+            return CurrencyFormatter.string(0)
         }
         let prefix = isCredit ? "+" : ""
         return prefix + CurrencyFormatter.string(amount)

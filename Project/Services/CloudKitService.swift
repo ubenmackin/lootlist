@@ -80,7 +80,7 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 @MainActor
 @Observable
 class CloudKitService: CloudKitServiceProtocol {
-    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
+    let logger = Logger(category: "CloudKitService")
 
     private var containerStorage: CKContainer?
 

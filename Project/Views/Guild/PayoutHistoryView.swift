@@ -52,13 +52,13 @@ struct PayoutHistoryView: View {
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
-        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+        let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
+        let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
+        let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
+        let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+        let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
             sort: \AllowancePeriodCache.weekOf,
@@ -584,7 +584,7 @@ struct PayoutHistoryView: View {
         let last12Weeks = sortedWeeks.suffix(12)
         return last12Weeks.map { week in
             let periods = grouped[week] ?? []
-            let total = periods.reduce(0.0) { $0 + $1.totalEarned }
+            let total = periods.reduce(Int64(0)) { $0 + $1.totalEarned }
             let isPaid = periods.allSatisfy { $0.statusEnum == .paid }
             return WeeklyEarningPoint(id: WeekMath.dayKey(for: week), weekStart: week, label: week.formatted(.dateTime.month(.abbreviated).day()), amount: total, isPaid: isPaid)
         }

@@ -78,35 +78,25 @@ final class FamilyCache: CacheMergeable {
         self.init(
             recordName: family.id.recordName,
             name: family.name,
-            createdByRecordName: family.createdBy.recordName,
+            createdByRecordName: family.creatorUserRecordName ?? family.id.recordName,
             createdAt: family.createdAt,
             payoutPolicy: family.payoutPolicy.rawValue,
             payoutDay: family.payoutDay.rawValue,
-            changeTag: family.changeTag,
-            creatorUserRecordName: family.creatorUserRecordName,
-            encodedSystemFields: family.encodedSystemFields,
-            sourceZoneName: family.id.zoneID.zoneName,
-            sourceZoneOwnerName: family.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: family.id.zoneID)
+            creatorUserRecordName: family.creatorUserRecordName
         )
+        applySystemFields(from: family)
     }
 
     // MARK: - CacheMergeable
 
     func update(from family: Family, isServerSync: Bool = false) {
         name = family.name
-        createdByRecordName = family.createdBy.recordName
+        createdByRecordName = family.creatorUserRecordName ?? family.id.recordName
         createdAt = family.createdAt
         payoutPolicy = family.payoutPolicy.rawValue
         payoutDay = family.payoutDay.rawValue
-        changeTag = family.changeTag
         creatorUserRecordName = family.creatorUserRecordName
-        sourceZoneName = family.id.zoneID.zoneName
-        sourceZoneOwnerName = family.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: family.id.zoneID)
-        if isServerSync, family.encodedSystemFields != nil {
-            encodedSystemFields = family.encodedSystemFields
-        }
+        applySystemFields(from: family, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName _: String?) -> FetchDescriptor<FamilyCache> {
@@ -119,5 +109,13 @@ final class FamilyCache: CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName _: String) -> FetchDescriptor<FamilyCache> {
         FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: diagnostics share the root lookup so the family slice never drifts.
+    static func recordPredicate(recordName: String) -> Predicate<FamilyCache> {
+        let targetFamily = recordName
+        return #Predicate<FamilyCache> { $0.recordName == targetFamily }
     }
 }

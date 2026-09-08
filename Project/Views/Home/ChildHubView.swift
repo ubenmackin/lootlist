@@ -13,7 +13,7 @@ import SwiftUI
 /// progress ring, today's chores, the active FIFO goal, and a pinned
 /// log-a-purchase CTA.
 struct ChildHubView: View {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ChildHubView")
+    private static let logger = Logger(category: "ChildHubView")
 
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
@@ -57,41 +57,30 @@ struct ChildHubView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        let targetFamily = familyRecordName ?? ""
+        let targetFamily = HubQueryProvider.targetFamily(familyRecordName)
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "ChildHubView")
         // WHY: fail-closed to "" when profileRecordName is nil; AppState not yet resolved in init.
         let targetProfile = profileRecordName ?? ""
-        // WHY: predicate pushdown — filter by family+profile at store; fail-closed to 0 rows when empty.
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
+        // WHY shared provider: family+profile pushdown owns the isolation boundary and stable sorts.
+        let questFilter = HubQueryProvider.questScopedFilter(family: targetFamily, profile: targetProfile)
+        let completionFilter = HubQueryProvider.completionScopedFilter(family: targetFamily, profile: targetProfile)
         // WHY: templates are family-scoped (shared across heroes).
-        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let currentProfileFilter = #Predicate<ProfileCache> {
-            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-        }
+        let templateFilter = HubQueryProvider.templateFilter(family: targetFamily)
+        let goalFilter = HubQueryProvider.goalScopedFilter(family: targetFamily, profile: targetProfile)
+        let ledgerFilter = HubQueryProvider.ledgerScopedFilter(family: targetFamily, profile: targetProfile)
+        let allowanceFilter = HubQueryProvider.allowanceScopedFilter(family: targetFamily, profile: targetProfile)
+        let profileFilter = HubQueryProvider.profileFilter(family: targetFamily)
+        let currentProfileFilter = HubQueryProvider.currentProfileScopedFilter(family: targetFamily, profile: targetProfile)
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
-        _cachedQuests = Query(filter: questFilter, sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)])
-        _cachedCompletions = Query(
-            filter: completionFilter,
-            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
-        )
-        _cachedTemplates = Query(filter: templateFilter, sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)])
-        _cachedGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
-        _cachedLedgers = Query(filter: ledgerFilter, sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)])
-        _cachedAllowancePeriods = Query(
-            filter: allowanceFilter,
-            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
-        )
+        _cachedQuests = Query(filter: questFilter, sort: HubQueryProvider.questSort())
+        _cachedCompletions = Query(filter: completionFilter, sort: HubQueryProvider.completionSort())
+        _cachedTemplates = Query(filter: templateFilter, sort: HubQueryProvider.templateSort())
+        _cachedGoals = Query(filter: goalFilter, sort: HubQueryProvider.goalSort())
+        _cachedLedgers = Query(filter: ledgerFilter, sort: HubQueryProvider.ledgerSort())
+        _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: HubQueryProvider.allowanceSort())
         _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
-        _currentProfileRows = Query(
-            filter: currentProfileFilter,
-            sort: \ProfileCache.displayName
-        )
+        _currentProfileRows = Query(filter: currentProfileFilter, sort: \ProfileCache.displayName)
     }
 
     /// Queried cache row for active hero profile; nil when scope has no synced row (fail-closed rendering).
@@ -121,11 +110,12 @@ struct ChildHubView: View {
     }
 
     private var staleBannerCount: Int {
-        let profiles: Int = cachedProfiles.count
-        let quests: Int = cachedQuests.count
-        let goals: Int = cachedGoals.count
-        let ledgers: Int = cachedLedgers.count
-        return profiles + quests + goals + ledgers
+        ChildHubViewModel.staleBannerCount(
+            profiles: cachedProfiles.count,
+            quests: cachedQuests.count,
+            goals: cachedGoals.count,
+            ledgers: cachedLedgers.count
+        )
     }
 
     private var isBannerSyncing: Bool {
@@ -137,7 +127,7 @@ struct ChildHubView: View {
     }
 
     private var recentLedgersSlice: [LedgerEntryCache] {
-        Array(cachedLedgers.prefix(7))
+        ChildHubViewModel.recentLedgers(cachedLedgers)
     }
 
     @ViewBuilder
@@ -153,9 +143,11 @@ struct ChildHubView: View {
     @ViewBuilder
     private var hubContent: some View {
         if isSyncingPlaceholder {
-            syncingBalanceCard
+            ChildHubSyncingCardView()
         } else if isProfileNotFoundPlaceholder {
-            profileNotFoundCard
+            ChildHubProfileNotFoundCardView(onRetry: {
+                Task { await lifecycleCoordinator?.performManualSync() }
+            })
         } else {
             hubLoadedContent
         }
@@ -269,174 +261,28 @@ struct ChildHubView: View {
         .id(profileRecordName)
     }
 
-    // MARK: - Header
+    // MARK: - Header (focused section)
 
-    @ViewBuilder
     private var header: some View {
-        if isSyncingPlaceholder {
-            VStack(spacing: 8) {
-                ProgressView()
-                Text("Syncing your family...")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+        ChildHubHeaderView(
+            currentProfileRow: currentProfileRow,
+            firstName: firstName,
+            isSyncingPlaceholder: isSyncingPlaceholder,
+            isProfileNotFoundPlaceholder: isProfileNotFoundPlaceholder,
+            onRetry: {
+                Task { await lifecycleCoordinator?.performManualSync() }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Syncing your family")
-            .accessibilityIdentifier("hub.syncingPlaceholder")
-        } else if isProfileNotFoundPlaceholder {
-            VStack(spacing: 8) {
-                Text("Profile not found — pull to refresh")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                Button {
-                    Task { await lifecycleCoordinator?.performManualSync() }
-                } label: {
-                    Text("Retry")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.accentColor))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Retry sync")
-                .accessibilityIdentifier("hub.retryButton")
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Profile not found — pull to refresh")
-            .accessibilityIdentifier("hub.profileNotFoundPlaceholder")
-        } else if let row = currentProfileRow {
-            HStack(spacing: DesignSystemConstants.Padding.medium) {
-                Text(row.avatarEmoji ?? "🦸")
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
-                    .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.3), lineWidth: 1))
-
-                if let name = firstName {
-                    Text("\(name)'s Hub")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                } else {
-                    Text("\(row.displayName)'s Hub")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(firstName ?? row.displayName)'s Hub")
-            .accessibilityIdentifier("hub.headerTitle")
-        } else {
-            HStack(spacing: DesignSystemConstants.Padding.medium) {
-                Text("🦸")
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
-                    .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.3), lineWidth: 1))
-
-                Text("Your Hub")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Spacer()
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Your Hub")
-            .accessibilityIdentifier("hub.headerTitle")
-        }
+        )
     }
 
     private var firstName: String? {
-        guard let name = currentProfileRow?.displayName, !name.isEmpty else { return nil }
-        return name.split(separator: " ").first.map(String.init) ?? name
+        ChildHubViewModel.firstName(displayName: currentProfileRow?.displayName)
     }
 
-    private var syncingBalanceCard: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text("Syncing your family...")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 160)
-        .padding(DesignSystemConstants.Padding.large)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Syncing your family")
-        .accessibilityIdentifier("hub.syncingBalanceCard")
-    }
-
-    private var profileNotFoundCard: some View {
-        VStack(spacing: 16) {
-            Text("Profile not found — pull to refresh")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button {
-                Task { await lifecycleCoordinator?.performManualSync() }
-            } label: {
-                Text("Retry")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.accentColor))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Retry sync")
-            .accessibilityIdentifier("hub.retryButtonCard")
-        }
-        .frame(maxWidth: .infinity, minHeight: 160)
-        .padding(DesignSystemConstants.Padding.large)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Profile not found — pull to refresh")
-        .accessibilityIdentifier("hub.profileNotFoundCard")
-    }
-
-    // MARK: - Log-a-Purchase CTA
+    // MARK: - Log-a-Purchase CTA (focused section)
 
     private var logPurchaseBar: some View {
-        Button {
-            HapticsService.lightImpact()
-            isShowingLogSpending = true
-        } label: {
-            Label("Log a Purchase / Spend", systemImage: "cart.fill")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button, style: .continuous)
-                        .fill(Color(DesignSystemConstants.Colors.primaryGreen))
-                )
-        }
-        .accessibilityHint("Opens the spending log form")
-        .accessibilityIdentifier("hub.logPurchaseButton")
+        ChildHubActionBarView(onLogPurchase: { isShowingLogSpending = true })
     }
 
     // MARK: - Rebuild

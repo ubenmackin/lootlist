@@ -33,7 +33,7 @@ struct AvatarSelectionView: View {
     @State private var isRPGExpanded: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AvatarSelectionView")
+    private let logger = Logger(category: "AvatarSelectionView")
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
 

@@ -31,7 +31,7 @@ final class CacheService: CacheServicing {
         backgroundWriterLock.withLock { $0 }
     }
 
-    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+    let logger = Logger(category: "CacheService")
     private var batchDepth = 0
     // WHY: ViewModel preview instances resolve cache without stamping freshness; a single immutable flag
     // disables all watermark writes for that instance so query-only hosts never promote stale data to fresh.
@@ -469,7 +469,7 @@ enum CacheServiceError: Error {
 }
 
 // WHY: fail-open diagnostic — gem-credit path previously returned false silently; logger surfaces dedup/fetch failures for on-call triage without altering idempotency.
-private let sharedGemCreditLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService.GemCredit")
+private let sharedGemCreditLogger = Logger(category: "CacheService.GemCredit")
 
 /// Shared gem-credit mutation — single transaction keeps ledger and profile
 /// in sync and guarantees idempotency via deterministic ledger recordName.

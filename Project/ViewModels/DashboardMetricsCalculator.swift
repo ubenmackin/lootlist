@@ -14,7 +14,7 @@ enum DashboardMetricsCalculator {
     struct Metrics {
         let weekSummary: WeekendSummary?
         let pastPayouts: [AllowancePeriodCache]
-        let familyOutflow: Double
+        let familyOutflow: Int64
         let pendingReviewCount: Int
         let childAccountCards: [ChildAccountCard]
     }
@@ -83,14 +83,14 @@ enum DashboardMetricsCalculator {
             }
             let isPeriodPaid = heroPeriod?.statusEnum == .paid
 
-            let questGold: Double
-            let bonusGold: Double
+            let questGold: Int64
+            let bonusGold: Int64
             if isPeriodPaid {
-                questGold = 0.0
-                bonusGold = 0.0
+                questGold = 0
+                bonusGold = 0
             } else {
                 let effectivePolicy = hero.payoutPolicyEnum ?? familyContext.payoutPolicy ?? .perQuest
-                questGold = GoldCalculation.netWeeklyGold(
+                questGold = GoldCalculation.netWeeklyPennies(
                     quests: quests,
                     logs: logs,
                     profileRecordName: hero.recordName,
@@ -105,7 +105,7 @@ enum DashboardMetricsCalculator {
                 bonusGold = heroLedgers
                     // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
                     .filter { BucketService.isBonusCounted($0) }
-                    .reduce(0.0) { $0 + $1.amount }
+                    .reduce(0) { $0 + $1.amount }
             }
             let earned = questGold + bonusGold
 
@@ -126,7 +126,7 @@ enum DashboardMetricsCalculator {
             ))
         }
 
-        let totalEarned = heroSummaries.reduce(into: 0.0) { $0 += $1.weeklyGoldEarned }
+        let totalEarned = heroSummaries.reduce(into: Int64(0)) { $0 += $1.weeklyGoldEarned }
         let totalQuests = heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsCompleted }
         let computedWeekSummary = WeekendSummary(
             weekOf: WeekMath.startOfWeek(for: Date(), payoutDay: familyContext.payoutDay),
@@ -141,7 +141,7 @@ enum DashboardMetricsCalculator {
             .sorted { $0.weekOf > $1.weekOf }
 
         let heroLedgerEntries = ledgers.filter { heroRecordNames.contains($0.profileRecordName) }
-        var computedFamilyOutflow: Double = 0
+        var computedFamilyOutflow: Int64 = 0
         for hero in computedHeroes {
             let heroEntries = heroLedgerEntries.filter { $0.profileRecordName == hero.recordName }
             computedFamilyOutflow += heroTotalBalance(heroEntries: heroEntries, profileRecordName: hero.recordName)
@@ -190,7 +190,7 @@ enum DashboardMetricsCalculator {
     }
 
     /// WHY one helper: bucket sum is the total on every surface.
-    private static func heroTotalBalance(heroEntries: [LedgerEntryCache], profileRecordName: String) -> Double {
+    private static func heroTotalBalance(heroEntries: [LedgerEntryCache], profileRecordName: String) -> Int64 {
         BucketService.totalBalance(for: heroEntries, profileRecordName: profileRecordName)
     }
 }

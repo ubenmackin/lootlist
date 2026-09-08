@@ -49,7 +49,7 @@ final class HeroBoardService {
         cached.assigneeRecordName == boardAssigneeRecordName
     }
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroBoard")
+    private let logger = Logger(category: "HeroBoard")
 
     private let questService: QuestService
     let cacheService: CacheService
@@ -208,7 +208,7 @@ final class HeroBoardService {
     @discardableResult
     func postToBoard(name: String,
                      description: String = "",
-                     goldReward: Double,
+                     goldReward: Int64,
                      xpReward: Int,
                      approvalMode: ApprovalMode = .autoApprove,
                      createdBy: Profile,

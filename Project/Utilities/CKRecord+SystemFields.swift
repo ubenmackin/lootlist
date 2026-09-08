@@ -9,10 +9,7 @@ import CloudKit
 import Foundation
 import os
 
-private let ckRecordSystemFieldsLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-    category: "CKRecordSystemFields"
-)
+private let ckRecordSystemFieldsLogger = Logger(category: "CKRecordSystemFields")
 
 extension CKRecord {
     /// Encodes this record's system fields into serialized Data for local persistence.

@@ -23,7 +23,7 @@ enum QuestEditLockedError: LocalizedError {
 @MainActor
 @Observable
 final class QuestManagerViewModel {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestManagerVM")
+    private let logger = Logger(category: "QuestManagerVM")
     private(set) var templates: [QuestTemplateCache] = []
 
     private(set) var activeAssignments: [QuestCache] = []
@@ -67,7 +67,7 @@ final class QuestManagerViewModel {
 
     func createTemplate(name: String,
                         description: String,
-                        defaultGold: Double,
+                        defaultGold: Int64,
                         xpReward: Int,
                         schedule: QuestSchedule,
                         specificDays: [String],
@@ -111,7 +111,7 @@ final class QuestManagerViewModel {
 
     func assignQuest(template: QuestTemplate,
                      assignee: Profile,
-                     goldOverride: Double?,
+                     goldOverride: Int64?,
                      xpOverride: Int?,
                      approvalOverride: ApprovalMode?,
                      isAllOrNothingOverride: Bool? = nil,
@@ -141,7 +141,7 @@ final class QuestManagerViewModel {
         var name: String
         var description: String
         var assignee: Profile
-        var goldReward: Double
+        var goldReward: Int64
         var xpReward: Int
         var scheduleType: QuestSchedule
         var specificDays: [String] = []
@@ -154,7 +154,7 @@ final class QuestManagerViewModel {
     struct UpdateQuestInput {
         var name: String?
         var descriptionText: String?
-        var goldReward: Double
+        var goldReward: Int64
         var xpReward: Int
         var scheduleType: QuestSchedule
         var specificDays: [String] = []
@@ -245,7 +245,7 @@ final class QuestManagerViewModel {
     /// and it carries no due date.
     func postQuestToBoard(name: String,
                           description: String,
-                          goldReward: Double,
+                          goldReward: Int64,
                           xpReward: Int,
                           approvalMode: ApprovalMode) async throws
     {
@@ -269,5 +269,26 @@ final class QuestManagerViewModel {
 
     func rebuildHeroes(profiles: [ProfileCache]) {
         heroes = profiles.filter { $0.role == UserRole.hero.rawValue }
+    }
+
+    // MARK: - List Transforms (pure, no CloudKit)
+
+    /// WHY ViewModel-owned: hero-name lookup and hero grouping lived in the
+    /// view body; one helper keeps table, list, and sidebar counts identical.
+    func heroName(for recordName: String) -> String {
+        heroes.first { $0.recordName == recordName }?.displayName ?? "Unknown Hero"
+    }
+
+    /// Assignments grouped by hero with stable sorted keys for sectioned lists.
+    func groupedAssignments(_ quests: [QuestCache]) -> [(key: String, quests: [QuestCache])] {
+        let grouped = Dictionary(grouping: quests) { $0.assigneeRecordName }
+        return grouped.keys.sorted().map { key in (key: key, quests: grouped[key] ?? []) }
+    }
+
+    /// Case-insensitive contains shared by template and assignment search.
+    nonisolated static func matchesQuery(_ value: String, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        return value.lowercased().contains(trimmed.lowercased())
     }
 }

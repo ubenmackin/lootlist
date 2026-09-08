@@ -33,7 +33,7 @@ struct HeroDashboardMyChoresTests {
             familyRef = CKRecord.Reference(recordID: SampleData.familyID, action: .none)
         }
 
-        func quest(_ name: String, weekOf: Date, goldReward: Double = 10.0) -> QuestCache {
+        func quest(_ name: String, weekOf: Date, goldReward: Int64 = 1000) -> QuestCache {
             QuestCache(
                 recordName: name,
                 familyRecordName: SampleData.familyID.recordName,
@@ -98,7 +98,7 @@ struct HeroDashboardMyChoresTests {
                 weekOf: weekOf,
                 questName: name,
                 isActive: true,
-                goldReward: 10.0,
+                goldReward: 1000,
                 xpReward: 10,
                 rarity: "common",
                 scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -409,7 +409,7 @@ struct HeroDashboardMyChoresTests {
             weekOf: currentWeek,
             questName: "AON",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -427,7 +427,7 @@ struct HeroDashboardMyChoresTests {
             weekOf: currentWeek,
             questName: "Normal",
             isActive: true,
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 10,
             rarity: "common",
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,

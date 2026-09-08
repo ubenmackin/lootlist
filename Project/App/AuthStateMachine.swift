@@ -17,7 +17,7 @@ final class AuthStateMachine {
     }
 
     private let defaults: UserDefaults
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AuthStateMachine")
+    private let logger = Logger(category: "AuthStateMachine")
 
     private weak var appState: AppState?
 
@@ -63,10 +63,10 @@ final class AuthStateMachine {
     }
 
     private func hasCompletePersistedSession() -> Bool {
-        defaults.bool(forKey: "session_hasActiveSession")
-            && defaults.string(forKey: "session_profileRecordName") != nil
-            && defaults.string(forKey: "session_familyRecordName") != nil
-            && defaults.string(forKey: "session_familyZoneName") != nil
-            && defaults.string(forKey: "session_familyZoneOwnerName") != nil
+        defaults.bool(forKey: SessionKeys.hasActiveSession.rawValue)
+            && defaults.string(forKey: SessionKeys.profileRecordName.rawValue) != nil
+            && defaults.string(forKey: SessionKeys.familyRecordName.rawValue) != nil
+            && defaults.string(forKey: SessionKeys.familyZoneName.rawValue) != nil
+            && defaults.string(forKey: SessionKeys.familyZoneOwnerName.rawValue) != nil
     }
 }

@@ -158,7 +158,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         let template = QuestTemplate(
             name: "Clean Room",
             description: "Keep it clean",
-            defaultGold: 10.0,
+            defaultGold: 1000,
             xpReward: 25,
             scheduleType: .weeklyFlexible,
             createdBy: CKRecord.Reference(recordID: profile.id, action: .none),
@@ -170,7 +170,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: profile.id, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 25,
             scheduleType: .weeklyFlexible,
             weekOf: Date(),

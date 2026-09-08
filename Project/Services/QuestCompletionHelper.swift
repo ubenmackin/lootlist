@@ -15,7 +15,7 @@ import SwiftUI
 /// `MyChoresView` (priorApproved count, isFinalSubPart check, and
 /// haptics/toast vs celebration) into a single place.
 enum QuestCompletionHelper {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestCompletionHelper")
+    private static let logger = Logger(category: "QuestCompletionHelper")
 
     // MARK: - isFinalSubPart
 

@@ -8,7 +8,6 @@
 import CloudKit
 import Foundation
 import os
-import Synchronization
 
 // MARK: - CoordinatorState
 
@@ -39,10 +38,7 @@ extension CKSyncEngineCoordinator: SyncCoordinating {}
 final class AppLifecycleCoordinator {
     // MARK: - Logging
 
-    let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "AppLifecycleCoordinator"
-    )
+    let logger = Logger(category: "AppLifecycleCoordinator")
 
     // MARK: - Lifecycle State Machine
 
@@ -54,18 +50,134 @@ final class AppLifecycleCoordinator {
         case zoneChanging
     }
 
-    /// All mutable lifecycle flags are co-located in one `Mutex` for atomic state checks.
-    struct LifecycleFlags: Sendable {
+    struct ZoneObservation: Equatable, Sendable {
+        let didChange: Bool
+        let previousZoneName: String?
+        let previousOwnerName: String?
+    }
+
+    // WHY: Single-flight state lives in one gate so concurrent triggers collapse instead of interleaving.
+    @MainActor
+    final class LifecycleSyncGate {
         var phase: Phase = .idle
         var isManualSyncing = false
         var hasCompletedInitialBootstrap = false
         var lastSynchronizedScopeKey: String?
-        var lastObservedZoneID: (zoneName: String, ownerName: String)?
+        var lastObservedZoneName: String?
+        var lastObservedOwnerName: String?
         var lastReconnectTriggeredSyncAt: Date?
         var lastUnsyncedEnqueueAt: Date?
+
+        func tryEnterBootstrap() -> Bool {
+            guard phase == .idle, !hasCompletedInitialBootstrap else { return false }
+            phase = .bootstrapping
+            return true
+        }
+
+        func tryEnterSync() -> Bool {
+            guard hasCompletedInitialBootstrap, phase == .idle else { return false }
+            phase = .syncing
+            return true
+        }
+
+        func tryEnterManualSync() -> Bool {
+            // Manual sync is user-initiated and must not be starved by a foreground sync holding `.syncing`.
+            guard phase != .bootstrapping else { return false }
+            guard !isManualSyncing else { return false }
+            isManualSyncing = true
+            return true
+        }
+
+        func tryEnterZoneChange(allowBeforeBootstrap: Bool = false) -> Bool {
+            guard hasCompletedInitialBootstrap || allowBeforeBootstrap, phase == .idle else { return false }
+            phase = .zoneChanging
+            return true
+        }
+
+        func exitPhase(_ expected: Phase) {
+            guard phase == expected else { return }
+            phase = .idle
+        }
+
+        func exitManualSync() {
+            isManualSyncing = false
+        }
+
+        func markBootstrapComplete() {
+            hasCompletedInitialBootstrap = true
+        }
+
+        func setSynchronizedScope(key: String, zoneName: String, ownerName: String) {
+            lastSynchronizedScopeKey = key
+            lastObservedZoneName = zoneName
+            lastObservedOwnerName = ownerName
+        }
+
+        func shouldPerformReconciliation(scopeKey: String) -> Bool {
+            lastSynchronizedScopeKey != scopeKey
+        }
+
+        func recordSynchronizedScope(scopeKey: String) {
+            lastSynchronizedScopeKey = scopeKey
+        }
+
+        func invalidateForSessionClear() {
+            lastSynchronizedScopeKey = nil
+            lastObservedZoneName = nil
+            lastObservedOwnerName = nil
+            hasCompletedInitialBootstrap = false
+        }
+
+        func invalidateForZoneChange() {
+            lastSynchronizedScopeKey = nil
+            lastObservedZoneName = nil
+            lastObservedOwnerName = nil
+        }
+
+        func resetForSignOut() {
+            phase = .idle
+            isManualSyncing = false
+            hasCompletedInitialBootstrap = false
+            lastSynchronizedScopeKey = nil
+            lastObservedZoneName = nil
+            lastObservedOwnerName = nil
+        }
+
+        func observeZone(zoneName: String, ownerName: String) -> ZoneObservation {
+            guard let lastName = lastObservedZoneName, let lastOwner = lastObservedOwnerName else {
+                lastObservedZoneName = zoneName
+                lastObservedOwnerName = ownerName
+                return ZoneObservation(didChange: false, previousZoneName: nil, previousOwnerName: nil)
+            }
+            if lastName != zoneName || lastOwner != ownerName {
+                lastSynchronizedScopeKey = nil
+                lastObservedZoneName = zoneName
+                lastObservedOwnerName = ownerName
+                return ZoneObservation(didChange: true, previousZoneName: lastName, previousOwnerName: lastOwner)
+            }
+            return ZoneObservation(didChange: false, previousZoneName: nil, previousOwnerName: nil)
+        }
+
+        func consumeReconnectTrigger(now: Date = Date()) -> Bool {
+            let last = lastReconnectTriggeredSyncAt ?? .distantPast
+            guard now.timeIntervalSince(last) >= AppLifecycleCoordinator.reconnectSyncMinimumInterval else {
+                return false
+            }
+            lastReconnectTriggeredSyncAt = now
+            return true
+        }
+
+        func consumeUnsyncedTrigger(now: Date = Date()) -> Bool {
+            let last = lastUnsyncedEnqueueAt ?? .distantPast
+            guard now.timeIntervalSince(last) >= AppLifecycleCoordinator.unsyncedEnqueueDebounceInterval else {
+                return false
+            }
+            lastUnsyncedEnqueueAt = now
+            return true
+        }
     }
 
-    let state = Mutex<LifecycleFlags>(LifecycleFlags())
+    let syncGate = LifecycleSyncGate()
 
     static let reconnectSyncMinimumInterval: TimeInterval = 45
     static let unsyncedEnqueueDebounceInterval: TimeInterval = 30
@@ -75,7 +187,7 @@ final class AppLifecycleCoordinator {
     /// Last time a reconnect-triggered sync was issued. Exposed read-only for
     /// the debug overlay so push health can be correlated with debounce state.
     var lastReconnectTriggeredSyncAtForDebug: Date? {
-        state.withLock { $0.lastReconnectTriggeredSyncAt }
+        syncGate.lastReconnectTriggeredSyncAt
     }
 
     /// Debounce interval applied to reconnect-triggered syncs. Read-only for overlay.
@@ -87,19 +199,17 @@ final class AppLifecycleCoordinator {
 
     /// Exposed for tests to assert the coordinator's current phase via the public enum.
     var coordinatorStateForTests: CoordinatorState {
-        state.withLock { flags in
-            switch flags.phase {
-            case .idle: .idle
-            case .bootstrapping: .bootstrapping
-            case .syncing: .syncing
-            case .zoneChanging: .zoneChanging
-            }
+        switch syncGate.phase {
+        case .idle: .idle
+        case .bootstrapping: .bootstrapping
+        case .syncing: .syncing
+        case .zoneChanging: .zoneChanging
         }
     }
 
     /// Exposed for tests to assert the coordinator's current phase directly.
     var phaseForTests: Phase {
-        state.withLock { $0.phase }
+        syncGate.phase
     }
 
     /// Injected references
@@ -174,14 +284,7 @@ final class AppLifecycleCoordinator {
                 #if DEBUG
                     assert(Thread.isMainThread)
                 #endif
-                let shouldSync: Bool = self.state.withLock { flags in
-                    let last = flags.lastReconnectTriggeredSyncAt ?? .distantPast
-                    guard Date().timeIntervalSince(last) >= Self.reconnectSyncMinimumInterval else {
-                        return false
-                    }
-                    flags.lastReconnectTriggeredSyncAt = Date()
-                    return true
-                }
+                let shouldSync: Bool = self.syncGate.consumeReconnectTrigger()
                 guard shouldSync else {
                     self.logger
                         .debug(
@@ -238,106 +341,56 @@ final class AppLifecycleCoordinator {
     /// Clears the cached scope key and resets bootstrap completion so a
     /// post-sign-out sign-in cannot reuse a stale scope and skip engine init.
     func invalidateScopeStateForSessionClear() {
-        state.withLock { flags in
-            flags.lastSynchronizedScopeKey = nil
-            flags.lastObservedZoneID = nil
-            flags.hasCompletedInitialBootstrap = false
-        }
+        syncGate.invalidateForSessionClear()
         logger.info("Cleared cached scope key and reset bootstrap completion for session clear")
     }
 
     /// Clears the cached scope key while keeping bootstrap completion intact
     /// when the active family zone changes mid-session.
     func invalidateScopeForZoneChange() {
-        state.withLock { flags in
-            flags.lastSynchronizedScopeKey = nil
-            flags.lastObservedZoneID = nil
-        }
+        syncGate.invalidateForZoneChange()
         logger.info("Cleared cached scope key for zone change")
     }
 
     /// Detects in-process zone changes that occurred without triggering the
     /// `didChangeFamilyZoneID` notification.
     func handleZoneChangeIfNeeded(currentZoneID: CKRecordZone.ID) {
-        state.withLock { flags in
-            guard let last = flags.lastObservedZoneID else {
-                flags.lastObservedZoneID = (zoneName: currentZoneID.zoneName, ownerName: currentZoneID.ownerName)
-                return
-            }
-            if last.zoneName != currentZoneID.zoneName || last.ownerName != currentZoneID.ownerName {
-                logger.info(
-                    "Zone ID changed in-process: (\(last.zoneName), \(last.ownerName)) -> (\(currentZoneID.zoneName), \(currentZoneID.ownerName))"
-                )
-                flags.lastSynchronizedScopeKey = nil
-                flags.lastObservedZoneID = (zoneName: currentZoneID.zoneName, ownerName: currentZoneID.ownerName)
-            }
+        let outcome = syncGate.observeZone(zoneName: currentZoneID.zoneName, ownerName: currentZoneID.ownerName)
+        if outcome.didChange, let prevName = outcome.previousZoneName, let prevOwner = outcome.previousOwnerName {
+            logger.info(
+                "Zone ID changed in-process: (\(prevName), \(prevOwner)) -> (\(currentZoneID.zoneName), \(currentZoneID.ownerName))"
+            )
         }
     }
 
     // MARK: - Atomic Single-Flight Helpers
 
     func tryEnterBootstrap() -> Bool {
-        state.withLock { flags in
-            guard flags.phase == .idle, !flags.hasCompletedInitialBootstrap else {
-                return false
-            }
-            flags.phase = .bootstrapping
-            return true
-        }
+        syncGate.tryEnterBootstrap()
     }
 
     func tryEnterSync() -> Bool {
-        state.withLock { flags in
-            guard flags.hasCompletedInitialBootstrap, flags.phase == .idle else {
-                return false
-            }
-            flags.phase = .syncing
-            return true
-        }
+        syncGate.tryEnterSync()
     }
 
     func tryEnterManualSync() -> Bool {
-        state.withLock { flags in
-            // Manual sync is user-initiated and must not be starved by a foreground sync holding `.syncing`.
-            guard flags.phase != .bootstrapping else { return false }
-            guard !flags.isManualSyncing else { return false }
-            flags.isManualSyncing = true
-            return true
-        }
+        syncGate.tryEnterManualSync()
     }
 
     func tryEnterZoneChange(allowBeforeBootstrap: Bool = false) -> Bool {
-        state.withLock { flags in
-            guard flags.hasCompletedInitialBootstrap || allowBeforeBootstrap, flags.phase == .idle else {
-                return false
-            }
-            flags.phase = .zoneChanging
-            return true
-        }
+        syncGate.tryEnterZoneChange(allowBeforeBootstrap: allowBeforeBootstrap)
     }
 
     func exitPhase(_ phase: Phase) {
-        state.withLock { flags in
-            if flags.phase == phase {
-                flags.phase = .idle
-            }
-        }
+        syncGate.exitPhase(phase)
     }
 
     func exitManualSync() {
-        state.withLock { flags in
-            flags.isManualSyncing = false
-        }
+        syncGate.exitManualSync()
     }
 
     func forceResetPhaseForSignOut() {
-        state.withLock { flags in
-            flags.phase = .idle
-            flags.isManualSyncing = false
-            flags.hasCompletedInitialBootstrap = false
-            flags.lastSynchronizedScopeKey = nil
-            flags.lastObservedZoneID = nil
-        }
+        syncGate.resetForSignOut()
     }
 
     // MARK: - Terminated Sync Retry
@@ -356,42 +409,38 @@ final class AppLifecycleCoordinator {
 
     /// Test-only helper to set scope key directly.
     func setLastSynchronizedScopeKeyForTests(_ key: String?) {
-        state.withLock { $0.lastSynchronizedScopeKey = key }
+        syncGate.lastSynchronizedScopeKey = key
     }
 
     func setHasCompletedInitialBootstrapForTests(_ value: Bool) {
-        state.withLock { $0.hasCompletedInitialBootstrap = value }
+        syncGate.hasCompletedInitialBootstrap = value
     }
 
     var isManualSyncingForTests: Bool {
-        state.withLock { $0.isManualSyncing }
+        syncGate.isManualSyncing
     }
 
     var lastSynchronizedScopeKey: String? {
-        state.withLock { $0.lastSynchronizedScopeKey }
+        syncGate.lastSynchronizedScopeKey
     }
 
     var hasCompletedInitialBootstrap: Bool {
-        state.withLock { $0.hasCompletedInitialBootstrap }
+        syncGate.hasCompletedInitialBootstrap
     }
 
     var isSyncing: Bool {
-        state.withLock { $0.phase == .syncing || $0.phase == .bootstrapping || $0.isManualSyncing }
+        syncGate.phase == .syncing || syncGate.phase == .bootstrapping || syncGate.isManualSyncing
     }
 
     @discardableResult
     func transitionPhaseForTests(to target: Phase) -> Bool {
-        state.withLock { flags in
-            guard flags.phase == .idle else { return false }
-            flags.phase = target
-            return true
-        }
+        guard syncGate.phase == .idle else { return false }
+        syncGate.phase = target
+        return true
     }
 
     func resetPhaseForTests() {
-        state.withLock { flags in
-            flags.phase = .idle
-            flags.isManualSyncing = false
-        }
+        syncGate.phase = .idle
+        syncGate.isManualSyncing = false
     }
 }

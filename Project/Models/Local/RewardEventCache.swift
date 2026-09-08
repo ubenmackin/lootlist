@@ -20,7 +20,8 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
     var questCompletionRecordName: String
     var familyRecordName: String
     var xpAmount: Int
-    var goldAmount: Double
+    /// Whole pennies — mirrors `RewardEvent.goldAmount`.
+    var goldAmount: Int64
     var timestamp: Date
     var changeTag: String?
     var encodedSystemFields: Data?
@@ -34,7 +35,7 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
         questCompletionRecordName: String,
         familyRecordName: String,
         xpAmount: Int,
-        goldAmount: Double,
+        goldAmount: Int64,
         timestamp: Date,
         changeTag: String? = nil,
         encodedSystemFields: Data? = nil,
@@ -64,13 +65,9 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
             familyRecordName: event.family.recordID.recordName,
             xpAmount: event.xpAmount,
             goldAmount: event.goldAmount,
-            timestamp: event.timestamp,
-            changeTag: event.changeTag,
-            encodedSystemFields: event.encodedSystemFields,
-            sourceZoneName: event.id.zoneID.zoneName,
-            sourceZoneOwnerName: event.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: event.id.zoneID)
+            timestamp: event.timestamp
         )
+        applySystemFields(from: event)
     }
 
     func update(from event: RewardEvent, isServerSync: Bool = false) {
@@ -80,13 +77,11 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
         xpAmount = event.xpAmount
         goldAmount = event.goldAmount
         timestamp = event.timestamp
-        changeTag = event.changeTag
-        sourceZoneName = event.id.zoneID.zoneName
-        sourceZoneOwnerName = event.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: event.id.zoneID)
-        if isServerSync, event.encodedSystemFields != nil {
-            encodedSystemFields = event.encodedSystemFields
-        }
+        applySystemFields(from: event, isServerSync: isServerSync)
+    }
+
+    var formattedGoldAmount: String {
+        CurrencyFormatter.string(pennies: goldAmount)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<RewardEventCache> {
@@ -102,5 +97,13 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<RewardEventCache> {
         FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<RewardEventCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
     }
 }

@@ -14,7 +14,7 @@ import SwiftData
 @Observable
 final class GemService {
     private let cloudKitService: any CloudKitServiceProtocol
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemService")
+    private let logger = Logger(category: "GemService")
     var cacheService: CacheService?
     var toastManager: ToastManager?
     var appState: AppState?

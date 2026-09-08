@@ -66,7 +66,7 @@ struct HeroBoardServiceTests {
                 id: rivalID
             )
 
-            let family = Family(name: "Test Guild", createdBy: parentID, id: familyRef.recordID)
+            let family = Family(name: "Test Guild", creatorUserRecordName: parentID.recordName, id: familyRef.recordID)
             appState.family = family
 
             let questService = QuestService(cloudKit: cloudKit, xpService: XPService(cloudKit: cloudKit))
@@ -98,7 +98,7 @@ struct HeroBoardServiceTests {
                 assignee: CKRecord.Reference(
                     recordID: CKRecord.ID(recordName: assigneeRecordName, zoneID: zoneID), action: .none
                 ),
-                goldReward: 5.0,
+                goldReward: 500,
                 xpReward: 50,
                 scheduleType: .weeklyFlexible,
                 targetCount: 1,

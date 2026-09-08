@@ -92,16 +92,16 @@ struct HeroTransactionView: View {
         // WHY predicate pushdown: the sheet only needs this hero's rows to price the Spend warning.
         let targetFamily = viewModel.heroProfile.familyRecordName
         let targetProfile = viewModel.heroProfile.recordName
-        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let filter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
     }
 
-    private var parsedAmount: Double? {
-        guard let value = Self.parseAmount(amountText), value.isFinite, value > 0 else { return nil }
+    private var parsedAmount: Int64? {
+        guard let value = Self.parseAmount(amountText), value > 0 else { return nil }
         return value
     }
 
-    private var spendBalance: Double {
+    private var spendBalance: Int64 {
         viewModel.currentSpendBalance(from: cachedLedgers)
     }
 
@@ -232,7 +232,7 @@ struct HeroTransactionView: View {
             return
         }
         // Locale-aware parsing — handles comma decimal separators.
-        guard let amount = Self.parseAmount(amountText), amount.isFinite, amount > 0 else {
+        guard let amount = Self.parseAmount(amountText), amount > 0 else {
             toastManager.show(message: "Please enter a valid positive amount.", type: .warning)
             return
         }
@@ -260,8 +260,8 @@ struct HeroTransactionView: View {
     // MARK: - Parsing
 
     /// Parses amount using the current locale, falling back to dot-normalized Double.
-    static func parseAmount(_ text: String) -> Double? {
-        CurrencyFormatter.decimalDouble(from: text)
+    static func parseAmount(_ text: String) -> Int64? {
+        CurrencyFormatter.pennies(from: text)
     }
 }
 

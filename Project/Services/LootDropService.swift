@@ -24,7 +24,7 @@ public struct LootDrop: Sendable, Equatable {
 @MainActor
 @Observable
 final class LootDropService {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LootDrop")
+    private let logger = Logger(category: "LootDrop")
     let gemService: GemService
     let toastManager: ToastManager?
     let soundManager: SoundManager?

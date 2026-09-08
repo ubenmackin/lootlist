@@ -15,7 +15,8 @@ struct ChoreRowItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String?
-    let amount: Double
+    /// Whole pennies.
+    let amount: Int64
     let isPendingReview: Bool
     let questRecordName: String
     let completionRecordName: String?
@@ -24,7 +25,7 @@ struct ChoreRowItem: Identifiable {
         id: String,
         title: String,
         subtitle: String?,
-        amount: Double,
+        amount: Int64,
         isPendingReview: Bool,
         questRecordName: String? = nil,
         completionRecordName: String? = nil
@@ -53,7 +54,7 @@ struct ActiveGoalSummary: Identifiable {
 @MainActor
 @Observable
 final class ChildHubViewModel {
-    private(set) var bucketBalances: [BucketKind: Double] = [:]
+    private(set) var bucketBalances: [BucketKind: Int64] = [:]
     private(set) var choreRows: [ChoreRowItem] = []
     private(set) var weeklyCompleted: Int = 0
     private(set) var weeklyGoal: Int = 0
@@ -71,11 +72,11 @@ final class ChildHubViewModel {
     // MARK: - Derived Figures
 
     /// WHY one helper: bucket sum is the total on every surface.
-    var availableBalance: Double {
+    var availableBalance: Int64 {
         BucketService.totalBalance(bucketBalances: bucketBalances)
     }
 
-    func bucketBalance(_ kind: BucketKind) -> Double {
+    func bucketBalance(_ kind: BucketKind) -> Int64 {
         bucketBalances[kind] ?? 0
     }
 
@@ -99,6 +100,33 @@ final class ChildHubViewModel {
 
     var todayCode: String {
         WeekMath.todayWeekdayCode()
+    }
+
+    // MARK: - Hub Presentation Helpers (pure, no CloudKit)
+
+    /// WHY ViewModel-owned: header first-name derivation lived in the view body;
+    /// single helper keeps ChildHub and HeroHome headers identical.
+    nonisolated static func firstName(displayName: String?) -> String? {
+        HubQueryProvider.firstName(displayName: displayName)
+    }
+
+    func firstName(for row: ProfileCache?) -> String? {
+        Self.firstName(displayName: row?.displayName)
+    }
+
+    /// Most-recent ledger slice for the momentum sparkline.
+    nonisolated static func recentLedgers(_ ledgers: [LedgerEntryCache], limit: Int = 7) -> [LedgerEntryCache] {
+        HubQueryProvider.recentLedgers(ledgers, limit: limit)
+    }
+
+    /// Ledger sparkline points; grouped by UTC dayKey so timezones agree.
+    nonisolated static func ledgerSparklinePoints(from ledgers: [LedgerEntryCache]) -> [WeeklyEarningPoint] {
+        HubQueryProvider.ledgerSparklinePoints(from: ledgers)
+    }
+
+    /// Stale-banner denominator shared by hub freshness checks.
+    nonisolated static func staleBannerCount(profiles: Int, quests: Int, goals: Int, ledgers: Int) -> Int {
+        HubQueryProvider.staleBannerCount(profiles: profiles, quests: quests, goals: goals, ledgers: ledgers)
     }
 
     // MARK: - Rebuild

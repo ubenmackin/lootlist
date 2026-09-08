@@ -29,7 +29,7 @@ struct LedgerTransferParityTests {
     ) -> LedgerEntry {
         LedgerEntry(
             profile: ref("hero1"),
-            amount: 4.0,
+            amount: 400,
             description: "Transfer from \(from.displayName) to \(to.displayName)",
             location: "App",
             date: Date(timeIntervalSince1970: 1_750_000_000),
@@ -139,13 +139,13 @@ struct LedgerTransferParityTests {
             family: ref("fam1"),
             id: id("hero1")
         )
-        let family = Family(name: "Fam", createdBy: id("u1"), id: id("fam1"))
+        let family = Family(name: "Fam", creatorUserRecordName: "u1", id: id("fam1"))
         appState.currentProfile = hero
         appState.family = family
         appState.familyZoneID = zoneID
         await cache.upsertLedgerEntry(LedgerEntry(
             profile: ref("hero1"),
-            amount: 20.0,
+            amount: 2000,
             description: "seed",
             source: LedgerSource.quest.rawValue,
             bucketKind: BucketKind.spend.rawValue,
@@ -156,7 +156,7 @@ struct LedgerTransferParityTests {
         let entry = try await buckets.transfer(
             from: .spend,
             to: .shortTermSave,
-            amount: 4.0,
+            amount: 400,
             profile: hero,
             family: family,
             at: Date(timeIntervalSince1970: 1_750_000_000)

@@ -95,7 +95,7 @@ struct RecordBridgeTests {
         let template = QuestTemplate(
             name: "Tidy Room",
             description: "Tidy up",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .specificDays,
             specificDays: ["Mon"],
@@ -116,7 +116,7 @@ struct RecordBridgeTests {
         let quest = Quest(
             template: ref("tpl1"),
             assignee: ref("hero1"),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 100,
             scheduleType: .weeklyFlexible,
             targetCount: 2,
@@ -164,11 +164,11 @@ struct RecordBridgeTests {
             weekOf: Date(timeIntervalSince1970: 1_749_950_000),
             profile: ref("hero1"),
             status: .paid,
-            totalEarned: 25.0,
+            totalEarned: 2500,
             questsCompleted: 3,
             questsTotal: 5,
             paidDate: Date(timeIntervalSince1970: 1_750_100_000),
-            paidAmount: 25.0,
+            paidAmount: 2500,
             family: ref("fam1"),
             id: id("per1")
         )
@@ -183,7 +183,7 @@ struct RecordBridgeTests {
     private func verifyLedgerEntryManagedKeys() {
         let entry = LedgerEntry(
             profile: ref("hero1"),
-            amount: 5.0,
+            amount: 500,
             description: "Bonus",
             location: "Store",
             date: Date(timeIntervalSince1970: 1_750_000_000),
@@ -252,7 +252,7 @@ struct RecordBridgeTests {
             profile: ref("hero1"),
             questCompletion: ref("comp1"),
             xpAmount: 50,
-            goldAmount: 10.0,
+            goldAmount: 1000,
             timestamp: Date(timeIntervalSince1970: 1_750_000_000),
             family: ref("fam1"),
             id: id("rew1")
@@ -356,7 +356,7 @@ struct RecordBridgeTests {
         // Non-nil bucket fields should appear in the prepared CKRecord
         let entryWithBuckets = LedgerEntry(
             profile: ref("hero1"),
-            amount: 5.0,
+            amount: 500,
             description: "Transfer",
             location: "App",
             date: Date(timeIntervalSince1970: 1_750_000_000),

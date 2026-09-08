@@ -26,11 +26,11 @@ struct HeroDetailInlineView: View {
         Array(heroLedgers.prefix(5))
     }
 
-    private var balances: [BucketKind: Double] {
+    private var balances: [BucketKind: Int64] {
         BucketService.bucketBalances(for: heroLedgers, profileRecordName: hero.recordName)
     }
 
-    private var availableBalance: Double {
+    private var availableBalance: Int64 {
         BucketService.totalBalance(for: heroLedgers, profileRecordName: hero.recordName)
     }
 

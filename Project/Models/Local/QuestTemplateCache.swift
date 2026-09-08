@@ -19,7 +19,8 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
     var familyRecordName: String
     var name: String
     var isActive: Bool
-    var goldReward: Double
+    /// Whole pennies — mirrors `QuestTemplate.defaultGold` with legacy prefix.
+    var goldReward: Int64
     var xpReward: Int
     var rarity: String
     var specificDays: [String]?
@@ -47,11 +48,15 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         ApprovalMode(rawValue: approvalMode)
     }
 
+    var formattedGoldReward: String {
+        CurrencyFormatter.string(pennies: goldReward)
+    }
+
     init(recordName: String,
          familyRecordName: String,
          name: String,
          isActive: Bool,
-         goldReward: Double,
+         goldReward: Int64,
          xpReward: Int,
          rarity: String,
          specificDays: [String]?,
@@ -103,13 +108,9 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
             scheduleType: template.scheduleType.rawValue,
             isAllOrNothing: template.isAllOrNothing,
             approvalMode: template.approvalMode.rawValue,
-            createdByRecordName: template.createdBy.recordID.recordName,
-            changeTag: template.changeTag,
-            encodedSystemFields: template.encodedSystemFields,
-            sourceZoneName: template.id.zoneID.zoneName,
-            sourceZoneOwnerName: template.id.zoneID.ownerName,
-            sourceDatabaseScope: inferDatabaseScope(from: template.id.zoneID)
+            createdByRecordName: template.createdBy.recordID.recordName
         )
+        applySystemFields(from: template)
     }
 
     // MARK: - CacheMergeable
@@ -128,13 +129,7 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         isAllOrNothing = template.isAllOrNothing
         approvalMode = template.approvalMode.rawValue
         createdByRecordName = template.createdBy.recordID.recordName
-        changeTag = template.changeTag
-        sourceZoneName = template.id.zoneID.zoneName
-        sourceZoneOwnerName = template.id.zoneID.ownerName
-        sourceDatabaseScope = inferDatabaseScope(from: template.id.zoneID)
-        if isServerSync, template.encodedSystemFields != nil {
-            encodedSystemFields = template.encodedSystemFields
-        }
+        applySystemFields(from: template, isServerSync: isServerSync)
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestTemplateCache> {
@@ -150,5 +145,33 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<QuestTemplateCache> {
         FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
+
+    // MARK: - Family Predicates
+
+    /// WHY single source: views share the family isolation boundary so store filtering never drifts.
+    static func familyPredicate(familyRecordName: String) -> Predicate<QuestTemplateCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
+    }
+
+    /// WHY separate: boards list active templates only while managers audit the full bank.
+    static func activeFamilyPredicate(familyRecordName: String) -> Predicate<QuestTemplateCache> {
+        let targetFamily = familyRecordName
+        return #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+    }
+
+    /// WHY single source: single-row reads stay index-bound on the composite key.
+    static func recordPredicate(recordName: String, familyRecordName: String) -> Predicate<QuestTemplateCache> {
+        let targetRecord = recordName
+        let targetFamily = familyRecordName
+        return #Predicate<QuestTemplateCache> {
+            $0.familyRecordName == targetFamily && $0.recordName == targetRecord
+        }
+    }
+
+    /// WHY fail-closed: empty scope returns zero rows via the index, never an unscoped scan.
+    static func emptyPredicate() -> Predicate<QuestTemplateCache> {
+        #Predicate<QuestTemplateCache> { $0.familyRecordName == "__empty__" }
     }
 }

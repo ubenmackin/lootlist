@@ -86,7 +86,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
         let cache = scaffold.cache
 
-        func seedEntry(_ name: String, amount: Double, kind: BucketKind) {
+        func seedEntry(_ name: String, amount: Int64, kind: BucketKind) {
             cache.context?.insert(LedgerEntryCache(from: LedgerEntry(
                 profile: CKRecord.Reference(recordID: scaffold.hero.id, action: .none),
                 amount: amount,
@@ -99,8 +99,8 @@ extension QuestServiceTests {
             )))
             _ = cache.saveContext()
         }
-        seedEntry("seed-spend", amount: 5.00, kind: .spend)
-        seedEntry("seed-short", amount: 2.00, kind: .shortTermSave)
+        seedEntry("seed-spend", amount: 500, kind: .spend)
+        seedEntry("seed-short", amount: 200, kind: .shortTermSave)
 
         let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: scaffold.appState)
         let delegateHandler = CKSyncEngineDelegateHandler(
@@ -122,11 +122,11 @@ extension QuestServiceTests {
             to: .shortTermSave
         )
 
-        await #expect(throws: BucketServiceError.insufficientFunds(available: 5.00, requested: 7.00)) {
+        await #expect(throws: BucketServiceError.insufficientFunds(available: 500, requested: 700)) {
             try await buckets.transfer(
                 from: .spend,
                 to: .shortTermSave,
-                amount: 7.00,
+                amount: 700,
                 profile: scaffold.hero,
                 family: family,
                 transferID: transferID
@@ -139,8 +139,8 @@ extension QuestServiceTests {
             profileRecordName: scaffold.hero.id.recordName,
             familyRecordName: family.id.recordName
         )
-        #expect(balances[.spend] == 5.00)
-        #expect(balances[.shortTermSave] == 2.00)
+        #expect(balances[.spend] == 500)
+        #expect(balances[.shortTermSave] == 200)
         let rows = cache.fetchLedgerEntries(
             profileRecordName: scaffold.hero.id.recordName,
             family: family.id.recordName

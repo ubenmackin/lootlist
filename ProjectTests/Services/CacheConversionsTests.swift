@@ -162,7 +162,7 @@ struct CacheConversionsTests {
         #expect(quest.assignee == ref("hero_1"))
         #expect(quest.family == ref("fam_1"))
         #expect(quest.createdBy == ref("creator_1"))
-        #expect(quest.goldReward == 5.0)
+        #expect(quest.goldReward == 500)
         #expect(quest.xpReward == 50)
         #expect(quest.approvalMode == .parentVerify)
         #expect(quest.scheduleType == .weeklyFlexible)
@@ -186,7 +186,7 @@ struct CacheConversionsTests {
             weekOf: weekOf,
             questName: "Tidy Room",
             isActive: true,
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 100,
             rarity: QuestRarity.common.rawValue, // stale: 100 XP maps to Rare today
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -213,7 +213,7 @@ struct CacheConversionsTests {
             weekOf: weekOf,
             questName: "Legacy Quest",
             isActive: true,
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 0,
             rarity: QuestRarity.legendary.rawValue,
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,
@@ -245,7 +245,7 @@ struct CacheConversionsTests {
         let epicQuest = Quest(
             template: ref("tpl_1"),
             assignee: ref("hero_1"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 250,
             scheduleType: .weeklyFlexible,
             weekOf: weekOf,
@@ -269,7 +269,7 @@ struct CacheConversionsTests {
             familyRecordName: "fam_1",
             name: "Tidy Room",
             isActive: true,
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             rarity: "common",
             specificDays: ["Mon", "Wed"],
@@ -285,7 +285,7 @@ struct CacheConversionsTests {
         #expect(template.id == id("tpl_1"))
         #expect(template.name == "Tidy Room")
         #expect(template.description == "Tidy up")
-        #expect(template.defaultGold == 5.0)
+        #expect(template.defaultGold == 500)
         #expect(template.xpReward == 50)
         #expect(template.scheduleType == .specificDays)
         #expect(template.specificDays == ["Mon", "Wed"])
@@ -303,7 +303,7 @@ struct CacheConversionsTests {
             recordName: "led_1",
             profileRecordName: "hero_1",
             familyRecordName: "fam_1",
-            amount: 12.5,
+            amount: 1250,
             entryDescription: "Bonus payout",
             date: date,
             source: "manual"
@@ -314,7 +314,7 @@ struct CacheConversionsTests {
         #expect(entry.id == id("led_1"))
         #expect(entry.profile == ref("hero_1"))
         #expect(entry.family == ref("fam_1"))
-        #expect(entry.amount == 12.5)
+        #expect(entry.amount == 1250)
         #expect(entry.description == "Bonus payout")
         #expect(entry.date == date)
         #expect(entry.source == "manual")
@@ -330,11 +330,11 @@ struct CacheConversionsTests {
             familyRecordName: "fam_1",
             weekOf: weekOf,
             status: PayoutStatus.paid.rawValue,
-            totalEarned: 25.0,
+            totalEarned: 2500,
             questsCompleted: 3,
             questsTotal: 4,
             paidDate: paidDate,
-            paidAmount: 25.0
+            paidAmount: 2500
         )
 
         let period = cache.toAllowancePeriod(zoneID: zoneID)
@@ -344,11 +344,11 @@ struct CacheConversionsTests {
         #expect(period.family == ref("fam_1"))
         #expect(period.weekOf == weekOf)
         #expect(period.status == .paid)
-        #expect(period.totalEarned == 25.0)
+        #expect(period.totalEarned == 2500)
         #expect(period.questsCompleted == 3)
         #expect(period.questsTotal == 4)
         #expect(period.paidDate == paidDate)
-        #expect(period.paidAmount == 25.0)
+        #expect(period.paidAmount == 2500)
     }
 
     // MARK: - Schema V8 conversions
@@ -444,7 +444,7 @@ struct CacheConversionsTests {
         let date = Date(timeIntervalSince1970: 1_750_000_000)
         let transfer = LedgerEntry(
             profile: ref("hero_1"),
-            amount: -5.00,
+            amount: -500,
             description: "Moved savings",
             location: "App",
             date: date,
@@ -466,7 +466,7 @@ struct CacheConversionsTests {
         // Interest credits exactly one bucket; from/to stay unset.
         let interest = LedgerEntry(
             profile: ref("hero_1"),
-            amount: 1.25,
+            amount: 125,
             description: "Monthly interest",
             date: date,
             source: "interest",
@@ -486,7 +486,7 @@ struct CacheConversionsTests {
             recordName: "led_l1",
             profileRecordName: "hero_1",
             familyRecordName: "fam_1",
-            amount: 12.5,
+            amount: 1250,
             entryDescription: "Old payout",
             date: date,
             source: "manual"
@@ -504,7 +504,7 @@ struct CacheConversionsTests {
         let claimed = Quest(
             template: ref("tpl_1"),
             assignee: ref("hero_1"),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             weekOf: weekOf,
@@ -710,7 +710,7 @@ struct CacheConversionsTests {
             weekOf: weekOf,
             questName: questName,
             isActive: true,
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             rarity: QuestRarity.common.rawValue,
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,

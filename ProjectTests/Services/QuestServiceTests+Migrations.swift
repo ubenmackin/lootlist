@@ -31,7 +31,7 @@ extension QuestServiceTests {
         let template = QuestTemplate(
             name: "Clean Room",
             description: "Tidy up",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             createdBy: familyRef,
@@ -45,7 +45,7 @@ extension QuestServiceTests {
             assignee: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
             ),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,
@@ -85,7 +85,7 @@ extension QuestServiceTests {
         let template = QuestTemplate(
             name: "Clean Room",
             description: "Tidy up",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             createdBy: familyRef,
@@ -99,7 +99,7 @@ extension QuestServiceTests {
             assignee: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
             ),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             isAllOrNothing: false,

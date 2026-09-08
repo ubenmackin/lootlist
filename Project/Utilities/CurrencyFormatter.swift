@@ -10,7 +10,7 @@ import os
 
 /// Canonical formatter for locale-aware currency display backed by `FormatStyle.Currency`.
 enum CurrencyFormatter: Sendable {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CurrencyFormatter")
+    private static let logger = Logger(category: "CurrencyFormatter")
 
     static var currencyCode: String {
         Locale.current.currency?.identifier ?? "USD"
@@ -32,6 +32,78 @@ enum CurrencyFormatter: Sendable {
 
     static func string(_ amount: Decimal) -> String {
         amount.formatted(decimalCurrencyStyle)
+    }
+
+    /// Canonical pennies entry point — all money renders through here so
+    /// integer pennies never drift through Double.
+    static func string(pennies: Int64) -> String {
+        string(Decimal(pennies) / 100)
+    }
+
+    /// WHY unlabeled Int64: @Query caches now carry pennies, so existing
+    /// string(_:) call sites resolve to integer math without per-view edits.
+    static func string(_ pennies: Int64) -> String {
+        string(pennies: pennies)
+    }
+
+    static func string(_ pennies: Int) -> String {
+        string(pennies: Int64(pennies))
+    }
+
+    static func magnitude(pennies: Int64) -> String {
+        string(pennies: abs(pennies))
+    }
+
+    static func magnitude(_ pennies: Int64) -> String {
+        magnitude(pennies: pennies)
+    }
+
+    static func magnitude(_ pennies: Int) -> String {
+        magnitude(pennies: Int64(pennies))
+    }
+
+    static func signed(pennies: Int64) -> String {
+        let body = magnitude(pennies: pennies)
+        if pennies < 0 {
+            return "−\(body)"
+        }
+        if pennies > 0 {
+            return "+\(body)"
+        }
+        return body
+    }
+
+    static func signed(_ pennies: Int64) -> String {
+        signed(pennies: pennies)
+    }
+
+    static func signed(_ pennies: Int) -> String {
+        signed(pennies: Int64(pennies))
+    }
+
+    static func editingString(pennies: Int64) -> String {
+        String(format: "%.2f", Double(pennies) / 100.0)
+    }
+
+    static func editingString(_ pennies: Int64) -> String {
+        editingString(pennies: pennies)
+    }
+
+    static func editingString(_ pennies: Int) -> String {
+        editingString(pennies: Int64(pennies))
+    }
+
+    /// WHY round half up: dollar inputs quantize to whole pennies away from
+    /// zero on ties so $1.005 never loses a penny to banker's rounding.
+    static func dollarsToPennies(_ dollars: Double) -> Int64 {
+        guard dollars.isFinite else { return 0 }
+        return Int64((dollars * 100).rounded(.toNearestOrAwayFromZero))
+    }
+
+    /// Locale-aware text entry parsed straight to whole pennies.
+    static func pennies(from text: String) -> Int64? {
+        guard let dollars = decimalDouble(from: text) else { return nil }
+        return dollarsToPennies(dollars)
     }
 
     static func magnitude(_ amount: Double) -> String {

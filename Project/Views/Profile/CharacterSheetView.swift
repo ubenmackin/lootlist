@@ -16,7 +16,9 @@ struct CharacterSheetView: View {
 
     let streak: Int?
 
-    let goldBalance: Double?
+    /// WHY Int64 pennies: ledger entries carry whole pennies, so the balance
+    /// stays exact with no Double drift and renders via CurrencyFormatter.
+    let goldBalance: Int64?
 
     let earnedAchievements: [AchievementCache]
 
@@ -30,7 +32,7 @@ struct CharacterSheetView: View {
          avatarService: AvatarService,
          xpService: XPService,
          streak: Int?,
-         goldBalance: Double?,
+         goldBalance: Int64?,
          earnedAchievements: [AchievementCache],
          onSaveDisplayName: ((String) -> Void)?)
     {
@@ -329,7 +331,7 @@ struct CharacterSheetView: View {
         .padding(.horizontal)
     }
 
-    private static func formatGold(_ amount: Double) -> String {
-        CurrencyFormatter.magnitude(amount)
+    private static func formatGold(_ pennies: Int64) -> String {
+        CurrencyFormatter.magnitude(pennies: pennies)
     }
 }

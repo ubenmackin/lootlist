@@ -79,7 +79,7 @@ struct CloudKitModelTests {
         let template = QuestTemplate(
             name: "Clean Room",
             description: "Tidy up your lair",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
@@ -88,7 +88,7 @@ struct CloudKitModelTests {
         )
 
         #expect(template.name == "Clean Room")
-        #expect(template.defaultGold == 5.0)
+        #expect(template.defaultGold == 500)
         #expect(template.xpReward == 50)
         #expect(template.scheduleType == .weeklyFlexible)
         #expect(template.approvalMode == .autoApprove)
@@ -103,7 +103,7 @@ struct CloudKitModelTests {
         let template = QuestTemplate(
             name: "Weekly Chore",
             description: "Do it any day this week",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             specificDays: [],
@@ -129,7 +129,7 @@ struct CloudKitModelTests {
         let template = QuestTemplate(
             name: "Band Practice",
             description: "Play any of the listed days",
-            defaultGold: 3.0,
+            defaultGold: 300,
             xpReward: 30,
             scheduleType: .specificDays,
             specificDays: ["monday", "wednesday", "friday"],
@@ -154,7 +154,7 @@ struct CloudKitModelTests {
 
         let spending = LedgerEntry(
             profile: profileRef,
-            amount: -12.50,
+            amount: -1250,
             description: "Bought Toy Sword",
             date: Date(),
             source: "manual",
@@ -166,7 +166,7 @@ struct CloudKitModelTests {
 
         let bonus = LedgerEntry(
             profile: profileRef,
-            amount: 5.00,
+            amount: 500,
             description: "Loot Drop Bonus",
             date: Date(),
             source: "manual",
@@ -295,7 +295,7 @@ struct CloudKitModelTests {
         // Transfer entries carry from/to and no single bucket attribution.
         let transfer = LedgerEntry(
             profile: profileRef,
-            amount: -5.00,
+            amount: -500,
             description: "Moved savings",
             date: date,
             source: "transfer",
@@ -313,7 +313,7 @@ struct CloudKitModelTests {
         // Interest/match entries credit exactly one bucket.
         let interest = LedgerEntry(
             profile: profileRef,
-            amount: 1.25,
+            amount: 125,
             description: "Monthly interest",
             date: date,
             source: "interest",
@@ -330,7 +330,7 @@ struct CloudKitModelTests {
         // Legacy pre-bucket rows decode with all three fields nil rather than failing.
         let legacy = LedgerEntry(
             profile: profileRef,
-            amount: 12.50,
+            amount: 1250,
             description: "Old payout",
             date: date,
             source: "manual",
@@ -357,7 +357,7 @@ struct CloudKitModelTests {
         let claimed = Quest(
             template: templateRef,
             assignee: heroRef,
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             weekOf: weekOf,
@@ -375,7 +375,7 @@ struct CloudKitModelTests {
         let onBoard = Quest(
             template: templateRef,
             assignee: heroRef,
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             weekOf: weekOf,

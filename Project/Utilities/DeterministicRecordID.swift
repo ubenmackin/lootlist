@@ -75,6 +75,11 @@ enum DeterministicRecordID {
     static func realtimePayout(periodRecordName: String) -> String {
         "rt-\(periodRecordName)"
     }
+
+    /// WHY single source: CloudKit/cache round-trips quantize dates so exact equality forks deterministic names.
+    static func isSameMillisecond(_ lhs: Date, _ rhs: Date) -> Bool {
+        abs(lhs.timeIntervalSince1970 - rhs.timeIntervalSince1970) < 0.001
+    }
 }
 
 /// Canonical deterministic identity helpers that must remain single-source.

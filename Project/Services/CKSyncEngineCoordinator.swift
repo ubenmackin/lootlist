@@ -15,10 +15,7 @@ import Synchronization
 @MainActor
 @Observable
 final class CKSyncEngineCoordinator: SyncEnqueuing {
-    private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
-        category: "CKSyncEngineCoordinator"
-    )
+    private let logger = Logger(category: "CKSyncEngineCoordinator")
 
     // MARK: - State Key Resolution
 

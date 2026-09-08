@@ -25,7 +25,9 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     var assignee: CKRecord.Reference
 
-    var goldReward: Double
+    /// Whole pennies — legacy `gold` prefix retained per architecture; render
+    /// only through `CurrencyFormatter`.
+    var goldReward: Int64
     var xpReward: Int
 
     /// Monotonic per-quest total of XP already banked by the reward step.
@@ -96,7 +98,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         }
         self.assignee = assignee
 
-        goldReward = try record.extract("goldReward")
+        goldReward = try record.pennies(forKey: "goldReward")
         xpReward = try record.extract("xpReward")
         xpBanked = record.extractOptional("xpBanked") ?? 0
 
@@ -161,7 +163,7 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     init(template: CKRecord.Reference,
          assignee: CKRecord.Reference,
-         goldReward: Double,
+         goldReward: Int64,
          xpReward: Int,
          scheduleType: QuestSchedule,
          targetCount: Int = 1,
@@ -195,5 +197,9 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.descriptionText = descriptionText
         self.claimedByProfileRecordName = claimedByProfileRecordName
         self.claimedAt = claimedAt
+    }
+
+    var formattedGoldReward: String {
+        CurrencyFormatter.string(pennies: goldReward)
     }
 }

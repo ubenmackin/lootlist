@@ -129,8 +129,8 @@ struct AutoPayoutCoordinatorTests {
                 id: CKRecord.ID(recordName: "period-paid-\(index)", zoneID: ctx.family.id.zoneID)
             )
             paidPeriod.status = .paid
-            paidPeriod.totalEarned = 15.0
-            paidPeriod.paidAmount = 15.0
+            paidPeriod.totalEarned = 1500
+            paidPeriod.paidAmount = 1500
             paidPeriod.paidDate = now
             await ctx.cache.upsertAllowancePeriod(paidPeriod)
         }
@@ -174,15 +174,15 @@ struct AutoPayoutCoordinatorTests {
             id: CKRecord.ID(recordName: "period-paid-past", zoneID: ctx.family.id.zoneID)
         )
         paidPeriod.status = .paid
-        paidPeriod.totalEarned = 5.0
-        paidPeriod.paidAmount = 5.0
+        paidPeriod.totalEarned = 500
+        paidPeriod.paidAmount = 500
         paidPeriod.paidDate = now
         await ctx.cache.upsertAllowancePeriod(paidPeriod)
 
         let template = QuestTemplate(
             name: "Clean Castle",
             description: "Keep room tidy",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
@@ -194,7 +194,7 @@ struct AutoPayoutCoordinatorTests {
         let pastQuest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -234,15 +234,15 @@ struct AutoPayoutCoordinatorTests {
             id: CKRecord.ID(recordName: "period-paid-current", zoneID: ctx.family.id.zoneID)
         )
         earlyPaidPeriod.status = .paid
-        earlyPaidPeriod.totalEarned = 5.0
-        earlyPaidPeriod.paidAmount = 5.0
+        earlyPaidPeriod.totalEarned = 500
+        earlyPaidPeriod.paidAmount = 500
         earlyPaidPeriod.paidDate = now
         await ctx.cache.upsertAllowancePeriod(earlyPaidPeriod)
 
         let template = QuestTemplate(
             name: "Clean Castle",
             description: "Keep room tidy",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
@@ -254,7 +254,7 @@ struct AutoPayoutCoordinatorTests {
         let currentQuest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -287,8 +287,8 @@ struct AutoPayoutCoordinatorTests {
             id: CKRecord.ID(recordName: recordName, zoneID: ctx.family.id.zoneID)
         )
         period.status = .paid
-        period.totalEarned = 5.0
-        period.paidAmount = 5.0
+        period.totalEarned = 500
+        period.paidAmount = 500
         period.paidDate = weekOf
         ctx.cache.context?.insert(AllowancePeriodCache(from: period))
         _ = ctx.cache.saveContext()
@@ -310,7 +310,7 @@ struct AutoPayoutCoordinatorTests {
         let template = QuestTemplate(
             name: templateName,
             description: "Keep room tidy",
-            defaultGold: 5.0,
+            defaultGold: 500,
             xpReward: 50,
             scheduleType: scheduleType,
             specificDays: specificDays,
@@ -325,7 +325,7 @@ struct AutoPayoutCoordinatorTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: assignee, action: .none),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: scheduleType,
             targetCount: targetCount,
@@ -410,7 +410,7 @@ struct AutoPayoutCoordinatorTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: deletedTemplateID, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
-            goldReward: 5.0,
+            goldReward: 500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -716,7 +716,7 @@ struct AutoPayoutCoordinatorTests {
         let template = QuestTemplate(
             name: "Guild Quest",
             description: "Earn",
-            defaultGold: 10.0,
+            defaultGold: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
@@ -727,7 +727,7 @@ struct AutoPayoutCoordinatorTests {
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
-            goldReward: 10.0,
+            goldReward: 1000,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -792,7 +792,7 @@ struct AutoPayoutCoordinatorTests {
 extension AutoPayoutCoordinatorTests {
     /// Seeds one completed quest and an open allowance period for the week
     /// starting `weekOf`, so the coordinator's next due pass settles it.
-    private func seedWeekEarnings(ctx: TestContext, weekOf: Date, goldReward: Double) throws {
+    private func seedWeekEarnings(ctx: TestContext, weekOf: Date, goldReward: Int64) throws {
         let template = QuestTemplate(
             name: "Bucket Quest",
             description: "Earn toward buckets",
@@ -853,7 +853,7 @@ extension AutoPayoutCoordinatorTests {
         let cal = Calendar.iso8601UTC
         let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
         let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
-        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 25.0)
+        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 2500)
 
         let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
         let processed = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
@@ -864,7 +864,7 @@ extension AutoPayoutCoordinatorTests {
             ctx.cache.fetchAllowancePeriods(family: ctx.family.id.recordName)
                 .first { $0.profileRecordName == ctx.heroProfile.id.recordName && $0.statusEnum == .paid }
         )
-        #expect(paidPeriod.paidAmount == 25.0)
+        #expect(paidPeriod.paidAmount == 2500)
 
         let entries = ctx.cache.fetchLedgerEntries(
             profileRecordName: ctx.heroProfile.id.recordName,
@@ -874,16 +874,16 @@ extension AutoPayoutCoordinatorTests {
 
         let base = "payout-\(paidPeriod.recordName)"
         let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
-        #expect(byName["\(base)-spend"]?.amount == 15.0)
-        #expect(byName["\(base)-shortTermSave"]?.amount == 6.25)
-        #expect(byName["\(base)-longTermSave"]?.amount == 3.75)
+        #expect(byName["\(base)-spend"]?.amount == 1500)
+        #expect(byName["\(base)-shortTermSave"]?.amount == 625)
+        #expect(byName["\(base)-longTermSave"]?.amount == 375)
         #expect(byName["\(base)-spend"]?.bucketKind == BucketKind.spend.rawValue)
         #expect(byName["\(base)-shortTermSave"]?.bucketKind == BucketKind.shortTermSave.rawValue)
         #expect(byName["\(base)-longTermSave"]?.bucketKind == BucketKind.longTermSave.rawValue)
         #expect(entries.allSatisfy { $0.source == "quest" })
 
         // Whole-penny shares must sum back to the exact payout total.
-        let totalPennies = entries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        let totalPennies = entries.reduce(0) { $0 + Int($1.amount) }
         #expect(totalPennies == 2500)
     }
 
@@ -896,7 +896,7 @@ extension AutoPayoutCoordinatorTests {
         let cal = Calendar.iso8601UTC
         let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
         let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
-        try seedWeekEarnings(ctx: tiedCtx, weekOf: weekStart, goldReward: 0.10)
+        try seedWeekEarnings(ctx: tiedCtx, weekOf: weekStart, goldReward: 10)
 
         let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
         let processed = await tiedCtx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
@@ -908,16 +908,16 @@ extension AutoPayoutCoordinatorTests {
         )
         #expect(tiedEntries.count == 3)
         let tiedByName = Dictionary(uniqueKeysWithValues: tiedEntries.map { ($0.recordName, $0) })
-        #expect(tiedByName["payout-period-buckets-spend"]?.amount == 0.04)
-        #expect(tiedByName["payout-period-buckets-shortTermSave"]?.amount == 0.03)
-        #expect(tiedByName["payout-period-buckets-longTermSave"]?.amount == 0.03)
-        let tiedPennies = tiedEntries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        #expect(tiedByName["payout-period-buckets-spend"]?.amount == 4)
+        #expect(tiedByName["payout-period-buckets-shortTermSave"]?.amount == 3)
+        #expect(tiedByName["payout-period-buckets-longTermSave"]?.amount == 3)
+        let tiedPennies = tiedEntries.reduce(0) { $0 + Int($1.amount) }
         #expect(tiedPennies == 10)
 
         // An uneven split sends the stray penny to the bucket with the largest
         // fractional remainder instead: $0.10 at 33/33/34 lands 4 on long-term.
         let unevenCtx = try setupServices(heroSplitSpend: 33, heroSplitShort: 33, heroSplitLong: 34)
-        try seedWeekEarnings(ctx: unevenCtx, weekOf: weekStart, goldReward: 0.10)
+        try seedWeekEarnings(ctx: unevenCtx, weekOf: weekStart, goldReward: 10)
 
         _ = await unevenCtx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
 
@@ -927,10 +927,10 @@ extension AutoPayoutCoordinatorTests {
         )
         #expect(unevenEntries.count == 3)
         let unevenByName = Dictionary(uniqueKeysWithValues: unevenEntries.map { ($0.recordName, $0) })
-        #expect(unevenByName["payout-period-buckets-spend"]?.amount == 0.03)
-        #expect(unevenByName["payout-period-buckets-shortTermSave"]?.amount == 0.03)
-        #expect(unevenByName["payout-period-buckets-longTermSave"]?.amount == 0.04)
-        let unevenPennies = unevenEntries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        #expect(unevenByName["payout-period-buckets-spend"]?.amount == 3)
+        #expect(unevenByName["payout-period-buckets-shortTermSave"]?.amount == 3)
+        #expect(unevenByName["payout-period-buckets-longTermSave"]?.amount == 4)
+        let unevenPennies = unevenEntries.reduce(0) { $0 + Int($1.amount) }
         #expect(unevenPennies == 10)
     }
 
@@ -941,7 +941,7 @@ extension AutoPayoutCoordinatorTests {
         let cal = Calendar.iso8601UTC
         let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
         let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
-        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 25.0)
+        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 2500)
 
         let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
         let firstRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)

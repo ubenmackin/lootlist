@@ -11,7 +11,7 @@ import SwiftUI
 struct TemplateManagerView: View {
     @Bindable var viewModel: QuestManagerViewModel
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TemplateManager")
+    private let logger = Logger(category: "TemplateManager")
 
     let editing: QuestTemplateCache?
     var onCancel: (() -> Void)?
@@ -217,7 +217,7 @@ struct TemplateManagerView: View {
             toastManager.show(message: "Name is required.", type: .error)
             return
         }
-        guard let gold = CurrencyFormatter.decimalDouble(from: defaultGoldText),
+        guard let gold = CurrencyFormatter.pennies(from: defaultGoldText),
               gold >= 0
         else {
             toastManager.show(message: "Reward must be a non-negative number.", type: .error)

@@ -45,7 +45,7 @@ struct DashboardMetricsCalculatorTests {
             familyRecordName: "fam1",
             weekOf: Date(),
             status: PayoutStatus.active.rawValue,
-            totalEarned: 10.0,
+            totalEarned: 1000,
             questsCompleted: 2,
             questsTotal: 2
         )
@@ -55,7 +55,7 @@ struct DashboardMetricsCalculatorTests {
             familyRecordName: "fam1",
             weekOf: Date(),
             status: PayoutStatus.active.rawValue,
-            totalEarned: 0.0,
+            totalEarned: 0,
             questsCompleted: 0,
             questsTotal: 0
         )

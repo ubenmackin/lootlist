@@ -59,7 +59,7 @@ struct TreasuryServiceRealTimeTests {
             )
             family = Family(
                 name: "Test Guild",
-                createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+                creatorUserRecordName: "parent1",
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
@@ -75,7 +75,7 @@ struct TreasuryServiceRealTimeTests {
             appState.currentProfile = profile
         }
 
-        func quest(goldReward: Double = 25.0) -> Quest {
+        func quest(goldReward: Int64 = 2500) -> Quest {
             Quest(
                 template: CKRecord.Reference(
                     recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
@@ -110,7 +110,7 @@ struct TreasuryServiceRealTimeTests {
 
         /// Seeds an approved completion for the current week into the cache so
         /// `weeklyBreakdown`'s cache-first gates serve it deterministically.
-        func seedEarned(goldReward: Double = 25.0) {
+        func seedEarned(goldReward: Int64 = 2500) {
             cache.context?.insert(QuestCache(from: quest(goldReward: goldReward)))
             cache.context?.insert(QuestCompletionCache(from: completion()))
             _ = cache.saveContext()
@@ -137,9 +137,9 @@ struct TreasuryServiceRealTimeTests {
         let settled = try await scaffold.settle()
         let period = try #require(settled)
 
-        #expect(period.totalEarned == 25.0, "Fresh quest gold must land on the period")
+        #expect(period.totalEarned == 2500, "Fresh quest gold must land on the period")
         #expect(period.questsCompleted == 1, "Fresh completed-quest count must land on the period")
-        #expect(period.paidAmount == 25.0, "paidAmount must mirror the settled gold")
+        #expect(period.paidAmount == 2500, "paidAmount must mirror the settled gold")
         #expect(period.paidDate != nil, "Settlement must stamp a paid date")
 
         // Single-save batch must hydrate at least once for settlement queries.
@@ -149,18 +149,18 @@ struct TreasuryServiceRealTimeTests {
         let cached = scaffold.cache
             .fetchAllowancePeriods(family: scaffold.family.id.recordName).first
         let persisted = try #require(cached?.toAllowancePeriod(zoneID: scaffold.zoneID))
-        #expect(persisted.totalEarned == 25.0)
+        #expect(persisted.totalEarned == 2500)
         #expect(persisted.questsCompleted == 1)
     }
 
     @Test
     func `real time settlement via single-save spy succeeds`() async throws {
         let scaffold = try SettlementScaffold()
-        scaffold.seedEarned(goldReward: 25.0)
+        scaffold.seedEarned(goldReward: 2500)
         let before = scaffold.spy.hydrateCallCount
         let settled = try await scaffold.settle()
         let period = try #require(settled)
-        #expect(period.totalEarned == 25.0)
+        #expect(period.totalEarned == 2500)
         // Real-time settlement reads via cache-first paths; when hydrate is used it is exactly one per query batch.
         #expect(scaffold.spy.hydrateCallCount >= before)
     }
@@ -175,10 +175,10 @@ struct TreasuryServiceRealTimeTests {
         let secondResult = try await scaffold.settle()
         let second = try #require(secondResult)
 
-        #expect(first.totalEarned == 25.0)
-        #expect(second.totalEarned == 25.0, "A second settlement must not double the gold")
+        #expect(first.totalEarned == 2500)
+        #expect(second.totalEarned == 2500, "A second settlement must not double the gold")
         #expect(second.questsCompleted == 1)
-        #expect(second.paidAmount == 25.0)
+        #expect(second.paidAmount == 2500)
 
         // Exactly one period exists for the hero's week.
         let periods = await scaffold.treasury.fetchAllowancePeriods(family: scaffold.family)
@@ -188,18 +188,18 @@ struct TreasuryServiceRealTimeTests {
     @Test
     func `second completion same week converges ledger to cumulative total`() async throws {
         let scaffold = try SettlementScaffold()
-        scaffold.seedEarned(goldReward: 25.0)
+        scaffold.seedEarned(goldReward: 2500)
 
         let firstResult = try await scaffold.settle()
         let first = try #require(firstResult)
-        #expect(first.paidAmount == 25.0)
+        #expect(first.paidAmount == 2500)
 
         let secondQuest = Quest(
             template: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none
             ),
             assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -227,16 +227,16 @@ struct TreasuryServiceRealTimeTests {
 
         let secondResult = try await scaffold.settle()
         let second = try #require(secondResult)
-        #expect(second.totalEarned == 40.0)
+        #expect(second.totalEarned == 4000)
         #expect(second.questsCompleted == 2)
-        #expect(second.paidAmount == 40.0)
+        #expect(second.paidAmount == 4000)
 
         let entries = scaffold.cache.fetchLedgerEntries(
             profileRecordName: scaffold.profile.id.recordName,
             family: scaffold.family.id.recordName
         )
-        let ledgerTotal = entries.reduce(0.0) { $0 + $1.amount }
-        #expect(ledgerTotal == 40.0)
+        let ledgerTotal = entries.reduce(Int64(0)) { $0 + $1.amount }
+        #expect(ledgerTotal == 4000)
         #expect(entries.count == 1)
         #expect(entries.first?.recordName == DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName))
     }
@@ -250,7 +250,7 @@ struct TreasuryServiceRealTimeTests {
         let period = try #require(settled)
 
         #expect(period.status == .active, "Real-time settlement must not close the period")
-        #expect(period.paidAmount == 25.0, "Settlement markers are written without closing")
+        #expect(period.paidAmount == 2500, "Settlement markers are written without closing")
         #expect(period.paidDate != nil)
     }
 
@@ -320,7 +320,7 @@ struct TreasuryServiceRealTimeTests {
             )
             family = Family(
                 name: "Test Guild",
-                createdBy: gmID,
+                creatorUserRecordName: "gm1",
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
@@ -338,7 +338,7 @@ struct TreasuryServiceRealTimeTests {
 
         /// Seeds an approved completion for the current week into the cache so
         /// `weeklyBreakdown`'s cache-first gates serve it deterministically.
-        func seedEarned(goldReward: Double = 25.0) {
+        func seedEarned(goldReward: Int64 = 2500) {
             let templateRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
             )
@@ -404,7 +404,7 @@ struct TreasuryServiceRealTimeTests {
         // not 50.0. Before the fix the payout minted a second "payout-" entry
         // for the same amount, doubling the balance for real-time heroes.
         let balance = try await scaffold.treasury.currentBalance(for: scaffold.hero)
-        #expect(balance == 25.0, "Week-end payout must not double-count real-time settlement")
+        #expect(balance == 2500, "Week-end payout must not double-count real-time settlement")
 
         // The ledger holds only the real-time entry — no batch payout twin.
         let entries = scaffold.cache.fetchLedgerEntries(
@@ -429,7 +429,7 @@ struct TreasuryServiceRealTimeTests {
         try await scaffold.payOut(period)
 
         let balance = try await scaffold.treasury.currentBalance(for: scaffold.hero)
-        #expect(balance == 25.0, "Batch payout mints the single payout entry")
+        #expect(balance == 2500, "Batch payout mints the single payout entry")
 
         let entries = scaffold.cache.fetchLedgerEntries(
             profileRecordName: scaffold.hero.id.recordName,
@@ -453,15 +453,15 @@ struct TreasuryServiceRealTimeTests {
         )
         let period = try #require(settled, "Parent-verified settlement must not be dropped")
 
-        #expect(period.totalEarned == 25.0, "Parent-verified quest gold must land on the period")
+        #expect(period.totalEarned == 2500, "Parent-verified quest gold must land on the period")
         #expect(period.questsCompleted == 1, "Parent-verified completion must count on the period")
-        #expect(period.paidAmount == 25.0)
+        #expect(period.paidAmount == 2500)
         #expect(period.status == .active, "Parent-verified settlement must not close the period")
 
         // The hero's wallet shows the settled gold and the ledger holds the
         // single real-time entry — settlement was NOT silently dropped.
         let balance = try await scaffold.treasury.currentBalance(for: scaffold.hero)
-        #expect(balance == 25.0, "Parent-verified completion must credit the hero's wallet")
+        #expect(balance == 2500, "Parent-verified completion must credit the hero's wallet")
 
         let entries = scaffold.cache.fetchLedgerEntries(
             profileRecordName: scaffold.hero.id.recordName,
@@ -469,7 +469,7 @@ struct TreasuryServiceRealTimeTests {
         )
         #expect(entries.count == 1, "Parent-verified settlement must mint exactly one ledger entry")
         #expect(entries.first?.recordName == "rt-\(period.id.recordName)")
-        #expect(entries.first?.amount == 25.0)
+        #expect(entries.first?.amount == 2500)
     }
 
     // MARK: - Concurrency Stress Harness: real-time settlement serialization
@@ -477,7 +477,7 @@ struct TreasuryServiceRealTimeTests {
     @Test
     func `concurrent real time settlements serialize to single period`() async throws {
         let scaffold = try SettlementScaffold()
-        scaffold.seedEarned(goldReward: 25.0)
+        scaffold.seedEarned(goldReward: 2500)
 
         var tasks: [Task<AllowancePeriod?, Never>] = []
         for _ in 0 ..< 10 {
@@ -500,9 +500,9 @@ struct TreasuryServiceRealTimeTests {
         let periods = scaffold.cache.fetchAllowancePeriods(family: scaffold.family.id.recordName)
         #expect(periods.count == 1, "Concurrent settlements must collapse to a single AllowancePeriod row")
         let period = try #require(periods.first?.toAllowancePeriod(zoneID: scaffold.zoneID))
-        #expect(period.totalEarned == 25.0, "Serialized settlements must not double count gold")
+        #expect(period.totalEarned == 2500, "Serialized settlements must not double count gold")
         #expect(period.questsCompleted == 1)
-        #expect(period.paidAmount == 25.0)
+        #expect(period.paidAmount == 2500)
         #expect(period.status == .active, "Real-time settlement must keep period open")
 
         let ledgerEntries = scaffold.cache.fetchLedgerEntries(
@@ -510,7 +510,7 @@ struct TreasuryServiceRealTimeTests {
             family: scaffold.family.id.recordName
         )
         #expect(ledgerEntries.count == 1, "Concurrent settlements must mint exactly one real-time ledger entry")
-        #expect(ledgerEntries.first?.amount == 25.0)
+        #expect(ledgerEntries.first?.amount == 2500)
     }
 
     @Test
@@ -539,7 +539,7 @@ struct TreasuryServiceRealTimeTests {
         multi.splitPercentLong = 15
         await scaffold.cache.upsertProfile(multi)
         scaffold.appState.currentProfile = multi
-        scaffold.seedEarned(goldReward: 25.0)
+        scaffold.seedEarned(goldReward: 2500)
         let first = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: multi, family: scaffold.family, date: scaffold.weekOf))
         let base = DeterministicRecordID.realtimePayout(periodRecordName: first.id.recordName)
         var entries = scaffold.cache.fetchLedgerEntries(profileRecordName: multi.id.recordName, family: scaffold.family.id.recordName)
@@ -553,7 +553,7 @@ struct TreasuryServiceRealTimeTests {
         let secondQuest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -577,12 +577,12 @@ struct TreasuryServiceRealTimeTests {
         scaffold.cache.context?.insert(QuestCompletionCache(from: secondCompletion))
         _ = scaffold.cache.saveContext()
         let second = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: single, family: scaffold.family, date: scaffold.weekOf))
-        #expect(second.paidAmount == 40.0)
+        #expect(second.paidAmount == 4000)
         entries = scaffold.cache.fetchLedgerEntries(profileRecordName: single.id.recordName, family: scaffold.family.id.recordName)
         let twins = entries.filter { $0.recordName == base || $0.recordName.hasPrefix("\(base)-") }
         #expect(twins.count == 3)
         #expect(!twins.contains(where: { $0.recordName == base }))
-        #expect(twins.reduce(0.0) { $0 + $1.amount } == 40.0)
+        #expect(twins.reduce(Int64(0)) { $0 + $1.amount } == 4000)
     }
 
     @Test
@@ -605,13 +605,13 @@ struct TreasuryServiceRealTimeTests {
         scaffold.cache.context?.insert(GoalCache(from: goal))
         _ = scaffold.cache.saveContext()
         scaffold.cache.markCacheFreshForTests(familyRecordName: scaffold.family.id.recordName, type: .goal)
-        scaffold.seedEarned(goldReward: 25.0)
+        scaffold.seedEarned(goldReward: 2500)
         let first = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: saver, family: scaffold.family, date: scaffold.weekOf))
-        #expect(first.paidAmount == 25.0)
+        #expect(first.paidAmount == 2500)
         let secondQuest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -635,10 +635,10 @@ struct TreasuryServiceRealTimeTests {
         scaffold.cache.context?.insert(QuestCompletionCache(from: secondCompletion))
         _ = scaffold.cache.saveContext()
         let second = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: saver, family: scaffold.family, date: scaffold.weekOf))
-        #expect(second.paidAmount == 40.0)
+        #expect(second.paidAmount == 4000)
         let prefix = DeterministicRecordID.contributionPrefix(for: "goal1")
         let contribs = scaffold.cache.fetchLedgerEntries(profileRecordName: saver.id.recordName, family: scaffold.family.id.recordName, recordNamePrefix: prefix)
-        let totalPennies = contribs.reduce(into: Int64(0)) { $0 += Int64(($1.amount * 100).rounded()) }
+        let totalPennies = contribs.reduce(into: Int64(0)) { $0 += $1.amount }
         #expect(totalPennies == 3000)
     }
 
@@ -651,7 +651,7 @@ struct TreasuryServiceRealTimeTests {
         multi.splitPercentLong = 15
         await scaffold.cache.upsertProfile(multi)
         scaffold.appState.currentProfile = multi
-        scaffold.seedEarned(goldReward: 25.0)
+        scaffold.seedEarned(goldReward: 2500)
         _ = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: multi, family: scaffold.family, date: scaffold.weekOf))
         var single = multi
         single.splitPercentSpend = 100
@@ -662,7 +662,7 @@ struct TreasuryServiceRealTimeTests {
         let secondQuest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
-            goldReward: 15.0,
+            goldReward: 1500,
             xpReward: 50,
             scheduleType: .weeklyFlexible,
             targetCount: 1,
@@ -686,12 +686,12 @@ struct TreasuryServiceRealTimeTests {
         scaffold.cache.context?.insert(QuestCompletionCache(from: secondCompletion))
         _ = scaffold.cache.saveContext()
         let second = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: single, family: scaffold.family, date: scaffold.weekOf))
-        #expect(second.paidAmount == 40.0)
+        #expect(second.paidAmount == 4000)
         let entries = scaffold.cache.fetchLedgerEntries(profileRecordName: single.id.recordName, family: scaffold.family.id.recordName)
         let base = DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName)
         let byName = Dictionary(uniqueKeysWithValues: entries.filter { $0.recordName.hasPrefix(base) }.map { ($0.recordName, $0) })
-        #expect(byName["\(base)-spend"]?.amount == 30.0)
-        #expect(byName["\(base)-shortTermSave"]?.amount == 6.25)
-        #expect(byName["\(base)-longTermSave"]?.amount == 3.75)
+        #expect(byName["\(base)-spend"]?.amount == 3000)
+        #expect(byName["\(base)-shortTermSave"]?.amount == 625)
+        #expect(byName["\(base)-longTermSave"]?.amount == 375)
     }
 }

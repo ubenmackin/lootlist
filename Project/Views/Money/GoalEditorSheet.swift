@@ -63,8 +63,7 @@ struct GoalEditorSheet: View {
         _nameText = State(initialValue: goal?.name ?? "")
         _categoryText = State(initialValue: goal?.category ?? "")
         if let goal {
-            let dollars = Double(goal.targetAmountPennies) / 100.0
-            _targetAmountText = State(initialValue: CurrencyFormatter.editingString(dollars))
+            _targetAmountText = State(initialValue: CurrencyFormatter.editingString(goal.targetAmountPennies))
             _hasTargetDate = State(initialValue: goal.targetDate != nil)
             _targetDate = State(initialValue: goal.targetDate ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
             _linkURLText = State(initialValue: goal.linkURL ?? "")
@@ -163,8 +162,8 @@ struct GoalEditorSheet: View {
     private var purchaseAmountText: String {
         // WHY stored target: purchase deducts the saved target,
         // so unsaved edits never mismatch the confirmation copy.
-        guard let goal = initialGoal else { return CurrencyFormatter.string(0.0) }
-        return CurrencyFormatter.string(Double(goal.targetAmountPennies) / 100.0)
+        guard let goal = initialGoal else { return CurrencyFormatter.string(0) }
+        return CurrencyFormatter.string(goal.targetAmountPennies)
     }
 
     // MARK: - Card Background Helper
@@ -438,7 +437,7 @@ struct GoalEditorSheet: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "speedometer")
                                     .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                                Text("Save \(CurrencyFormatter.string(summary.weeklyRequiredSavingsDollars))/week (\(summary.weeksRemaining) weeks)")
+                                Text("Save \(CurrencyFormatter.string(pennies: summary.weeklyRequiredSavingsPennies))/week (\(summary.weeksRemaining) weeks)")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
                             }
@@ -633,10 +632,10 @@ struct GoalEditorSheet: View {
     }
 
     private var parsedPennies: Int64? {
-        guard let dollars = CurrencyFormatter.decimalDouble(from: targetAmountText),
-              dollars > 0
+        guard let pennies = CurrencyFormatter.pennies(from: targetAmountText),
+              pennies > 0
         else { return nil }
-        return Int64((dollars * 100.0).rounded())
+        return pennies
     }
 
     /// Validates input and surfaces parsing errors as the user types.
@@ -645,7 +644,7 @@ struct GoalEditorSheet: View {
             parsingError = nil
             return
         }
-        if CurrencyFormatter.decimalDouble(from: value) == nil {
+        if CurrencyFormatter.pennies(from: value) == nil {
             parsingError = "Enter a valid dollar amount (e.g. 49.99)."
         } else {
             parsingError = nil

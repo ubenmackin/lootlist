@@ -24,7 +24,7 @@ struct SpendingLogView: View {
         _scope = scope
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _cachedLedgers = Query(
             filter: ledgerFilter,
             sort: \LedgerEntryCache.date,

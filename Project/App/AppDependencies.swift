@@ -227,7 +227,7 @@ final class AppDependencies {
         let app = AppState()
         let ck = CloudKitService()
         let isTest = TestEnvironment.isRunningUnitOrUITests
-        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "App")
+        let logger = Logger(category: "App")
         let cache = makeCacheService(app: app, isTest: isTest, logger: logger)
         let toast = ToastManager()
         cache.toastManager = toast
