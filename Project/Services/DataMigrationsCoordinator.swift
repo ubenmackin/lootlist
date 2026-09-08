@@ -11,6 +11,7 @@ import os
 
 @MainActor
 final class DataMigrationsCoordinator {
+    // WHY no owner backfill: unresolved anchors deny, legacy dev rows need zone wipe/re-create, never patched ad-hoc.
     private let logger = Logger(category: "DataMigrations")
     private let defaults: UserDefaults
 

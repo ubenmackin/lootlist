@@ -377,9 +377,12 @@ extension AllowancePeriodCache {
 extension FamilyCache {
     func toFamily(zoneID: CKRecordZone.ID) -> Family {
         domain(zoneID: zoneID) { zid in
+            // WHY server-stamped read-only: nil stays nil, the legacy display field never authorizes.
+            // WHY cached timestamp: reuse stored date so cache round-trips preserve creation time.
             Family(
                 name: name,
-                creatorUserRecordName: creatorUserRecordName ?? createdByRecordName,
+                creatorUserRecordName: creatorUserRecordName,
+                createdAt: createdAt,
                 payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
                 payoutDay: PayoutDay(rawValue: payoutDay) ?? .sunday,
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)

@@ -43,10 +43,24 @@ struct RecordBridgeTests {
     }
 
     private func verifyFamilyManagedKeys() {
-        let family = Family(name: "Dragons", createdBy: id("user1"), payoutPolicy: .perQuest, payoutDay: .sunday, id: id("fam1"))
+        // WHY server stamps creator: decoded only on read path, never authored locally.
+        #expect(!Family.managedFieldKeys.contains("createdBy"))
+        let family = Family(name: "Dragons", creatorUserRecordName: "user1", payoutPolicy: .perQuest, payoutDay: .sunday, id: id("fam1"))
         let actual = Set(family.toRecord().allKeys())
-        let expected = Family.managedFieldKeys
-        #expect(expected == actual, "Family managedFieldKeys mismatch: missing \(expected.subtracting(actual).sorted()) extra \(actual.subtracting(expected).sorted())")
+        let missing = Family.managedFieldKeys.subtracting(actual).sorted()
+        let extra = actual.subtracting(Family.managedFieldKeys).sorted()
+        #expect(
+            actual == Family.managedFieldKeys,
+            "Family toRecord mismatch: missing \(missing) extra \(extra)"
+        )
+        #expect(!actual.contains("createdBy"))
+        // WHY server stamps creator: nil anchor omits, never fabricates.
+        let unanchored = Family(name: "Dragons", payoutPolicy: .perQuest, payoutDay: .sunday, id: id("fam1"))
+        #expect(Set(unanchored.toRecord().allKeys()) == Family.managedFieldKeys)
+        #expect(!Set(unanchored.toRecord().allKeys()).contains("createdBy"))
+        // WHY server stamps creator: mirrored anchor round-trips without a local author field.
+        let legacy = Family(name: "Dragons", creatorUserRecordName: id("user1").recordName, payoutPolicy: .perQuest, payoutDay: .sunday, id: id("fam1"))
+        #expect(!Set(legacy.toRecord().allKeys()).contains("createdBy"))
     }
 
     private func verifyProfileManagedKeys() {

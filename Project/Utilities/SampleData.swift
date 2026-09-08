@@ -34,7 +34,7 @@ enum SampleData {
     static var family: Family {
         Family(
             name: "The Garcia Family",
-            createdBy: parentUserID,
+            creatorUserRecordName: parentUserID.recordName,
             payoutPolicy: .perQuest,
             id: familyID
         )

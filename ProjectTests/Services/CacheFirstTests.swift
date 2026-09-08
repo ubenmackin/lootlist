@@ -19,7 +19,7 @@ struct CacheFirstTests {
         appState.cacheService = cache
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
-        appState.family = Family(name: "Guild", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        appState.family = Family(name: "Guild", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         let family = try #require(appState.family)
         // No freshness stamp — cache is stale and empty (brand-new hero).
         let failingCloudKit = FailingCloudKitService(zoneID: zoneID)
@@ -55,7 +55,7 @@ struct CacheFirstTests {
         appState.cacheService = cache
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
-        let family = Family(name: "Guild", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Guild", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         appState.family = family
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)

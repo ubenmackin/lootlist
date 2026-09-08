@@ -22,7 +22,7 @@ struct AppStateTests {
         // Family configured with a Friday payout day.
         let family = Family(
             name: "Offline Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             payoutPolicy: .perQuest,
             payoutDay: .friday,
             id: familyID
@@ -72,17 +72,17 @@ struct AppStateTests {
 
         let familyA = Family(
             name: "Guild A",
-            createdBy: CKRecord.ID(recordName: "ownerA", zoneID: zoneA),
+            creatorUserRecordName: "ownerA",
             id: familyAID
         )
         let familyB = Family(
             name: "Guild B",
-            createdBy: CKRecord.ID(recordName: "ownerB", zoneID: zoneB),
+            creatorUserRecordName: "ownerB",
             id: familyBID
         )
         let familyC = Family(
             name: "Guild C",
-            createdBy: CKRecord.ID(recordName: "ownerC", zoneID: zoneC),
+            creatorUserRecordName: "ownerC",
             id: familyCID
         )
 
@@ -148,7 +148,7 @@ struct AppStateTests {
 
         let family = Family(
             name: "Propagation Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: familyID
         )
         let profile = Profile(
@@ -231,7 +231,7 @@ struct AppStateTests {
         let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
         let family = Family(
             name: "Shared Guild",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            creatorUserRecordName: "gm1",
             id: familyID
         )
         let hero = Profile(
@@ -278,7 +278,7 @@ struct AppStateTests {
         let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
         let family = Family(
             name: "Bounded Guild",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            creatorUserRecordName: "gm1",
             id: familyID
         )
         let hero = Profile(
@@ -314,7 +314,7 @@ struct AppStateTests {
         let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
         let family = Family(
             name: "Accepted Guild",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            creatorUserRecordName: "gm1",
             id: familyID
         )
         let hero = Profile(
@@ -364,7 +364,7 @@ struct AppStateTests {
         let familyID = CKRecord.ID(recordName: "cache-fallback-fam", zoneID: zoneID)
         let family = Family(
             name: "Cache Fallback Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: familyID
         )
         let profile = Profile(
@@ -451,7 +451,7 @@ struct AppStateTests {
 
         let defaults = UserDefaults.ephemeral()
         let appState = AppState(defaults: defaults)
-        let family = Family(name: "Reject Family", createdBy: CKRecord.ID(recordName: "owner"), id: CKRecord.ID(recordName: "RejectZone", zoneID: zoneID))
+        let family = Family(name: "Reject Family", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "RejectZone", zoneID: zoneID))
         let profile = Profile(
             displayName: "Reject Hero",
             role: .hero,
@@ -467,12 +467,13 @@ struct AppStateTests {
     }
 
     @Test
-    func `GM legacy family creator fallback recovers family via createdBy record`() async {
+    func `GM legacy family with unresolved anchor falls through to onboarding`() async {
         let defaults = UserDefaults.ephemeral()
         defaults.set(true, forKey: "session_hasOnboarded")
 
         let zoneID = CKRecordZone.ID(zoneName: "LegacyGMZone", ownerName: "LegacyOwner")
         let familyID = CKRecord.ID(recordName: "legacy-gm-fam", zoneID: zoneID)
+        // WHY unresolved anchor denies: legacy stamp never becomes ownership proof.
         let family = Family(
             name: "Mackin",
             creatorUserRecordName: MockCloudKitService.mockUserRecordName,
@@ -487,8 +488,7 @@ struct AppStateTests {
             id: CKRecord.ID(recordName: "gm-prof", zoneID: zoneID)
         )
 
-        // Seed family with a legacy record (no server creator stamp; record createdBy carries creator).
-        // Profile is stamped correctly by the mock save.
+        // WHY nil stamp denies: without a server stamp the zone cannot prove ownership.
         let cloudKit = DiscoveryCloudKitService()
         cloudKit.activeIsOwner = true
         cloudKit.seedMockRecords([family], creatorUserRecordName: nil)
@@ -498,18 +498,6 @@ struct AppStateTests {
         let appState = AppState(defaults: defaults)
         await appState.discoverExistingCloudState(cloudKit: cloudKit)
 
-        guard case let .detectedPreviousFamily(family: detectedFamily,
-                                               profile: detectedProfile,
-                                               zoneID: detectedZoneID,
-                                               isOwner: isOwner) = appState.authStatus
-        else {
-            #expect(Bool(false), "Expected .detectedPreviousFamily via createdBy fallback, got \(appState.authStatus)")
-            return
-        }
-        #expect(detectedFamily.id.recordName == "legacy-gm-fam")
-        #expect(detectedProfile.id.recordName == "gm-prof")
-        #expect(detectedProfile.role == .guildMaster)
-        #expect(detectedZoneID == zoneID)
-        #expect(isOwner == true)
+        #expect(appState.authStatus == .onboarding)
     }
 }

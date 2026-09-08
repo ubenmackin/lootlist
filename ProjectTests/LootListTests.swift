@@ -24,7 +24,7 @@ struct LootListTests {
     private func makeFamilyAndProfile(zoneID: CKRecordZone.ID, familyName: String = "famW3") -> FamilySetup {
         let family = Family(
             name: "W3 Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: familyName, zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -229,8 +229,8 @@ struct LootListTests {
         let zoneID = CKRecordZone.ID(zoneName: "W3IsolationZone", ownerName: "W3Owner")
         let cache = try CacheService(inMemory: true, defaults: .ephemeral())
 
-        let famA = Family(name: "Family A", createdBy: CKRecord.ID(recordName: "ownerA", zoneID: zoneID), id: CKRecord.ID(recordName: "famA", zoneID: zoneID))
-        let famB = Family(name: "Family B", createdBy: CKRecord.ID(recordName: "ownerB", zoneID: zoneID), id: CKRecord.ID(recordName: "famB", zoneID: zoneID))
+        let famA = Family(name: "Family A", creatorUserRecordName: "ownerA", id: CKRecord.ID(recordName: "famA", zoneID: zoneID))
+        let famB = Family(name: "Family B", creatorUserRecordName: "ownerB", id: CKRecord.ID(recordName: "famB", zoneID: zoneID))
         let famARef = CKRecord.Reference(recordID: famA.id, action: .none)
         let famBRef = CKRecord.Reference(recordID: famB.id, action: .none)
 

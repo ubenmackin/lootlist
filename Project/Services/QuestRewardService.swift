@@ -131,7 +131,7 @@ final class QuestRewardService {
     private func fetchLogsForReward(forQuest quest: Quest) async throws -> [QuestCompletion] {
         let family = Family(
             name: "",
-            createdBy: quest.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
         )
         return try await CacheFirst.cacheFirst(

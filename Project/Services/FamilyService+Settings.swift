@@ -12,6 +12,14 @@ import os
 extension FamilyService {
     // MARK: - Family Settings
 
+    @MainActor private func requireParentOrOwnerAnchor(_ family: Family) async throws {
+        let actingIsParent = appState.currentProfile?.role.isParent ?? false
+        let ownerAnchorGrant: Bool = await isFamilyOwner(family)
+        guard actingIsParent || ownerAnchorGrant else {
+            throw FamilyServiceError.unauthorized
+        }
+    }
+
     @discardableResult
     func updateFamilyName(family: Family, newName: String) async throws -> Family {
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -23,15 +31,7 @@ extension FamilyService {
         guard !trimmed.isEmpty else {
             throw FamilyServiceError.persistenceFailed
         }
-        let actingIsParent = appState.currentProfile?.role.isParent ?? false
-        let ownerAnchorGrant: Bool = if hasResolvedOwnerAnchor(family) {
-            await isFamilyOwner(family)
-        } else {
-            false
-        }
-        guard actingIsParent || ownerAnchorGrant else {
-            throw FamilyServiceError.unauthorized
-        }
+        try await requireParentOrOwnerAnchor(family)
 
         var updated = family
         updated.name = trimmed
@@ -50,15 +50,7 @@ extension FamilyService {
             cloudKit: cloudKit,
             appState: appState
         )
-        let actingIsParent = appState.currentProfile?.role.isParent ?? false
-        let ownerAnchorGrant: Bool = if hasResolvedOwnerAnchor(family) {
-            await isFamilyOwner(family)
-        } else {
-            false
-        }
-        guard actingIsParent || ownerAnchorGrant else {
-            throw FamilyServiceError.unauthorized
-        }
+        try await requireParentOrOwnerAnchor(family)
 
         try Task.checkCancellation()
 
@@ -80,15 +72,7 @@ extension FamilyService {
             cloudKit: cloudKit,
             appState: appState
         )
-        let actingIsParent = appState.currentProfile?.role.isParent ?? false
-        let ownerAnchorGrant: Bool = if hasResolvedOwnerAnchor(family) {
-            await isFamilyOwner(family)
-        } else {
-            false
-        }
-        guard actingIsParent || ownerAnchorGrant else {
-            throw FamilyServiceError.unauthorized
-        }
+        try await requireParentOrOwnerAnchor(family)
 
         try Task.checkCancellation()
 

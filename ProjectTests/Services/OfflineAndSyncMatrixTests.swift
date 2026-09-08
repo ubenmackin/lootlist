@@ -43,7 +43,7 @@ final class OfflineAndSyncMatrixTests: XCTestCase {
 
         family = Family(
             name: "Matrix Family",
-            createdBy: hero.id,
+            creatorUserRecordName: hero.id.recordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 

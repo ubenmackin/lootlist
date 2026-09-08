@@ -130,9 +130,9 @@ struct CloudKitLiveIntegrationTests {
             cloudKitService.activeIsOwner = true
 
             let familyID = CKRecord.ID(recordName: "fam_\(UUID().uuidString.prefix(8))", zoneID: zoneID)
+            // WHY server stamps creator: decoded only on read path, never authored locally.
             let family = Family(
                 name: "Integration Knights",
-                createdBy: userRecordID,
                 payoutPolicy: .perQuest,
                 id: familyID
             )
@@ -219,9 +219,9 @@ struct CloudKitLiveIntegrationTests {
             cloudKitService.activeIsOwner = true
 
             let familyID = CKRecord.ID(recordName: "fam_atomic", zoneID: zoneID)
+            // WHY server stamps creator: decoded only on read path, never authored locally.
             let family = Family(
                 name: "Atomic Guild",
-                createdBy: userRecordID,
                 payoutPolicy: .perQuest,
                 payoutDay: .sunday,
                 id: familyID
@@ -269,15 +269,14 @@ struct CloudKitLiveIntegrationTests {
             return
         }
 
-        let userRecordID = try await container.userRecordID()
         try await withTestZone { zoneID in
             cloudKitService.activeFamilyZoneID = zoneID
             cloudKitService.activeIsOwner = true
 
             let familyID = CKRecord.ID(recordName: "fam_share_\(UUID().uuidString.prefix(8))", zoneID: zoneID)
+            // WHY server stamps creator: decoded only on read path, never authored locally.
             let family = Family(
                 name: "Dragon Guild",
-                createdBy: userRecordID,
                 payoutPolicy: .perQuest,
                 payoutDay: .sunday,
                 id: familyID

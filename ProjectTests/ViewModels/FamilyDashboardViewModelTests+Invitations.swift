@@ -170,7 +170,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -212,7 +212,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let fetcher = StubFamilyProfileFetcher()
@@ -239,7 +239,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -275,7 +275,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -310,7 +310,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -350,7 +350,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -411,7 +411,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         // Empty cache: no profiles, no roster — the panel's worst-case window.
@@ -435,7 +435,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)

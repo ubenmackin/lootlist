@@ -22,14 +22,14 @@ final class ActiveFamilyScopeGuardTests: XCTestCase {
 
     func testRequireActiveFamily_Success() throws {
         let familyRecordID = CKRecord.ID(recordName: "active-family")
-        appState.family = Family(name: "Test Family", createdBy: CKRecord.ID(recordName: "user1"), id: familyRecordID)
+        appState.family = Family(name: "Test Family", creatorUserRecordName: "user1", id: familyRecordID)
 
         XCTAssertNoThrow(try ActiveFamilyScopeGuard.requireActiveFamily(familyRecordName: "active-family", appState: appState))
     }
 
     func testRequireActiveFamily_ThrowsFamilyMismatch() throws {
         let familyRecordID = CKRecord.ID(recordName: "active-family")
-        appState.family = Family(name: "Test Family", createdBy: CKRecord.ID(recordName: "user1"), id: familyRecordID)
+        appState.family = Family(name: "Test Family", creatorUserRecordName: "user1", id: familyRecordID)
 
         XCTAssertThrowsError(try ActiveFamilyScopeGuard.requireActiveFamily(familyRecordName: "other-family", appState: appState)) { error in
             guard case let ScopeViolation.familyMismatch(active, supplied) = error else {
@@ -55,7 +55,7 @@ final class ActiveFamilyScopeGuardTests: XCTestCase {
     func testRequireActiveFamilyScope_Success() throws {
         let zoneID = CKRecordZone.default().zoneID
         let familyRecordID = CKRecord.ID(recordName: "active-family", zoneID: zoneID)
-        appState.family = Family(name: "Test Family", createdBy: CKRecord.ID(recordName: "user1"), id: familyRecordID)
+        appState.family = Family(name: "Test Family", creatorUserRecordName: "user1", id: familyRecordID)
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
         cloudKit.activeFamilyZoneID = zoneID
@@ -73,7 +73,7 @@ final class ActiveFamilyScopeGuardTests: XCTestCase {
         let activeZone = CKRecordZone.default().zoneID
         let foreignZone = CKRecordZone.ID(zoneName: "foreign-zone", ownerName: "foreign-owner")
         let familyRecordID = CKRecord.ID(recordName: "active-family", zoneID: activeZone)
-        appState.family = Family(name: "Test Family", createdBy: CKRecord.ID(recordName: "user1"), id: familyRecordID)
+        appState.family = Family(name: "Test Family", creatorUserRecordName: "user1", id: familyRecordID)
         appState.familyZoneID = activeZone
         appState.isZoneOwner = true
         cloudKit.activeFamilyZoneID = activeZone
@@ -95,7 +95,7 @@ final class ActiveFamilyScopeGuardTests: XCTestCase {
     func testRequireActiveFamilyScope_ThrowsDatabaseMismatch() throws {
         let zoneID = CKRecordZone.default().zoneID
         let familyRecordID = CKRecord.ID(recordName: "active-family", zoneID: zoneID)
-        appState.family = Family(name: "Test Family", createdBy: CKRecord.ID(recordName: "user1"), id: familyRecordID)
+        appState.family = Family(name: "Test Family", creatorUserRecordName: "user1", id: familyRecordID)
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
         cloudKit.activeFamilyZoneID = zoneID
@@ -155,7 +155,7 @@ final class ActiveFamilyScopeGuardTests: XCTestCase {
 
     func testResolvedIsOwner_LocalOwnerWithPlaceholderZone() {
         let zoneID = CKRecordZone.ID(zoneName: "familyZone", ownerName: CKCurrentUserDefaultName)
-        var family = Family(name: "Test Guild", createdBy: CKRecord.ID(recordName: "creatorUser", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        var family = Family(name: "Test Guild", creatorUserRecordName: "creatorUser", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         family.creatorUserRecordName = "5F1139BA-45A0-4FE9-8C48-4AE024752D62"
         let profile = Profile(
             displayName: "Dad",
@@ -176,7 +176,7 @@ final class ActiveFamilyScopeGuardTests: XCTestCase {
         let zoneID = CKRecordZone.ID(zoneName: "familyZone", ownerName: "5F1139BA-45A0-4FE9-8C48-4AE024752D62")
         var family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "5F1139BA-45A0-4FE9-8C48-4AE024752D62", zoneID: zoneID),
+            creatorUserRecordName: "5F1139BA-45A0-4FE9-8C48-4AE024752D62",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         family.creatorUserRecordName = "5F1139BA-45A0-4FE9-8C48-4AE024752D62"

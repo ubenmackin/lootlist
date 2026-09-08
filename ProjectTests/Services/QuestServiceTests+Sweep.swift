@@ -35,7 +35,7 @@ struct QuestServiceSweepTests {
         appState.isZoneOwner = true
 
         let parentID = CKRecord.ID(recordName: "parent1", zoneID: zoneID)
-        let family = Family(name: "Test Guild", createdBy: parentID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Test Guild", creatorUserRecordName: parentID.recordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         let parent = Profile(
             displayName: "Parent",
             avatarClass: .knight,

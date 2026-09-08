@@ -225,12 +225,12 @@ struct BackgroundCacheActorTests {
 
         let family1 = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "fam1")
         )
         let family2 = Family(
             name: "Unicorns",
-            createdBy: CKRecord.ID(recordName: "user2"),
+            creatorUserRecordName: "user2",
             id: CKRecord.ID(recordName: "fam2")
         )
 
@@ -248,7 +248,7 @@ struct BackgroundCacheActorTests {
         let actor = BackgroundCacheActor(container: container)
         let updated = Family(
             name: "Updated Name",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "existing_family")
         )
 

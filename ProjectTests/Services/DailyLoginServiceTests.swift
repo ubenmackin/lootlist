@@ -33,7 +33,7 @@ struct DailyLoginServiceTests {
     private func makeFamily(zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Daily Guild",
-            createdBy: CKRecord.ID(recordName: "hero1", zoneID: zoneID),
+            creatorUserRecordName: "hero1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
     }

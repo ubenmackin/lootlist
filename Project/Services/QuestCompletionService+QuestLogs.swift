@@ -120,7 +120,7 @@ extension QuestCompletionService {
         }
         let family = Family(
             name: "",
-            createdBy: quest.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
         )
         return try await CacheFirst.cacheFirst(
@@ -160,7 +160,7 @@ extension QuestCompletionService {
     func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
         let family = Family(
             name: "",
-            createdBy: profile.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
         return try await CacheFirst.cacheFirst(

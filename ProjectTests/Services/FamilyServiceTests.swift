@@ -21,8 +21,10 @@ struct FamilyServiceTests {
         let appState = AppState(defaults: .ephemeral())
         appState.isZoneOwner = true
         appState.familyZoneID = zoneID
+        // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         appState.family = family
@@ -43,8 +45,10 @@ struct FamilyServiceTests {
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
         )
+        // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -117,8 +121,10 @@ struct FamilyServiceTests {
         let zoneID = cloudKit.activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         appState.familyZoneID = zoneID
         appState.isZoneOwner = cloudKit.activeIsOwner
+        // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         appState.family = family
@@ -145,6 +151,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -191,6 +198,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -244,6 +252,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -297,6 +306,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -351,6 +361,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let ckHero = Profile(
@@ -403,6 +414,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -416,7 +428,7 @@ struct FamilyServiceTests {
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero])
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         familyService.appState.currentProfile = hero
 
         let saved = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
@@ -445,6 +457,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -465,7 +478,7 @@ struct FamilyServiceTests {
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero])
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         appState.family = family
         appState.currentProfile = guildMaster
 
@@ -492,6 +505,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -510,7 +524,7 @@ struct FamilyServiceTests {
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero])
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         appState.family = family
         appState.currentProfile = guildMaster
 
@@ -546,6 +560,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -576,7 +591,7 @@ struct FamilyServiceTests {
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
         await cache.upsertQuest(quest)
-        cloudKit.seedMockRecords([family, hero, quest])
+        cloudKit.seedMockRecords([family, hero, quest], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         // unassignActiveQuests guards on appState.family being set.
         appState.family = family
         // The acting profile is the hero performing self-service leave.
@@ -606,6 +621,7 @@ struct FamilyServiceTests {
         // Empty family: no profiles seeded in the cache or the CloudKit mock.
         let family = Family(
             name: "Empty Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
@@ -625,6 +641,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let parent = Profile(
@@ -720,6 +737,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let hero = Profile(
@@ -761,6 +779,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -772,7 +791,7 @@ struct FamilyServiceTests {
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
         await cache.upsertFamily(family)
-        cloudKit.seedMockRecords([family])
+        cloudKit.seedMockRecords([family], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         familyService.appState.currentProfile = parent
         familyService.appState.family = family
         familyService.appState.familyZoneID = zoneID
@@ -809,6 +828,7 @@ struct FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -822,7 +842,7 @@ struct FamilyServiceTests {
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero])
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         familyService.appState.currentProfile = hero
         familyService.appState.family = family
         familyService.appState.familyZoneID = zoneID

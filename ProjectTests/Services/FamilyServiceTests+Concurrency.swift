@@ -123,7 +123,7 @@ extension FamilyServiceTests {
         )
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let ckHero = Profile(

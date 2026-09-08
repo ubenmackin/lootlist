@@ -237,7 +237,7 @@ extension CacheServiceTests {
         )
         let family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "fam")
         )
         await service.upsertQuest(quest)
@@ -255,7 +255,7 @@ extension CacheServiceTests {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "fam")
         )
         let quest = Quest(
@@ -341,12 +341,12 @@ extension CacheServiceTests {
         // Seed two families with their own quests.
         let familyA = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "famA")
         )
         let familyB = Family(
             name: "Unicorns",
-            createdBy: CKRecord.ID(recordName: "user2"),
+            creatorUserRecordName: "user2",
             id: CKRecord.ID(recordName: "famB")
         )
         await service.upsertFamily(familyA)
@@ -574,7 +574,7 @@ extension CacheServiceTests {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "fam1")
         )
 
@@ -595,7 +595,7 @@ extension CacheServiceTests {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "fam")
         )
         await service.upsertFamily(family)
@@ -626,7 +626,7 @@ extension CacheServiceTests {
         let service = try makeService()
         var family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             payoutDay: .monday,
             id: CKRecord.ID(recordName: "fam1")
         )
@@ -935,7 +935,7 @@ extension CacheServiceTests {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
-            createdBy: CKRecord.ID(recordName: "user1"),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "fam")
         )
         await service.upsertFamily(family)

@@ -15,8 +15,10 @@ extension FamilyServiceTests {
 
     @Test
     func `updateMemberRole throws unauthorized when acting profile is a hero`() async {
-        let (familyService, _, appState, _) = makeDependencies()
-        let (_, _, _, hero, _) = makeStandardFixtures()
+        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let (_, _, family, hero, _) = makeStandardFixtures()
+        // WHY resolved non-owner anchor: denial must come from the owner check, not a missing family.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
 
         // Case 1: unauthenticated
         await #expect(throws: FamilyServiceError.unauthorized) {
@@ -32,8 +34,10 @@ extension FamilyServiceTests {
 
     @Test
     func `updateMemberRole throws unauthorized when no acting profile exists`() async {
-        let (familyService, _, _, _) = makeDependencies()
-        let (_, _, _, hero, _) = makeStandardFixtures()
+        let (familyService, cloudKit, _, _) = makeDependencies()
+        let (_, _, family, hero, _) = makeStandardFixtures()
+        // WHY resolved non-owner anchor: denial must come from the owner check, not a missing family.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
 
         await #expect(throws: FamilyServiceError.unauthorized) {
             try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
@@ -42,8 +46,10 @@ extension FamilyServiceTests {
 
     @Test
     func `kickMember throws unauthorized when acting profile is a hero`() async {
-        let (familyService, _, appState, _) = makeDependencies()
-        let (_, _, _, hero, _) = makeStandardFixtures()
+        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let (_, _, family, hero, _) = makeStandardFixtures()
+        // WHY resolved non-owner anchor: denial must come from the owner check, not a missing family.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
 
         // Case 1: unauthenticated
         await #expect(throws: FamilyServiceError.unauthorized) {
@@ -58,25 +64,25 @@ extension FamilyServiceTests {
     }
 
     @Test
-    func `updateMemberRole succeeds when acting profile is a ranger parent`() async throws {
+    func `updateMemberRole succeeds via owner-device anchor for acting owner`() async throws {
         let (familyService, cloudKit, appState, _) = makeDependencies()
         let cache = try CacheService(inMemory: true)
         familyService.cacheService = cache
 
         let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
-        // Rangers are parent roles: they may promote a hero.
-        let ranger = Profile(
-            displayName: "Ranger",
-            role: .ranger,
-            iCloudUserID: CKRecord.ID(recordName: "r1", zoneID: zoneID),
+        // WHY owner-device authorizes: irreversible role change anchors on server-authenticated device, not acting role.
+        let owner = Profile(
+            displayName: "Owner",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: Self.mockOwner, zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "ranger1", zoneID: zoneID)
+            id: CKRecord.ID(recordName: "owner1", zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero])
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: Self.mockOwner)
         appState.family = family
-        appState.currentProfile = ranger
+        appState.currentProfile = owner
 
         try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
 
@@ -85,19 +91,52 @@ extension FamilyServiceTests {
     }
 
     @Test
-    func `updateFamilyName throws unauthorized for non-parent`() async {
-        let (familyService, _, appState, _) = makeDependencies()
+    func `updateMemberRole throws unauthorized for ranger without owner-device anchor`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let cache = try CacheService(inMemory: true)
+        familyService.cacheService = cache
+
+        let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
+        // WHY owner-only denies: ranger role alone cannot authorize without matching server-stamped creator.
+        let ranger = Profile(
+            displayName: "Ranger",
+            role: .ranger,
+            iCloudUserID: CKRecord.ID(recordName: "r1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "ranger1", zoneID: zoneID)
+        )
+        await cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        await cache.upsertFamily(anchoredFamily)
+        appState.family = anchoredFamily
+        appState.currentProfile = ranger
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
+        }
+    }
+
+    @Test
+    func `updateFamilyName throws unauthorized for non-parent`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
         let (_, _, family, hero, _) = makeStandardFixtures()
+        // WHY resolved non-owner anchor: denial must come from the owner check, not legacy nil fallback.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        appState.family = anchoredFamily
+        appState.familyZoneID = anchoredFamily.id.zoneID
+        cloudKit.activeFamilyZoneID = anchoredFamily.id.zoneID
 
         // Case 1: unauthenticated
         await #expect(throws: FamilyServiceError.unauthorized) {
-            try await familyService.updateFamilyName(family: family, newName: "New Name")
+            try await familyService.updateFamilyName(family: anchoredFamily, newName: "New Name")
         }
 
         // Case 2: non-parent (hero)
         appState.currentProfile = hero
         await #expect(throws: FamilyServiceError.unauthorized) {
-            try await familyService.updateFamilyName(family: family, newName: "New Name")
+            try await familyService.updateFamilyName(family: anchoredFamily, newName: "New Name")
         }
     }
 
@@ -109,7 +148,7 @@ extension FamilyServiceTests {
 
         let (_, _, family, _, parent) = makeStandardFixtures()
         await cache.upsertFamily(family)
-        cloudKit.seedMockRecords([family])
+        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockOwner)
         appState.family = family
         appState.currentProfile = parent
 
@@ -118,13 +157,19 @@ extension FamilyServiceTests {
     }
 
     @Test
-    func `updatePayoutPolicy throws unauthorized for non-parent`() async {
-        let (familyService, _, appState, _) = makeDependencies()
+    func `updatePayoutPolicy throws unauthorized for non-parent`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
         let (_, _, family, hero, _) = makeStandardFixtures()
+        // WHY resolved non-owner anchor: denial must come from the owner check, not legacy nil fallback.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        appState.family = anchoredFamily
+        appState.familyZoneID = anchoredFamily.id.zoneID
+        cloudKit.activeFamilyZoneID = anchoredFamily.id.zoneID
 
         appState.currentProfile = hero
         await #expect(throws: FamilyServiceError.unauthorized) {
-            try await familyService.updatePayoutPolicy(family: family, policy: .allOrNothing)
+            try await familyService.updatePayoutPolicy(family: anchoredFamily, policy: .allOrNothing)
         }
     }
 
@@ -136,7 +181,7 @@ extension FamilyServiceTests {
 
         let (_, _, family, _, parent) = makeStandardFixtures()
         await cache.upsertFamily(family)
-        cloudKit.seedMockRecords([family])
+        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockOwner)
         appState.family = family
         appState.currentProfile = parent
 
@@ -145,13 +190,19 @@ extension FamilyServiceTests {
     }
 
     @Test
-    func `updatePayoutDay throws unauthorized for non-parent`() async {
-        let (familyService, _, appState, _) = makeDependencies()
+    func `updatePayoutDay throws unauthorized for non-parent`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
         let (_, _, family, hero, _) = makeStandardFixtures()
+        // WHY resolved non-owner anchor: denial must come from the owner check, not legacy nil fallback.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        appState.family = anchoredFamily
+        appState.familyZoneID = anchoredFamily.id.zoneID
+        cloudKit.activeFamilyZoneID = anchoredFamily.id.zoneID
 
         appState.currentProfile = hero
         await #expect(throws: FamilyServiceError.unauthorized) {
-            try await familyService.updatePayoutDay(family: family, day: .friday)
+            try await familyService.updatePayoutDay(family: anchoredFamily, day: .friday)
         }
     }
 
@@ -163,7 +214,7 @@ extension FamilyServiceTests {
 
         let (_, _, family, _, parent) = makeStandardFixtures()
         await cache.upsertFamily(family)
-        cloudKit.seedMockRecords([family])
+        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockOwner)
         appState.family = family
         appState.currentProfile = parent
 
@@ -261,19 +312,22 @@ extension FamilyServiceTests {
     }
 
     @Test
-    func `deleteFamilyAndReset throws unauthorized when not parent or not zone owner`() async {
+    func `deleteFamilyAndReset throws unauthorized when not parent or not zone owner`() async throws {
         let (familyService, cloudKit, appState, _) = makeDependencies()
         let (_, _, family, hero, parent) = makeStandardFixtures()
-        appState.family = family
-        appState.familyZoneID = family.id.zoneID
-        cloudKit.activeFamilyZoneID = family.id.zoneID
+        // WHY resolved non-owner anchor: denial must come from the owner check, not legacy nil fallback.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        appState.family = anchoredFamily
+        appState.familyZoneID = anchoredFamily.id.zoneID
+        cloudKit.activeFamilyZoneID = anchoredFamily.id.zoneID
 
         // Case 1: Hero acting, zone owner true
         appState.isZoneOwner = true
         cloudKit.activeIsOwner = true
         appState.currentProfile = hero
         await #expect(throws: FamilyServiceError.unauthorized) {
-            try await familyService.deleteFamilyAndReset(family: family)
+            try await familyService.deleteFamilyAndReset(family: anchoredFamily)
         }
 
         // Case 2: Parent acting, zone owner false
@@ -281,21 +335,26 @@ extension FamilyServiceTests {
         cloudKit.activeIsOwner = false
         appState.currentProfile = parent
         await #expect(throws: FamilyServiceError.unauthorized) {
-            try await familyService.deleteFamilyAndReset(family: family)
+            try await familyService.deleteFamilyAndReset(family: anchoredFamily)
         }
     }
 
     @Test
     func `deleteFamilyAndReset succeeds when parent and zone owner`() async throws {
-        let (familyService, _, appState, _) = makeDependencies()
+        let (familyService, cloudKit, appState, _) = makeDependencies()
         let (zoneID, _, family, _, parent) = makeStandardFixtures()
+        // WHY explicit owner anchor: owner-gated delete resolves against the mock's server-authenticated user.
+        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockOwner)
+        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
 
-        appState.family = family
+        appState.family = anchoredFamily
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
         appState.currentProfile = parent
 
-        try await familyService.deleteFamilyAndReset(family: family)
+        try await familyService.deleteFamilyAndReset(family: anchoredFamily)
         #expect(appState.currentProfile == nil)
     }
 
@@ -545,14 +604,15 @@ extension FamilyServiceTests {
     }
 
     @Test
-    func `updateMemberRole legacy nil-creator falls back to parent role`() async throws {
+    func `updateMemberRole throws unauthorized when anchored creator mismatches acting user`() async throws {
         let (familyService, cloudKit, appState, _) = makeDependencies()
         let cache = try CacheService(inMemory: true)
         familyService.cacheService = cache
 
         let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: nil)
+        // WHY resolved non-owner anchor: owner-gated writes deny even for a parent role when the creator mismatches.
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: "someoneElse")
         let parent = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
@@ -563,8 +623,8 @@ extension FamilyServiceTests {
         appState.family = family
         appState.currentProfile = parent
 
-        try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
-        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
-        #expect(cachedHero?.role == UserRole.ranger.rawValue)
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
+        }
     }
 }

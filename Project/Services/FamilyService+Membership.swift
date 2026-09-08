@@ -37,10 +37,8 @@ extension FamilyService {
 
     @discardableResult
     func kickMember(profile: Profile) async throws -> FamilyKickResult {
-        // Privileged mutation: removing a member from the guild is reserved for
-        // the owner anchor (server-authenticated family owner). Legacy families
-        // without an owner anchor fall back to the parent-role check.
-        let family = try await requireParentOrOwner(for: profile)
+        // WHY owner-only: unresolved anchor denies; legacy dev rows need zone wipe/re-create, no backfill.
+        let family = try await requireFamilyOwner(for: profile)
         try await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
 
@@ -132,28 +130,14 @@ extension FamilyService {
     }
 
     func deleteFamilyAndReset(family: Family) async throws {
-        // Irreversible family deletion reserved for server-authenticated family creator.
+        // WHY owner-only: unresolved anchor denies; legacy dev rows need zone wipe/re-create, incompatible cache uses destructive reset + rehydration, no backfill.
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
             cloudKit: cloudKit,
             appState: appState
         )
 
-        let isOwner = await isFamilyOwner(family)
-        let actingRoleIsParent = appState.currentProfile?.role.isParent ?? false
-        let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwnerFallback = appState.isZoneOwner
-        if resolvedOwner != storedOwnerFallback {
-            logger.warning("FamilyService.deleteFamilyAndReset fallback isOwner corrected via creator anchor: stored=\(storedOwnerFallback) resolved=\(resolvedOwner)")
-        }
-        let isAuthorized: Bool = if hasResolvedOwnerAnchor(family) {
-            isOwner
-        } else {
-            resolvedOwner && actingRoleIsParent
-        }
-        guard isAuthorized else {
-            throw FamilyServiceError.unauthorized
-        }
+        _ = try await requireLiveOwnerFamily(familyID: family.id)
         // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
         let targetZoneID = family.id.zoneID
         do {

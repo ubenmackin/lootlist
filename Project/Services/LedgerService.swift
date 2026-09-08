@@ -74,7 +74,7 @@ final class LedgerService {
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         let family = Family(
             name: "",
-            createdBy: profile.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
         return try await CacheFirst.cacheFirst(
@@ -107,7 +107,7 @@ final class LedgerService {
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         let family = Family(
             name: "",
-            createdBy: profile.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
         return try await CacheFirst.cacheFirst(
@@ -151,7 +151,7 @@ final class LedgerService {
         let familyName = profile.family.recordID.recordName
         let family = Family(
             name: "",
-            createdBy: profile.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: familyName, zoneID: targetZoneID)
         )
         let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState.familyZoneID == targetZoneID)

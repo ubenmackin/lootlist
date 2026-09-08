@@ -11,12 +11,11 @@ import Foundation
 enum AppConstants {
     enum Security {
         /// Placeholder creator identifiers used by CloudKit in legacy or simulator contexts.
-        static var legacyPlaceholderCreators: Set<String> {
-            [
-                "owner", "Owner1", "__defaultOwner__", "_defaultOwner_",
-                CKCurrentUserDefaultName, ""
-            ]
-        }
+        /// WHY retain full set: legacy records still carry each value; triage-only, never authorizes mutations.
+        static let legacyPlaceholderCreators: Set<String> = [
+            "owner", "Owner1", "__defaultOwner__", "_defaultOwner_",
+            CKCurrentUserDefaultName, ""
+        ]
     }
 
     enum Experience {

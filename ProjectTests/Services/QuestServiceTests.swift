@@ -503,7 +503,7 @@ struct QuestServiceTests {
         scaffold.appState.currentProfile = scaffold.parent
         let foreignFamily = Family(
             name: "Foreign Guild",
-            createdBy: scaffold.parent.id,
+            creatorUserRecordName: scaffold.parent.id.recordName,
             id: CKRecord.ID(recordName: "foreign_fam", zoneID: scaffold.zoneID)
         )
         var foreignParent = scaffold.parent
@@ -529,7 +529,7 @@ struct QuestServiceTests {
         scaffold.appState.currentProfile = scaffold.parent
         let foreignFamily = Family(
             name: "Foreign Guild",
-            createdBy: scaffold.parent.id,
+            creatorUserRecordName: scaffold.parent.id.recordName,
             id: CKRecord.ID(recordName: "foreign_fam", zoneID: scaffold.zoneID)
         )
         let foreignFamilyRef = CKRecord.Reference(recordID: foreignFamily.id, action: .none)

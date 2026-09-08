@@ -80,8 +80,10 @@ struct ScenarioMatrixTests {
     }
 
     private func makeFamily(zoneID: CKRecordZone.ID, payoutPolicy: PayoutPolicy = .perQuest) -> Family {
+        // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
         Family(
             name: "Guild Matrix Family",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: payoutPolicy,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )

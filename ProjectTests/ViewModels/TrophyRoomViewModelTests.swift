@@ -19,7 +19,7 @@ struct TrophyRoomViewModelTests {
         cloudKit.activeFamilyZoneID = zoneID
         let appState = AppState()
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        let family = Family(name: "G", createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID), id: familyID)
+        let family = Family(name: "G", creatorUserRecordName: "parent1", id: familyID)
         let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let hero = Profile(displayName: "H", role: .hero, iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID), family: familyRef, id: heroID)

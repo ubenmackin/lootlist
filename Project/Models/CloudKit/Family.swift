@@ -23,14 +23,6 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var name: String
 
-    /// Server-authoritative owner identity, read from `creatorUserRecordName`.
-    var effectiveCreatorUserRecordName: String? {
-        guard let creatorUserRecordName, !creatorUserRecordName.isEmpty else {
-            return nil
-        }
-        return creatorUserRecordName
-    }
-
     /// The iCloud user record name of the family's founding user, read from the server-owned
     /// `CKRecord.creatorUserRecordID` on the read path.
     var creatorUserRecordName: String?
@@ -52,10 +44,8 @@ struct Family: Identifiable, Equatable, Sendable {
 
         name = try record.extract("name")
 
-        // Server-authoritative creator user record ID; falls back to legacy createdBy field if present
-        let serverCreator = record.creatorUserRecordID?.recordName
-        let legacyCreatedBy: String? = record.extractOptional("createdBy")
-        creatorUserRecordName = serverCreator ?? legacyCreatedBy
+        // WHY deny-by-default: unresolved stamp denies; legacy field never becomes anchor.
+        creatorUserRecordName = record.creatorUserRecordID?.recordName
 
         guard let createdAt = record["createdAt"] as? Date else {
             throw CKDecodingError.missingField("createdAt")
@@ -82,7 +72,7 @@ struct Family: Identifiable, Equatable, Sendable {
     func toRecord() -> CKRecord {
         let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["name"] = name as CKRecordValue
-        record["createdBy"] = (creatorUserRecordName ?? id.recordName) as CKRecordValue
+        // WHY server stamps creator: decoded only on read path, never authored locally.
         record["createdAt"] = createdAt as CKRecordValue
         record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
         record["payoutDay"] = payoutDay.rawValue as CKRecordValue
@@ -91,31 +81,16 @@ struct Family: Identifiable, Equatable, Sendable {
 
     init(name: String,
          creatorUserRecordName: String? = nil,
+         createdAt: Date = Date(),
          payoutPolicy: PayoutPolicy = .perQuest,
          payoutDay: PayoutDay = .sunday,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
         self.name = name
-        createdAt = Date()
+        self.createdAt = createdAt
         self.payoutPolicy = payoutPolicy
         self.payoutDay = payoutDay
         self.creatorUserRecordName = creatorUserRecordName
-    }
-
-    init(name: String,
-         createdBy _: CKRecord.ID,
-         payoutPolicy: PayoutPolicy = .perQuest,
-         payoutDay: PayoutDay = .sunday,
-         creatorUserRecordName: String? = nil,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
-    {
-        self.init(
-            name: name,
-            creatorUserRecordName: creatorUserRecordName,
-            payoutPolicy: payoutPolicy,
-            payoutDay: payoutDay,
-            id: id
-        )
     }
 }

@@ -39,7 +39,7 @@ struct HeroLedgerViewModelTests {
         let appState = AppState()
         appState.family = Family(
             name: "Test Family",
-            createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            creatorUserRecordName: "u1",
             payoutPolicy: .perQuest,
             payoutDay: familyPayoutDay,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)

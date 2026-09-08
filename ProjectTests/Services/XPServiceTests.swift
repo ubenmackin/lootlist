@@ -322,7 +322,7 @@ struct XPServiceTests {
         appState.currentProfile = parent
         appState.family = Family(
             name: "Guild 1",
-            createdBy: parent.id,
+            creatorUserRecordName: parent.id.recordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 

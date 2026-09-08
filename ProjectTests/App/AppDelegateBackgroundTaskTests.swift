@@ -107,7 +107,7 @@ struct AppDelegateBackgroundTaskTests {
         let zoneID = CKRecordZone.ID(zoneName: "BackgroundPayoutZone", ownerName: "Owner")
         let family = Family(
             name: "Background Guild",
-            createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            creatorUserRecordName: "owner",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let profile = Profile(
@@ -147,7 +147,7 @@ struct AppDelegateBackgroundTaskTests {
         let zoneID = CKRecordZone.ID(zoneName: "BackgroundSyncZone", ownerName: "Owner")
         let family = Family(
             name: "Background Sync Guild",
-            createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            creatorUserRecordName: "owner",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let profile = Profile(

@@ -342,6 +342,7 @@ enum RecordBridge {
     }
 
     private static let managedFieldKeysByType: [String: Set<String>] = [
+        // WHY server stamps creator: unmanaged anchor preserves server value on both outbound paths, never fabricates.
         Family.recordType: Family.managedFieldKeys,
         Profile.recordType: Profile.managedFieldKeys,
         QuestTemplate.recordType: QuestTemplate.managedFieldKeys,

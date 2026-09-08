@@ -55,7 +55,7 @@ struct AutoPayoutCoordinatorTests {
         let family = FamilyService(cloudKit: cloudKit, appState: appState, questService: quest, cacheService: cache)
 
         let userRecordID = CKRecord.ID(recordName: "user-1", zoneID: zoneID)
-        let familyObj = Family(name: "Dragon Guild", createdBy: userRecordID, payoutDay: .sunday, id: CKRecord.ID(recordName: "family-1", zoneID: zoneID))
+        let familyObj = Family(name: "Dragon Guild", creatorUserRecordName: userRecordID.recordName, payoutDay: .sunday, id: CKRecord.ID(recordName: "family-1", zoneID: zoneID))
         let parentProfile = Profile(
             displayName: "Parent Guildmaster",
             role: .guildMaster,

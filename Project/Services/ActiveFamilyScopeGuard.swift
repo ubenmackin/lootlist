@@ -148,6 +148,7 @@ enum ActiveFamilyScopeGuard {
         return name1 == name2
     }
 
+    /// WHY deny: placeholders resolve nothing, so treat as unresolved and deny.
     static func isPlaceholderOwner(_ owner: String?) -> Bool {
         guard let owner else { return true }
         return AppConstants.Security.legacyPlaceholderCreators.contains(owner)
@@ -200,13 +201,13 @@ enum ActiveFamilyScopeGuard {
 
     /// A creator anchor is usable only when non-empty and not one of the legacy
     /// placeholder values written before the anchor existed — placeholders
-    /// resolve nothing and must fall back to role-based checks.
+    /// resolve nothing, so deny.
     private static func isResolvedCreatorAnchor(_ creator: String) -> Bool {
         !creator.isEmpty && !AppConstants.Security.legacyPlaceholderCreators.contains(creator)
     }
 
     /// A proven mismatch between a stored creator anchor and the acting user.
-    /// Unresolved anchors (nil or legacy placeholders) prove nothing either way.
+    /// Unresolved anchors (nil or legacy placeholders) resolve nothing, so deny the mismatch claim.
     /// Uses exact recordName equality — never case-insensitive or underscore-insensitive.
     private static func isProvenCreatorMismatch(_ creator: String?, userRecordName: String) -> Bool {
         guard let creator, isResolvedCreatorAnchor(creator),
