@@ -71,14 +71,11 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<ProfileAchievementCache> {
-        if let familyRecordName {
+        if let familyRecordName, !familyRecordName.isEmpty {
             return FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
         }
-        return FetchDescriptor<ProfileAchievementCache>()
-    }
-
-    static func fetchDescriptor(recordName: String) -> FetchDescriptor<ProfileAchievementCache> {
-        FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName })
+        // WHY fail-closed: nil/empty scope must match zero rows, never the whole table.
+        return FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.familyRecordName == "" })
     }
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<ProfileAchievementCache> {

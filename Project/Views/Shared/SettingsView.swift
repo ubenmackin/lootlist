@@ -667,7 +667,8 @@ struct SettingsView: View {
         } else if (syncCoordinator?.pendingUploadCount ?? 0) > 0 {
             "\(syncCoordinator?.pendingUploadCount ?? 0) pending upload\(syncCoordinator?.pendingUploadCount == 1 ? "" : "s")"
         } else if let last = syncCoordinator?.lastSyncedAt {
-            "Last synced \(last.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))"
+            // WHY shared presentation: sidebar subtitle mirrors the iCloudStatusView prod-safe relative format.
+            "Last synced \(last.formatted(.relative(presentation: .named)))"
         } else if syncCoordinator == nil {
             "Unavailable"
         } else {

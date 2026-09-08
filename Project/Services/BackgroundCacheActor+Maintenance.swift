@@ -347,10 +347,14 @@ extension BackgroundCacheActor {
         let recordName = identity.recordID.recordName
         let match: T?
         do {
-            if let expectedFamily = identity.familyRecordName {
+            if let expectedFamily = identity.familyRecordName, !expectedFamily.isEmpty {
                 match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName, familyRecordName: expectedFamily)).first
+            } else if let familyType = T.self as? FamilyCache.Type {
+                // WHY root exception: the family record is the partition, so recordName-only lookup stays valid here.
+                match = try modelContext.fetch(familyType.fetchDescriptor(recordName: recordName)).first as? T
             } else {
-                match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first
+                // WHY fail-closed: scoped delete without family must not scan other families.
+                match = nil
             }
         } catch {
             logger.error("Failed to fetch \(T.self, privacy: .private) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .private)")

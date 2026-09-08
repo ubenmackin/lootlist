@@ -30,13 +30,14 @@ struct HeroBoardView: View {
         let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
 
+        // WHY: secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.questName
+            sort: [SortDescriptor(\QuestCache.questName), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedProfiles = Query(
             filter: profileFilter,
-            sort: \ProfileCache.displayName
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
     }
 
@@ -143,19 +144,27 @@ struct HeroBoardView: View {
 
     /// Child-facing row: tapping claims the quest optimistically.
     private func claimableRow(_ row: HeroBoardViewModel.BoardRow, vm: HeroBoardViewModel) -> some View {
-        HStack(spacing: 12) {
+        // WHY optimistic rows stay visible while the claim save confirms.
+        let pending = row.isPending || vm.isClaiming(row)
+        return HStack(spacing: 12) {
             Image(systemName: "hand.tap.fill")
                 .foregroundStyle(.tint)
             questDetail(row)
             Spacer()
-            if vm.isClaiming(row) {
-                ProgressView()
+            if pending {
+                VStack(alignment: .trailing, spacing: 4) {
+                    ProgressView()
+                    Text("Pending")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                        .accessibilityIdentifier("board.pendingBadge-\(row.id)")
+                }
             } else {
                 Button("Claim") {
                     Task { await vm.claim(row) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isSubmitting || vm.isClaiming(row))
+                .disabled(isSubmitting)
                 .accessibilityIdentifier("board.claimButton-\(row.id)")
             }
         }
@@ -165,6 +174,7 @@ struct HeroBoardView: View {
         // .contain keeps the row addressable while exposing its children.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("board.availableRow-\(row.id)")
+        .disabled(pending)
     }
 
     /// Parent-facing row for unclaimed quests (read-only).
@@ -181,7 +191,9 @@ struct HeroBoardView: View {
 
     /// Parent-facing row for claimed quests with the release-back-to-board action.
     private func claimedRow(_ row: HeroBoardViewModel.BoardRow, vm: HeroBoardViewModel) -> some View {
-        HStack(spacing: 12) {
+        // WHY optimistic claims surface pending until server-wins settles.
+        let pending = row.isPending || vm.isClaiming(row)
+        return HStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.checkmark")
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             VStack(alignment: .leading, spacing: 2) {
@@ -190,8 +202,17 @@ struct HeroBoardView: View {
                 Text("\(CurrencyFormatter.string(row.quest.goldReward)) · claimed by \(row.claimantName ?? "a hero")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if pending {
+                    Text("Pending")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                        .accessibilityIdentifier("board.pendingBadge-\(row.id)")
+                }
             }
             Spacer()
+            if pending {
+                ProgressView()
+            }
         }
         .contentShape(Rectangle())
         .accessibilityIdentifier("board.claimedRow-\(row.id)")
@@ -206,7 +227,7 @@ struct HeroBoardView: View {
             } label: {
                 Label("Revoke", systemImage: "arrow.uturn.backward")
             }
-            .disabled(isSubmitting)
+            .disabled(isSubmitting || pending)
             .accessibilityIdentifier("board.revokeAction-\(row.id)")
         }
     }

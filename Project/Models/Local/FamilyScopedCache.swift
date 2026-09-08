@@ -56,9 +56,6 @@ protocol CacheMergeable: PersistentModel {
     /// `FamilyCache` ignores `familyRecordName` (root record, never scoped).
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<Self>
 
-    /// Returns a fetch descriptor scoped to the unique recordName key.
-    static func fetchDescriptor(recordName: String) -> FetchDescriptor<Self>
-
     /// Returns a fetch descriptor scoped to both recordName and familyRecordName composite index.
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<Self>
 }

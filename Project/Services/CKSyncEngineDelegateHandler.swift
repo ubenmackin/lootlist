@@ -11,6 +11,22 @@ import os
 
 @MainActor
 final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
+    /// Per-type ingest result so callers stamp only zero-failure types.
+    struct IngestOutcome: Sendable {
+        var failedTypes: Set<CachedRecordType>
+        var didCommit: Bool
+        var parseFailures: Int
+        var committedTypes: Set<CachedRecordType> = []
+    }
+
+    /// Filtered ingest batch bundled to stay within the large_tuple limit.
+    private struct ProcessedIngestRecords: Sendable {
+        var accepted: [ParsedRecord]
+        var parseFailures: Int
+        var failedTypes: Set<CachedRecordType>
+        var dropped: Int
+    }
+
     private let logger = Logger(category: "CKSyncEngineDelegateHandler")
 
     private let cacheService: CacheService?
@@ -227,31 +243,33 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     }
 
     /// Thin adapter for CKSyncEngine delegate surface; all ingestion flows through shared pipeline.
+    @discardableResult
     func handleIncomingRecordsDirectly(
         _ records: [CKRecord],
         databaseScope: CKDatabase.Scope? = nil,
         zoneID: CKRecordZone.ID? = nil
-    ) async {
-        guard !records.isEmpty else { return }
+    ) async -> IngestOutcome? {
+        guard !records.isEmpty else { return nil }
         // Dual-scope is derived via databaseScope ?? activeDatabaseScope.
         let scope: CKDatabase.Scope = databaseScope ?? (appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false))
-        guard let resolvedZoneID = zoneID ?? records.first?.recordID.zoneID else { return }
-        await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
+        guard let resolvedZoneID = zoneID ?? records.first?.recordID.zoneID else { return nil }
+        return await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
     }
 
     /// Central inbound ingestion entry — all server→cache writes ride this method.
+    @discardableResult
     func ingest(
         records: [CKRecord],
         databaseScope: CKDatabase.Scope,
         zoneID: CKRecordZone.ID,
         notifiesOnCompletion: Bool = true
-    ) async {
+    ) async -> IngestOutcome? {
         // Fails closed if family zone is unresolved to avoid cross-scope pollution.
         guard let activeFamily = appState?.family?.id.recordName,
               let activeZone = appState?.familyZoneID
         else {
             logger.warning("Ingestion dropped: no active family zone — \(records.count, privacy: .public) record(s) deferred")
-            return
+            return nil
         }
 
         guard zoneID == activeZone else {
@@ -265,17 +283,21 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 family: activeFamily,
                 zone: activeZone.zoneName
             )
-            return
+            return nil
         }
 
         let expectedDbScope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
-        let (accepted, parseFailures) = processIngestRecords(
+        let processed = processIngestRecords(
             records,
             databaseScope: databaseScope,
             expectedDbScope: expectedDbScope,
             activeFamily: activeFamily,
             activeZone: activeZone
         )
+        let accepted = processed.accepted
+        let parseFailures = processed.parseFailures
+        let failedTypes = processed.failedTypes
+        let dropped = processed.dropped
 
         if parseFailures > 0 {
             logger.warning(
@@ -288,7 +310,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             }
         }
 
-        guard !accepted.isEmpty else { return }
+        // WHY watermarks mean rows committed: empty batch with drops must not stamp fresh.
+        guard !accepted.isEmpty else {
+            let hasFailures = parseFailures > 0 || dropped > 0
+            return IngestOutcome(failedTypes: failedTypes, didCommit: !hasFailures, parseFailures: parseFailures, committedTypes: [])
+        }
 
         var writer = backgroundCache ?? appState?.backgroundCacheActor ?? cacheService?.backgroundWriter
         if writer == nil, let cache = cacheService {
@@ -301,20 +327,23 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         guard let writer else {
             coordinator?.noteCacheWriteFailure()
             logger.error("Cache write failure during incoming zone changes: no BackgroundCacheActor available")
-            return
+            return IngestOutcome(failedTypes: failedTypes, didCommit: false, parseFailures: parseFailures, committedTypes: [])
         }
 
         let writeSucceeded = await writer.batchUpsertParsedRecords(accepted)
         guard writeSucceeded else {
             coordinator?.noteCacheWriteFailure()
             logger.error("Cache write failure during incoming zone changes: batch upsert failed")
-            return
+            return IngestOutcome(failedTypes: failedTypes, didCommit: false, parseFailures: parseFailures, committedTypes: [])
         }
 
         coordinator?.noteChangesProcessed()
         if notifiesOnCompletion {
             await triggerSyncNotifications(for: accepted)
         }
+        // WHY committed set gates stamping: only types with rows written may stamp fresh.
+        let committedTypes = Set(accepted.compactMap(\.cachedRecordType))
+        return IngestOutcome(failedTypes: failedTypes, didCommit: true, parseFailures: parseFailures, committedTypes: committedTypes)
     }
 
     private func processIngestRecords(
@@ -323,9 +352,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         expectedDbScope: CKDatabase.Scope,
         activeFamily: String,
         activeZone: CKRecordZone.ID
-    ) -> (accepted: [ParsedRecord], parseFailures: Int) {
+    ) -> ProcessedIngestRecords {
         var accepted: [ParsedRecord] = []
         var parseFailures = 0
+        var failedTypes: Set<CachedRecordType> = []
+        var dropped = 0
         for record in records {
             let identity = ScopedRecordIdentity(
                 databaseScope: databaseScope,
@@ -347,6 +378,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     activeZone: activeZone,
                     expectedDbScope: expectedDbScope
                 )
+                // WHY dropped types gate stamping: zero committed rows must stay stale.
+                dropped += 1
+                if let droppedType = CachedRecordType.recordType(for: record.recordType) {
+                    failedTypes.insert(droppedType)
+                }
                 continue
             }
 
@@ -354,6 +390,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             switch parsed {
             case .parseFailure:
                 parseFailures += 1
+                // WHY: unknown record types carry no freshness watermark, so only known types gate per-type stamping.
+                if let failedType = CachedRecordType.recordType(for: record.recordType) {
+                    failedTypes.insert(failedType)
+                }
                 logger.error("Parse failure for incoming record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
             case .ignoredSystemRecord:
                 logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
@@ -362,7 +402,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 accepted.append(parsed)
             }
         }
-        return (accepted, parseFailures)
+        return ProcessedIngestRecords(accepted: accepted, parseFailures: parseFailures, failedTypes: failedTypes, dropped: dropped)
     }
 
     private func checkTransferSkew(record: CKRecord, parsed: ParsedRecord) {

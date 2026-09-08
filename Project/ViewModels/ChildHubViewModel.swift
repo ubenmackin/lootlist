@@ -137,10 +137,15 @@ final class ChildHubViewModel {
         quests: [QuestCache],
         logs: [QuestCompletionCache],
         templates: [QuestTemplateCache],
-        goals: [GoalCache]
+        goals: [GoalCache],
+        viewerRow: ProfileCache? = nil,
+        familyRow: FamilyCache? = nil
     ) {
-        guard let profile = appState.currentProfile,
-              let familyName = appState.family?.id.recordName
+        // WHY row-first: week math must mirror @Query rows so payout-day edits never disagree with gating.
+        let resolvedProfileName = viewerRow?.recordName ?? appState.currentProfile?.id.recordName
+        let resolvedFamilyName = familyRow?.recordName ?? appState.family?.id.recordName
+        guard let profileName = resolvedProfileName,
+              let familyName = resolvedFamilyName
         else {
             bucketBalances = [:]
             choreRows = []
@@ -150,11 +155,10 @@ final class ChildHubViewModel {
             activeGoal = nil
             return
         }
-        let profileName = profile.id.recordName
 
         // Fail-closed when the cache row for the profile is missing (pruned or not yet reconciled).
         let cache = bucketService.cacheService
-        if cache.fetchProfile(recordName: profileName, family: familyName) == nil {
+        if viewerRow == nil, cache.fetchProfile(recordName: profileName, family: familyName) == nil {
             bucketBalances = [:]
             choreRows = []
             weeklyCompleted = 0
@@ -180,7 +184,11 @@ final class ChildHubViewModel {
             uniquingKeysWith: { first, _ in first }
         )
 
-        let payoutDay = appState.resolvedPayoutDay
+        let payoutDay: PayoutDay = if viewerRow != nil || familyRow != nil {
+            PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
+        } else {
+            appState.resolvedPayoutDay
+        }
         let weekRange = WeekMath.range(for: Date(), payoutDay: payoutDay).range
         let weekQuests = myQuests.filter { WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange) }
 

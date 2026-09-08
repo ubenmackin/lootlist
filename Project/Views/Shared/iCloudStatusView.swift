@@ -72,19 +72,32 @@ struct iCloudStatusView: View {
         let gemLedgerFilter = GemLedgerCache.familyPredicate(familyRecordName: targetFamily)
         let rewardEventFilter = RewardEventCache.familyPredicate(familyRecordName: targetFamily)
 
-        _allProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
-        _allQuests = Query(filter: questFilter, sort: \QuestCache.weekOf)
-        _allTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
-        _allCompletions = Query(filter: completionFilter, sort: \QuestCompletionCache.completedDate)
-        _allAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf)
-        _allLedgerEntries = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date)
-        _allAchievements = Query(filter: achievementFilter, sort: \AchievementCache.name)
-        _allProfileAchievements = Query(filter: profileAchievementFilter, sort: \ProfileAchievementCache.earnedDate)
-        _allNotificationPrefs = Query(filter: notificationFilter, sort: \NotificationPreferenceCache.profileRecordName)
-        _allFamilies = Query(filter: familyFilter, sort: \FamilyCache.name)
-        _allGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
-        _allGemLedgers = Query(filter: gemLedgerFilter, sort: \GemLedgerCache.createdAt)
-        _allRewardEvents = Query(filter: rewardEventFilter, sort: \RewardEventCache.timestamp)
+        // WHY stable sorts: secondary recordName keeps counts deterministic across CloudKit merge reorders.
+        _allProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])
+        _allQuests = Query(filter: questFilter, sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)])
+        _allTemplates = Query(filter: templateFilter, sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)])
+        _allCompletions = Query(
+            filter: completionFilter,
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+        )
+        _allAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
+        )
+        _allLedgerEntries = Query(filter: ledgerFilter, sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)])
+        _allAchievements = Query(filter: achievementFilter, sort: [SortDescriptor(\AchievementCache.name), SortDescriptor(\AchievementCache.recordName)])
+        _allProfileAchievements = Query(
+            filter: profileAchievementFilter,
+            sort: [SortDescriptor(\ProfileAchievementCache.earnedDate, order: .reverse), SortDescriptor(\ProfileAchievementCache.recordName)]
+        )
+        _allNotificationPrefs = Query(
+            filter: notificationFilter,
+            sort: [SortDescriptor(\NotificationPreferenceCache.profileRecordName), SortDescriptor(\NotificationPreferenceCache.recordName)]
+        )
+        _allFamilies = Query(filter: familyFilter, sort: [SortDescriptor(\FamilyCache.name), SortDescriptor(\FamilyCache.recordName)])
+        _allGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
+        _allGemLedgers = Query(filter: gemLedgerFilter, sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)])
+        _allRewardEvents = Query(filter: rewardEventFilter, sort: [SortDescriptor(\RewardEventCache.timestamp, order: .reverse), SortDescriptor(\RewardEventCache.recordName)])
     }
 
     // MARK: - Filtered Record Counts
@@ -262,6 +275,7 @@ struct iCloudStatusView: View {
                     Capsule()
                         .fill(syncStatusColor.opacity(0.15))
                 )
+                .accessibilityIdentifier("icloudStatus.syncStatus")
             }
 
             HStack {
@@ -271,6 +285,7 @@ struct iCloudStatusView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
             }
+            .accessibilityIdentifier("icloudStatus.pendingUploads")
 
             HStack {
                 Text("Last Synced")
@@ -279,6 +294,7 @@ struct iCloudStatusView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            .accessibilityIdentifier("icloudStatus.lastSynced")
         }
     }
 

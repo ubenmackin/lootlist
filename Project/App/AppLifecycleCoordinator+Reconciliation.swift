@@ -191,28 +191,55 @@ extension AppLifecycleCoordinator {
                         zone: zoneID.zoneName
                     )
                 }
-                // Stamp freshness only for types that fetched successfully — failed types keep existing cache.
+                // WHY: failed types stay stale so the next pass re-fetches only them while clean types render fresh.
+                // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
+                let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
+                let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
                 if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
-                    concrete.stampFreshness(for: succeededTypes, scopes: [.shared])
+                    concrete.stampFreshness(for: cleanTypes, scopes: [.shared])
                 } else if let cacheService = appState.cacheService {
-                    for type in succeededTypes {
-                        cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type, scope: .shared)
-                    }
+                    // WHY: guarded stamps keep preview instances from promoting stale rows to fresh.
+                    cacheService.stampCacheWatermarks(for: cleanTypes, scope: .shared, familyRecordName: family.id.recordName)
                 }
             }
         } else if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
-            await concrete.delegateHandler.handleIncomingRecordsDirectly(
+            let outcome = await concrete.delegateHandler.handleIncomingRecordsDirectly(
                 snapshot.inboundRecords,
                 databaseScope: targetScope,
                 zoneID: zoneID
             )
-            concrete.stampFreshness(for: succeededTypes, scopes: [targetScope])
+            // WHY: a nil outcome means the ingest guard dropped the batch, so no type may stamp fresh.
+            if let outcome, outcome.didCommit {
+                // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
+                let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
+                let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
+                concrete.stampFreshness(for: cleanTypes, scopes: [targetScope])
+            }
         } else if let backgroundCache = appState.backgroundCacheActor {
-            let parsed = snapshot.inboundRecords.map { ParsedRecord.parse(record: $0) }
-            await backgroundCache.batchUpsertParsedRecords(parsed)
-            if let cacheService = appState.cacheService {
-                for type in succeededTypes {
-                    cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type, scope: targetScope)
+            // WHY: test doubles lack a coordinator door, so an ephemeral handler keeps snapshot writes on ingest().
+            let resolver = CKSyncConflictResolver(
+                cacheService: appState.cacheService,
+                backgroundCache: backgroundCache,
+                appState: appState
+            )
+            let handler = CKSyncEngineDelegateHandler(
+                backgroundCache: backgroundCache,
+                conflictResolver: resolver,
+                cacheService: appState.cacheService,
+                appState: appState
+            )
+            let outcome = await handler.handleIncomingRecordsDirectly(
+                snapshot.inboundRecords,
+                databaseScope: targetScope,
+                zoneID: zoneID
+            )
+            // WHY: a nil outcome means the ingest guard dropped the batch, so no type may stamp fresh.
+            if let outcome, outcome.didCommit {
+                // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
+                let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
+                let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
+                if let cacheService = appState.cacheService {
+                    cacheService.stampCacheWatermarks(for: cleanTypes, scope: targetScope, familyRecordName: family.id.recordName)
                 }
             }
         }

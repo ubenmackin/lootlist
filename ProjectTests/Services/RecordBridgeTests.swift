@@ -459,6 +459,8 @@ struct RecordBridgeTests {
             id: questID
         )
         await cache.upsertQuest(quest)
+        // WHY seed owning family: mismatched-family retention rides indexed lookup in the owning family.
+        await cache.upsertFamily(Family(name: "Fam1", creatorUserRecordName: "user1", id: id("fam1")))
         // Request with wrong family — validateScopedRecord fails, but row still exists globally.
         let wrongFamilyIdentity = ScopedRecordIdentity(
             databaseScope: .private,
@@ -485,6 +487,8 @@ struct RecordBridgeTests {
             id: completionID
         )
         await cache.upsertQuestCompletion(completion)
+        // WHY seed owning family: mismatched-family retention rides indexed lookup in the owning family.
+        await cache.upsertFamily(Family(name: "Fam1", creatorUserRecordName: "user1", id: id("fam1")))
         // Private row should bridge to shared when family and zone strictly match.
         let sharedIdentity = ScopedRecordIdentity(
             databaseScope: .shared,

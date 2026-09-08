@@ -82,18 +82,18 @@ struct QuestManagerView: View {
         let assignmentFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
 
+        // WHY stable sorts: secondary recordName keeps ordering deterministic across CloudKit merge reorders.
         _cachedTemplates = Query(
             filter: templateFilter,
-            sort: \QuestTemplateCache.name
+            sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
         )
         _cachedAssignments = Query(
             filter: assignmentFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedProfiles = Query(
             filter: profileFilter,
-            sort: \ProfileCache.displayName
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
     }
 

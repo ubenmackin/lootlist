@@ -81,7 +81,8 @@ struct SettingsRosterHostView: View {
                         onRebuild: { rebuildViewModel() },
                         heroToEdit: $heroToEdit,
                         showRoleTransferConfirm: $showRoleTransferConfirm,
-                        isRoleTransferConfirmPresented: $isRoleTransferConfirmPresented
+                        isRoleTransferConfirmPresented: $isRoleTransferConfirmPresented,
+                        familyRecordName: familyRecordName
                     )
                 } else {
                     ProgressView("Loading roster…")

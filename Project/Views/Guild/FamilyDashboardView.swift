@@ -36,16 +36,20 @@ struct FamilyDashboardView: View {
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
+    @Query private var cachedFamilies: [FamilyCache]
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let spending: SpendingService
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
-    init(spending: SpendingService, familyRecordName: String? = nil) {
+    init(spending: SpendingService, familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "FamilyDashboardView")
@@ -62,40 +66,82 @@ struct FamilyDashboardView: View {
         let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
         let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
+        let familyFilter = FamilyCache.recordPredicate(recordName: targetFamily)
+        // WHY stable sorts: secondary recordName keeps ordering deterministic across CloudKit merge reorders.
         _cachedProfiles = Query(
             filter: profileFilter,
-            sort: \ProfileCache.displayName
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedLedgers = Query(
             filter: ledgerFilter,
-            sort: \LedgerEntryCache.date,
-            order: .reverse
+            sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
-            sort: \AllowancePeriodCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
         _cachedAchievements = Query(
             filter: achievementFilter,
-            sort: \AchievementCache.name
+            sort: [SortDescriptor(\AchievementCache.name), SortDescriptor(\AchievementCache.recordName)]
         )
         _cachedProfileAchievements = Query(
             filter: profileAchievementFilter,
-            sort: \ProfileAchievementCache.earnedDate,
-            order: .reverse
+            sort: [SortDescriptor(\ProfileAchievementCache.earnedDate, order: .reverse), SortDescriptor(\ProfileAchievementCache.recordName)]
         )
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        _cachedTemplates = Query(
+            filter: templateFilter,
+            sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        // WHY single-row root lookup rides the recordName index; secondary sort never reorders.
+        _cachedFamilies = Query(
+            filter: familyFilter,
+            sort: [SortDescriptor(\FamilyCache.name), SortDescriptor(\FamilyCache.recordName)]
+        )
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            _currentProfileRows = Query(
+                filter: ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        } else {
+            // WHY: family fallback keeps viewer gating live before the profile param propagates; row still resolves via session identity.
+            _currentProfileRows = Query(
+                filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        }
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
+    }
+
+    /// Queried family row; nil when scope has no synced row (fail-closed rendering).
+    private var cachedFamilyRow: FamilyCache? {
+        cachedFamilies.first
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        currentProfileRow?.roleEnum
+    }
+
+    private var viewerIsHero: Bool {
+        viewerRole == .hero
+    }
+
+    private var viewerIsGuildMaster: Bool {
+        viewerRole == .guildMaster
     }
 
     // MARK: - Transaction Sheet State
@@ -137,6 +183,8 @@ struct FamilyDashboardView: View {
                 compactNavigationStack
             }
         }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
         .sheet(isPresented: $showRolePicker) {
             InviteRolePickerView { role in
                 await presentInviteShare(for: role)
@@ -202,7 +250,7 @@ struct FamilyDashboardView: View {
     private var regularSidebarColumn: some View {
         regularSidebarScrollContent()
             .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-            .navigationTitle(appState.family?.name ?? "Guild")
+            .navigationTitle(cachedFamilyRow?.name ?? "Guild")
             .navigationBarTitleDisplayMode(.large)
             .toolbar { pendingToggleToolbar }
             .modifier(
@@ -380,7 +428,7 @@ struct FamilyDashboardView: View {
             }
         }
         .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-        .navigationTitle(appState.family?.name ?? "Guild")
+        .navigationTitle(cachedFamilyRow?.name ?? "Guild")
         .navigationBarTitleDisplayMode(.large)
     }
 
@@ -522,7 +570,8 @@ private extension FamilyDashboardView {
     private var sparklinePoints: [WeeklyEarningPoint] {
         FamilyDashboardViewModel.sparklinePoints(
             periods: cachedAllowancePeriods,
-            payoutDay: appState.family?.payoutDay ?? .sunday,
+            // WHY: row-first payout day keeps week math cache-derived with fail-closed default.
+            payoutDay: currentProfileRow?.payoutDayEnum ?? cachedFamilyRow?.payoutDayEnum ?? .sunday,
             selectedProfile: selectedChildRecordName
         )
     }
@@ -532,13 +581,13 @@ private extension FamilyDashboardView {
     private func childAccountsSection(vm: FamilyDashboardViewModel) -> some View {
         VStack(spacing: 12) {
             SectionHeader("CHILD ACCOUNTS") {
-                if appState.currentProfile?.role == .guildMaster {
+                if viewerIsGuildMaster {
                     DashboardInviteButton(showRolePicker: $showRolePicker)
                 }
             }
 
             if vm.childAccountCards.isEmpty {
-                DashboardEmptyChildrenCard(isGuildMaster: appState.currentProfile?.role == .guildMaster)
+                DashboardEmptyChildrenCard(isGuildMaster: viewerIsGuildMaster)
             } else {
                 LazyVGrid(
                     columns: [
@@ -619,7 +668,7 @@ private extension FamilyDashboardView {
             pending: pendingCompletions,
             profiles: cachedProfiles,
             quests: cachedQuests,
-            viewerIsHero: appState.currentProfile?.role == .hero,
+            viewerIsHero: viewerIsHero,
             onApprove: { completion in
                 let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
                 // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
@@ -649,7 +698,9 @@ private extension FamilyDashboardView {
 
     @MainActor
     func approveCompletion(_ domainLog: QuestCompletion) async {
-        guard let parent = appState.currentProfile else { return }
+        // WHY: mutation actor derives from the cache row so verify never reads session domain state.
+        guard let row = currentProfileRow else { return }
+        let parent = row.toProfile(zoneID: appState.resolvedFamilyZoneID())
         do {
             _ = try await questService.verify(questLog: domainLog, by: parent)
             HapticsService.success()
@@ -664,7 +715,9 @@ private extension FamilyDashboardView {
 
     @MainActor
     func rejectCompletion(_ domainLog: QuestCompletion) async {
-        guard let parent = appState.currentProfile else { return }
+        // WHY: mutation actor derives from the cache row so verify never reads session domain state.
+        guard let row = currentProfileRow else { return }
+        let parent = row.toProfile(zoneID: appState.resolvedFamilyZoneID())
         do {
             _ = try await questService.reject(questLog: domainLog, by: parent)
             HapticsService.warning()
@@ -682,9 +735,9 @@ private extension FamilyDashboardView {
     func weeklySummarySection(summary: WeekendSummary?) -> some View {
         FamilyDashboardWeeklySummaryView(
             summary: summary,
-            lootDayTitle: appState.family?.payoutDay.lootDayTitle ?? "Sunday Allowance Day",
-            viewerIsHero: appState.currentProfile?.role == .hero,
-            familyPayoutPolicy: appState.family?.payoutPolicy,
+            lootDayTitle: cachedFamilyRow?.payoutDayEnum?.lootDayTitle ?? "Sunday Allowance Day",
+            viewerIsHero: viewerIsHero,
+            familyPayoutPolicy: cachedFamilyRow?.payoutPolicyEnum,
             isProcessingPayout: isProcessingPayout,
             onConfirmPayout: processPayout
         )

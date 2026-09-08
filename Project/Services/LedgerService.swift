@@ -528,8 +528,9 @@ final class LedgerService {
             recordID: entry.id,
             familyRecordName: entry.family.recordID.recordName
         )
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.delete")
+        // WHY: tombstone ID is captured before invalidate so the delete survives local row removal.
         await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.delete")
     }
 
     // MARK: - Generic Persistence

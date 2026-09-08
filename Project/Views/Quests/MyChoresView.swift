@@ -20,6 +20,7 @@ struct MyChoresView: View {
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var submittingQuestIDs: Set<String> = []
     @State private var showCelebration: Bool = false
@@ -51,6 +52,8 @@ struct MyChoresView: View {
         let completionFilter = QuestCompletionCache.completerPredicate(familyRecordName: targetFamily, completerRecordName: targetProfile)
         // WHY: templates are family-scoped (shared across heroes).
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        let currentProfileFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(
@@ -63,12 +66,22 @@ struct MyChoresView: View {
         )
         _cachedTemplates = Query(
             filter: templateFilter,
-            sort: \QuestTemplateCache.recordName
+            sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
     }
 
+    /// Queried cache row for the active hero; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
+    }
+
     private var payoutDay: PayoutDay {
-        appState.resolvedPayoutDay
+        // WHY: row-first payout day keeps week math cache-derived with session fallback.
+        currentProfileRow?.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
     }
 
     private var weekStart: Date {
@@ -99,7 +112,8 @@ struct MyChoresView: View {
 
     /// One-week carry-over includes inactive quests for visibility into missed items.
     private var missedLastWeek: [QuestCache] {
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        // WHY: row-derived identity keeps missed scope cache-bound with fail-closed empty scope.
+        guard let name = currentProfileRow?.recordName else { return [] }
         return cachedQuests
             .filter { $0.assigneeRecordName == name }
             .filter { WeekMath.isQuestInCurrentWeek($0.weekOf, range: previousRange) }
@@ -119,7 +133,7 @@ struct MyChoresView: View {
     /// Active quests assigned to the current hero profile.
     private var profileQuests: [QuestCache] {
         // WHY: defensive — predicate is source of truth; guards against stale identity drift.
-        guard let name = appState.currentProfile?.id.recordName,
+        guard let name = currentProfileRow?.recordName,
               profileRecordName == nil || profileRecordName == name else { return [] }
         return cachedQuests.filter(\.isActive)
     }
@@ -127,7 +141,7 @@ struct MyChoresView: View {
     /// Completions logged by the current hero, grouped by quest.
     private var profileLogs: [QuestCompletionCache] {
         // WHY: defensive — store is source of truth; guards against stale identity drift.
-        guard let name = appState.currentProfile?.id.recordName,
+        guard let name = currentProfileRow?.recordName,
               profileRecordName == nil || profileRecordName == name else { return [] }
         return cachedCompletions
     }
@@ -156,7 +170,8 @@ struct MyChoresView: View {
     private var pendingReviewQuests: [(quest: QuestCache, log: QuestCompletionCache)] {
         let completedQuestNames = Set(completedQuests.map(\.quest.recordName))
         var result: [(QuestCache, QuestCompletionCache)] = []
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        // WHY: row-derived identity keeps pending scope cache-bound with fail-closed empty scope.
+        guard let name = currentProfileRow?.recordName else { return [] }
         let pendingBaseQuests = cachedQuests.filter {
             $0.assigneeRecordName == name && WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange)
         }
@@ -341,7 +356,7 @@ struct MyChoresView: View {
                     // and both links are intentional for the child role.
                     HStack(spacing: DesignSystemConstants.Padding.small) {
                         NavigationLink {
-                            QuestLogView(familyRecordName: familyRecordName)
+                            QuestLogView(familyRecordName: familyRecordName, profileRecordName: profileRecordName ?? currentProfileRow?.recordName)
                         } label: {
                             Label("Quest Log", systemImage: "scroll")
                         }
@@ -384,8 +399,8 @@ struct MyChoresView: View {
                 Text("Revert this completion for “\(target.quest.questName)” and move it back to to-do?")
             }
         }
-        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
-        .id(profileRecordName)
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     // MARK: - Pending Review Section
@@ -570,10 +585,12 @@ struct MyChoresView: View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: log)
         // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
         let logSnapshot = log.toQuestCompletion(zoneID: zoneID)
-        guard let profile = appState.currentProfile else {
+        // WHY: mutation actor derives from the cache row so role-gating never reads session domain state.
+        guard let row = currentProfileRow else {
             submittingQuestIDs.remove(qID)
             return
         }
+        let profile = row.toProfile(zoneID: zoneID)
         Task { @MainActor @Sendable [logSnapshot, profile, qID] in
             defer { submittingQuestIDs.remove(qID) }
             do {
@@ -595,10 +612,12 @@ struct MyChoresView: View {
         let priorApproved = profileLogs.filter { $0.questRecordName == qID && $0.isApproved }.count
         // WHY day count wins: legacy rows keep stale targetCount after template gains days.
         let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-        guard let profile = appState.currentProfile else {
+        // WHY: mutation actor derives from the cache row so role-gating never reads session domain state.
+        guard let row = currentProfileRow else {
             submittingQuestIDs.remove(qID)
             return
         }
+        let profile = row.toProfile(zoneID: zoneID)
         let celebration = $showCelebration
         Task { @MainActor @Sendable [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
             defer { submittingQuestIDs.remove(qID) }

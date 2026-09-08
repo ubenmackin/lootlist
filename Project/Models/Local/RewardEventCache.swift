@@ -85,14 +85,11 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<RewardEventCache> {
-        if let familyRecordName {
+        if let familyRecordName, !familyRecordName.isEmpty {
             return FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
         }
-        return FetchDescriptor<RewardEventCache>()
-    }
-
-    static func fetchDescriptor(recordName: String) -> FetchDescriptor<RewardEventCache> {
-        FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.recordName == recordName })
+        // WHY fail-closed: nil/empty scope must match zero rows, never the whole table.
+        return FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.familyRecordName == "" })
     }
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<RewardEventCache> {

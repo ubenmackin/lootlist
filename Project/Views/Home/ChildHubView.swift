@@ -79,8 +79,8 @@ struct ChildHubView: View {
         _cachedGoals = Query(filter: goalFilter, sort: HubQueryProvider.goalSort())
         _cachedLedgers = Query(filter: ledgerFilter, sort: HubQueryProvider.ledgerSort())
         _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: HubQueryProvider.allowanceSort())
-        _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
-        _currentProfileRows = Query(filter: currentProfileFilter, sort: \ProfileCache.displayName)
+        _cachedProfiles = Query(filter: profileFilter, sort: HubQueryProvider.profileSort())
+        _currentProfileRows = Query(filter: currentProfileFilter, sort: HubQueryProvider.profileSort())
     }
 
     /// Queried cache row for active hero profile; nil when scope has no synced row (fail-closed rendering).
@@ -242,7 +242,7 @@ struct ChildHubView: View {
             .sheet(isPresented: $isShowingSplit) {
                 SavingsSplitView(
                     familyRecordName: familyRecordName,
-                    profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                    profileRecordName: profileRecordName ?? currentProfileRow?.recordName
                 )
             }
             .task {
@@ -257,8 +257,8 @@ struct ChildHubView: View {
             .onChange(of: cachedProfiles) { _, _ in rebuild() }
             .onChange(of: currentProfileRows) { _, _ in rebuild() }
         }
-        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch; defensive filter in rebuild() is secondary guard.
-        .id(profileRecordName)
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     // MARK: - Header (focused section)
@@ -306,7 +306,8 @@ struct ChildHubView: View {
 
     private func rebuild(_ vm: ChildHubViewModel? = nil, _ tvm: TreasuryViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
-        guard let currentName = appState.currentProfile?.id.recordName else { return }
+        // WHY: row-derived identity keeps rebuild cache-bound with fail-closed empty scope.
+        guard let currentName = currentProfileRow?.recordName else { return }
 
         // WHY: predicate is primary profile scope; secondary in-memory guard prevents cross-profile leak when view identity is stale (profile switches without recreation).
         let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }
@@ -342,10 +343,12 @@ struct ChildHubView: View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: log)
         // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
         let logSnapshot = log.toQuestCompletion(zoneID: zoneID)
-        guard let profile = appState.currentProfile else {
+        // WHY: mutation actor derives from the cache row so role-gating never reads session domain state.
+        guard let row = currentProfileRow else {
             submittingQuestIDs.remove(qID)
             return
         }
+        let profile = row.toProfile(zoneID: zoneID)
         Task { @MainActor @Sendable [logSnapshot, profile, qID] in
             defer { submittingQuestIDs.remove(qID) }
             do {
@@ -368,10 +371,12 @@ struct ChildHubView: View {
         let templatesByID = SpecificDaysHelper.templatesByID(cachedTemplates)
         // WHY day count wins: legacy rows keep stale targetCount after template gains days.
         let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-        guard let profile = appState.currentProfile else {
+        // WHY: mutation actor derives from the cache row so role-gating never reads session domain state.
+        guard let row = currentProfileRow else {
             submittingQuestIDs.remove(qID)
             return
         }
+        let profile = row.toProfile(zoneID: zoneID)
         let celebration = $showCelebration
         Task { @MainActor @Sendable [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
             defer { submittingQuestIDs.remove(qID) }

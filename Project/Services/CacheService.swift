@@ -56,6 +56,7 @@ final class CacheService: CacheServicing {
         self.defaults = defaults
         self.inMemory = inMemory
         self.allowsWatermarkStamps = !skipWatermarkResolutionForViewModels
+        // WHY attempt lightweight: V9/V10 share identical property sets so upgrades attempt lightweight with destructive reset on failure.
         let schema = Schema(LootListSchemaV10.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
@@ -389,30 +390,6 @@ final class CacheService: CacheServicing {
         stampCacheWatermarks(for: Set(types), scope: scope, familyRecordName: familyRecordName)
     }
 
-    // WHY: Early return preserves the invariant that viewModel instances never stamp even when
-    // called without explicit family; the overload exists for legacy for:scope: call shapes.
-    func stampCacheWatermark(for type: CachedRecordType, scope _: CKDatabase.Scope) {
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled for \(type.rawValue, privacy: .public)")
-            #endif
-            return
-        }
-    }
-
-    func stampCacheWatermarks(for _: Set<CachedRecordType>, scope _: CKDatabase.Scope) {
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
-            #endif
-            return
-        }
-    }
-
-    func stampCacheWatermarks(for types: [CachedRecordType], scope: CKDatabase.Scope) {
-        stampCacheWatermarks(for: Set(types), scope: scope)
-    }
-
     // WHY: AnyContainer overload preserves legacy call sites that resolve ModelContainer dynamically;
     // normalizing family via the single helper keeps key derivation identical across overloads.
     func stampCacheWatermarkAnyContainer(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, containers: [ModelContainer]) {
@@ -467,6 +444,75 @@ final class CacheService: CacheServicing {
 
 enum CacheServiceError: Error {
     case inMemoryFallbackFailed
+}
+
+// MARK: - Ledger pagination (V10 indexes)
+
+@MainActor
+extension CacheService {
+    /// WHY indexed window: family+profile+date narrows via the V10 composite index so history never scans.
+    /// WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan.
+    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
+    func fetchLedgerEntriesForMonth(
+        familyRecordName: String,
+        profileRecordName: String? = nil,
+        monthContaining date: Date = Date(),
+        fetchLimit: Int? = nil
+    ) -> [LedgerEntryCache] {
+        let family = familyRecordName
+        guard !family.isEmpty else { return [] }
+        let start = WeekMath.monthStart(for: date)
+        let end = WeekMath.monthEnd(for: date)
+        if let profile = profileRecordName, !profile.isEmpty {
+            var descriptor = FetchDescriptor<LedgerEntryCache>(
+                predicate: #Predicate {
+                    $0.familyRecordName == family && $0.profileRecordName == profile && $0.date >= start && $0.date < end
+                },
+                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+            )
+            if let fetchLimit, fetchLimit > 0 {
+                descriptor.fetchLimit = fetchLimit
+            }
+            return fetch(descriptor)
+        }
+        // WHY DB-level month window: family+date narrows in store so one month never loads whole family table.
+        var descriptor = FetchDescriptor<LedgerEntryCache>(
+            predicate: #Predicate {
+                $0.familyRecordName == family && $0.date >= start && $0.date < end
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        )
+        if let fetchLimit, fetchLimit > 0 {
+            descriptor.fetchLimit = fetchLimit
+        }
+        return fetch(descriptor)
+    }
+
+    /// WHY capped page: fetchLimit bounds the indexed date-descending read so long histories stay paged.
+    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
+    func fetchRecentLedgerEntries(
+        familyRecordName: String,
+        profileRecordName: String? = nil,
+        fetchLimit: Int = 50
+    ) -> [LedgerEntryCache] {
+        let family = familyRecordName
+        guard !family.isEmpty else { return [] }
+        var descriptor = if let profile = profileRecordName, !profile.isEmpty {
+            FetchDescriptor<LedgerEntryCache>(
+                predicate: #Predicate {
+                    $0.familyRecordName == family && $0.profileRecordName == profile
+                },
+                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+            )
+        } else {
+            FetchDescriptor<LedgerEntryCache>(
+                predicate: #Predicate { $0.familyRecordName == family },
+                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+            )
+        }
+        descriptor.fetchLimit = max(1, fetchLimit)
+        return fetch(descriptor)
+    }
 }
 
 // WHY: fail-open diagnostic — gem-credit path previously returned false silently; logger surfaces dedup/fetch failures for on-call triage without altering idempotency.

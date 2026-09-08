@@ -16,16 +16,18 @@ final class HeroBoardViewModel {
         let quest: QuestCache
         let claimantName: String?
         let isClaimedByCurrentUser: Bool
+        let isPending: Bool
 
-        init(quest: QuestCache, claimantName: String?, isClaimedByCurrentUser: Bool) {
+        init(quest: QuestCache, claimantName: String?, isClaimedByCurrentUser: Bool, isPending: Bool = false) {
             self.quest = quest
             self.claimantName = claimantName
             self.isClaimedByCurrentUser = isClaimedByCurrentUser
+            self.isPending = isPending
         }
 
         /// Test/legacy bridge: converts the domain snapshot to cache at the boundary so rows never hold domain.
-        init(quest: Quest, claimantName: String?, isClaimedByCurrentUser: Bool) {
-            self.init(quest: QuestCache(from: quest), claimantName: claimantName, isClaimedByCurrentUser: isClaimedByCurrentUser)
+        init(quest: Quest, claimantName: String?, isClaimedByCurrentUser: Bool, isPending: Bool = false) {
+            self.init(quest: QuestCache(from: quest), claimantName: claimantName, isClaimedByCurrentUser: isClaimedByCurrentUser, isPending: isPending)
         }
 
         var id: String {
@@ -37,6 +39,7 @@ final class HeroBoardViewModel {
             lhs.quest.recordName == rhs.quest.recordName &&
                 lhs.claimantName == rhs.claimantName &&
                 lhs.isClaimedByCurrentUser == rhs.isClaimedByCurrentUser &&
+                lhs.isPending == rhs.isPending &&
                 lhs.quest.questName == rhs.quest.questName &&
                 lhs.quest.goldReward == rhs.quest.goldReward &&
                 lhs.quest.xpReward == rhs.quest.xpReward &&
@@ -69,15 +72,28 @@ final class HeroBoardViewModel {
     /// Record names with a claim save currently in flight on this device.
     private let inFlightClaims = Mutex<Set<String>>([])
 
+    /// Record names of quests optimistically revoked on this device awaiting save confirmation.
+    private let pendingRevokes = Mutex<Set<String>>([])
+
+    /// Record names with a revoke save currently in flight on this device.
+    private let inFlightRevokes = Mutex<Set<String>>([])
+
     private let boardService: HeroBoardService
     private let appState: AppState
 
+    @ObservationIgnored private var viewerRow: ProfileCache?
+
     var isParent: Bool {
-        appState.currentProfile?.role.isParent ?? false
+        // WHY row-first: gating must mirror @Query rows so claim/revoke never disagrees with tabs.
+        if let viewerRow {
+            return viewerRow.roleEnum?.isParent ?? false
+        }
+        return appState.currentProfile?.role.isParent ?? false
     }
 
     private var currentUserRecordName: String? {
-        appState.currentProfile?.id.recordName
+        // WHY row-first: identity must mirror @Query rows so claim attribution never disagrees with gating.
+        viewerRow?.recordName ?? appState.currentProfile?.id.recordName
     }
 
     init(boardService: HeroBoardService, appState: AppState) {
@@ -90,16 +106,23 @@ final class HeroBoardViewModel {
     /// Rebuilds board rows from the SwiftData cache the view observes via
     /// `@Query`. Also settles optimistic claims: if a pending claim now shows
     /// another claimer (their server-wins ingest landed), surface the toast.
-    func rebuildLists(quests: [QuestCache], profiles: [ProfileCache]) {
+    func rebuildLists(quests: [QuestCache], profiles: [ProfileCache], viewerRow: ProfileCache? = nil) {
+        // WHY cache-first: gating mirrors queried rows so claim/revoke never disagrees with view tabs.
+        if let viewerRow {
+            self.viewerRow = viewerRow
+        }
         guard appState.family != nil else {
             availableRows = []
             claimedRows = []
             pendingClaims.withLock { $0.removeAll() }
+            pendingRevokes.withLock { $0.removeAll() }
             return
         }
 
         let profileByName = Dictionary(uniqueKeysWithValues: profiles.map { ($0.recordName, $0) })
         let currentUser = currentUserRecordName
+        // WHY optimistic rows stay visible while the claim save confirms.
+        let pending = pendingRecordNames()
 
         // WHY cache-first: rows hold QuestCache for presentation; domain conversion happens only at claim/revoke.
         let rows: [BoardRow] = quests.compactMap { cached in
@@ -108,7 +131,8 @@ final class HeroBoardViewModel {
             return BoardRow(
                 quest: cached,
                 claimantName: claimer.flatMap { profileByName[$0]?.displayName },
-                isClaimedByCurrentUser: claimer == currentUser
+                isClaimedByCurrentUser: claimer == currentUser,
+                isPending: pending.contains(cached.recordName)
             )
         }
         .sorted { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
@@ -117,6 +141,28 @@ final class HeroBoardViewModel {
         claimedRows = rows.filter { $0.quest.claimedByProfileRecordName != nil }
 
         settlePendingClaims()
+        settlePendingRevokes()
+        refreshPendingFlags()
+    }
+
+    /// WHY one union: claim and revoke pending share badge and disable state.
+    private func pendingRecordNames() -> Set<String> {
+        let claims = pendingClaims.withLock { $0 }
+        let claimsFlight = inFlightClaims.withLock { $0 }
+        let revokes = pendingRevokes.withLock { $0 }
+        let revokesFlight = inFlightRevokes.withLock { $0 }
+        return claims.union(claimsFlight).union(revokes).union(revokesFlight)
+    }
+
+    /// WHY settled rows must clear pending so the badge tracks live state.
+    private func refreshPendingFlags() {
+        let pending = pendingRecordNames()
+        availableRows = availableRows.map {
+            BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: pending.contains($0.id))
+        }
+        claimedRows = claimedRows.map {
+            BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: pending.contains($0.id))
+        }
     }
 
     /// Detects lost claim races against ingested server state.
@@ -153,23 +199,58 @@ final class HeroBoardViewModel {
         }
     }
 
+    /// WHY revoke settles on board return: ingest showing unclaimed confirms release.
+    private func settlePendingRevokes() {
+        let pending = pendingRevokes.withLock { $0 }
+        var settled: Set<String> = []
+        for recordName in pending {
+            if availableRows.contains(where: { $0.id == recordName }) {
+                settled.insert(recordName)
+            } else if claimedRows.contains(where: { $0.id == recordName }) {
+                // WHY keep pending while still claimed: ingest has not confirmed release.
+                continue
+            } else {
+                // WHY drop vanished rows: deactivated quests need no pending badge.
+                settled.insert(recordName)
+            }
+        }
+        if !settled.isEmpty {
+            pendingRevokes.withLock { $0.subtract(settled) }
+        }
+    }
+
     /// Used by the view to disable the Claim button while a save is in flight.
     func isClaiming(_ row: BoardRow) -> Bool {
-        inFlightClaims.withLock { $0.contains(row.id) }
+        // WHY stale snapshots must not report pending — current rows already carry it via isPending.
+        row.isPending || inFlightClaims.withLock { $0.contains(row.id) } || isRevoking(row)
+    }
+
+    /// WHY shared disable: revoke pending must block claim and revoke taps alike.
+    func isRevoking(_ row: BoardRow) -> Bool {
+        // WHY stale snapshots must not report pending — current rows already carry it via isPending.
+        row.isPending || inFlightRevokes.withLock { $0.contains(row.id) }
     }
 
     // MARK: - Actions
 
     func claim(_ row: BoardRow) async {
-        guard let hero = appState.currentProfile else { return }
+        // WHY row-first: mutation actor must mirror @Query rows so claim gating never reads stale session.
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: row.quest)
+        let hero: Profile? = if let viewerRow {
+            viewerRow.toProfile(zoneID: zoneID)
+        } else {
+            appState.currentProfile
+        }
+        guard let hero else { return }
         let id = row.id
         let inserted = inFlightClaims.withLock { $0.insert(id).inserted }
         guard inserted else { return }
         defer { _ = inFlightClaims.withLock { $0.remove(id) } }
         pendingClaims.withLock { _ = $0.insert(id) }
+        // WHY rows carry pending so the badge survives rebuilds.
+        markPending(id)
 
         // WHY mutation boundary: domain conversion happens here so presentation never holds domain structs.
-        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: row.quest)
         let quest = row.quest.toQuest(zoneID: zoneID)
         do {
             switch try await boardService.claim(quest, by: hero) {
@@ -182,7 +263,8 @@ final class HeroBoardViewModel {
                     let updatedRow = BoardRow(
                         quest: QuestCache(from: claimedDomain),
                         claimantName: hero.displayName,
-                        isClaimedByCurrentUser: true
+                        isClaimedByCurrentUser: true,
+                        isPending: true
                     )
                     availableRows.remove(at: index)
                     claimedRows.append(updatedRow)
@@ -190,6 +272,7 @@ final class HeroBoardViewModel {
                 }
             case .lostToAnotherHero:
                 pendingClaims.withLock { _ = $0.remove(id) }
+                clearPending(id)
                 let message = "Another hero claimed this quest"
                 errorMessage = message
                 boardService.toastManager?.show(message: message, type: .info)
@@ -201,6 +284,7 @@ final class HeroBoardViewModel {
         } catch BoardClaimError.lostToAnotherHero {
             // Optimistic UI rollback when claim lost to another hero.
             pendingClaims.withLock { _ = $0.remove(id) }
+            clearPending(id)
             let message = "Another hero claimed this quest"
             errorMessage = message
             boardService.toastManager?.show(message: message, type: .info)
@@ -209,6 +293,7 @@ final class HeroBoardViewModel {
             }
         } catch {
             pendingClaims.withLock { _ = $0.remove(id) }
+            clearPending(id)
             let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             errorMessage = fallback
             boardService.toastManager?.show(
@@ -218,7 +303,42 @@ final class HeroBoardViewModel {
         }
     }
 
+    /// WHY pending projects into rows so the badge renders without set lookups.
+    private func markPending(_ id: String) {
+        availableRows = availableRows.map {
+            $0.id == id
+                ? BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: true)
+                : $0
+        }
+        claimedRows = claimedRows.map {
+            $0.id == id
+                ? BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: true)
+                : $0
+        }
+    }
+
+    /// WHY failed claims clear the badge on the surviving available row.
+    private func clearPending(_ id: String) {
+        availableRows = availableRows.map {
+            $0.id == id
+                ? BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: false)
+                : $0
+        }
+        claimedRows = claimedRows.map {
+            $0.id == id
+                ? BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: false)
+                : $0
+        }
+    }
+
     func revoke(_ row: BoardRow) async {
+        let id = row.id
+        let inserted = inFlightRevokes.withLock { $0.insert(id).inserted }
+        guard inserted else { return }
+        defer { _ = inFlightRevokes.withLock { $0.remove(id) } }
+        pendingRevokes.withLock { _ = $0.insert(id) }
+        // WHY rows carry pending so the badge survives rebuilds.
+        markPending(id)
         // WHY mutation boundary: domain conversion happens here so presentation never holds domain structs.
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: row.quest)
         let quest = row.quest.toQuest(zoneID: zoneID)
@@ -232,15 +352,20 @@ final class HeroBoardViewModel {
                 let updatedRow = BoardRow(
                     quest: QuestCache(from: revokedDomain),
                     claimantName: nil,
-                    isClaimedByCurrentUser: false
+                    isClaimedByCurrentUser: false,
+                    isPending: true
                 )
                 claimedRows.remove(at: index)
                 availableRows.append(updatedRow)
                 availableRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
             }
         } catch {
+            pendingRevokes.withLock { _ = $0.remove(id) }
+            clearPending(id)
+            let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = fallback
             boardService.toastManager?.show(
-                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                message: fallback,
                 type: .error
             )
         }

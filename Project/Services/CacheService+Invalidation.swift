@@ -116,7 +116,18 @@ extension CacheService {
     ) {
         let recordName = identity.recordID.recordName
         do {
-            guard let match = try context.fetch(type.fetchDescriptor(recordName: recordName)).first else { return }
+            let match: any CacheMergeable
+            if let expectedFamily = identity.familyRecordName, !expectedFamily.isEmpty {
+                guard let scoped = try context.fetch(type.fetchDescriptor(recordName: recordName, familyRecordName: expectedFamily)).first else { return }
+                match = scoped
+            } else if let familyType = type as? FamilyCache.Type {
+                // WHY root exception: the family record is the partition, so recordName-only lookup stays valid here.
+                guard let root = try context.fetch(familyType.fetchDescriptor(recordName: recordName)).first else { return }
+                match = root
+            } else {
+                // WHY fail-closed: scoped delete without family must not scan other families.
+                return
+            }
             if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
                 guard scoped.familyRecordName == expectedFamily else {
                     logger

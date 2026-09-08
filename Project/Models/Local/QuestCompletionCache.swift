@@ -125,14 +125,11 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestCompletionCache> {
-        if let familyRecordName {
+        if let familyRecordName, !familyRecordName.isEmpty {
             return FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
         }
-        return FetchDescriptor<QuestCompletionCache>()
-    }
-
-    static func fetchDescriptor(recordName: String) -> FetchDescriptor<QuestCompletionCache> {
-        FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == recordName })
+        // WHY fail-closed: nil/empty scope must match zero rows, never the whole table.
+        return FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.familyRecordName == "" })
     }
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<QuestCompletionCache> {

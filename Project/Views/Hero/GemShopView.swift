@@ -19,6 +19,7 @@ struct GemShopView: View {
     @Environment(ToastManager.self) private var toastManager
 
     @Query private var cachedGemLedgers: [GemLedgerCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var selectedCategory: ShopCategory = .headwear
     @State private var pendingPurchaseItem: ShopItem?
@@ -62,20 +63,31 @@ struct GemShopView: View {
                 sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
             )
         }
+        // WHY: single-row scope — gem identity resolves from the cache row so ledger reads never depend on session timing.
+        _currentProfileRows = Query(
+            filter: ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily),
+            sort: HubQueryProvider.profileSort()
+        )
     }
 
     private var currentProfile: Profile? {
         appState.currentProfile
     }
 
+    /// Queried cache row for the active hero profile; nil when identity or
+    /// family scope has no synced row yet, keeping rendering fail-closed.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
+    }
+
     private var gemBalance: Int? {
-        guard let profile = currentProfile else { return nil }
-        let targetRecordName = profile.id.recordName
-        let matching = cachedGemLedgers.filter { $0.profileRecordName == targetRecordName }
-        if !matching.isEmpty {
-            return matching.reduce(0) { $0 + $1.amount }
+        guard let targetRecordName = currentProfileRow?.recordName ?? currentProfile?.id.recordName else { return nil }
+        if let cached = HubQueryProvider.cachedGemTotal(ledgers: cachedGemLedgers, profileName: targetRecordName) {
+            return cached
         }
-        let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
+        // WHY cold-miss only: @Query rows own the hot path; the service read covers first-launch cache gaps.
+        let family = currentProfileRow?.familyRecordName ?? familyRecordName ?? currentProfile?.family.recordID.recordName ?? appState.family?.id.recordName
+        guard let family, !family.isEmpty else { return nil }
         do {
             return try gemService.balance(for: targetRecordName, familyRecordName: family)
         } catch {

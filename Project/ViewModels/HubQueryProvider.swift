@@ -104,6 +104,22 @@ enum HubQueryProvider {
         ProfileCache.recordPredicate(recordName: profile, familyRecordName: family)
     }
 
+    // MARK: - Viewer Row
+
+    /// WHY single source: viewer-row predicate/sort/resolver was copied across hub views; one helper keeps empty-scope semantics identical.
+    static func currentProfileSort() -> [SortDescriptor<ProfileCache>] {
+        profileSort()
+    }
+
+    /// WHY session bridge: param identity wins with session fallback so bootstrap stays live before params propagate.
+    static func resolveViewerRow(
+        rows: [ProfileCache],
+        profileRecordName: String?,
+        fallbackRecordName: String?
+    ) -> ProfileCache? {
+        ProfileRowResolver.resolve(rows: rows, targetRecordName: profileRecordName ?? fallbackRecordName)
+    }
+
     // MARK: - Stable Sorts
 
     /// WHY secondary recordName: keeps ForEach stable after CloudKit reorders.
@@ -133,6 +149,10 @@ enum HubQueryProvider {
 
     static func gemSort() -> [SortDescriptor<GemLedgerCache>] {
         [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+    }
+
+    static func profileSort() -> [SortDescriptor<ProfileCache>] {
+        [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
     }
 
     // MARK: - Shared Transforms (pure, no CloudKit)

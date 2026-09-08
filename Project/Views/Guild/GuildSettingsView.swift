@@ -20,6 +20,7 @@ struct GuildSettingsView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(CacheService.self) private var cacheService: CacheService?
 
     @State private var viewModel: FamilyDashboardViewModel?
 
@@ -34,6 +35,7 @@ struct GuildSettingsView: View {
     @Query private var cachedGemLedgers: [GemLedgerCache]
     @Query private var cachedRewardEvents: [RewardEventCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
@@ -47,11 +49,17 @@ struct GuildSettingsView: View {
     @State private var isPayoutPolicyExpanded: Bool = false
     @State private var revokeError: String?
     @State private var isSigningOut: Bool = false
+    @State private var ledgerHistoryLimit: Int = 50
+    @State private var ledgerHistoryMonth: Date = .init()
+    @State private var historyMinAmountText: String = ""
+    @FocusState private var isHistoryAmountFocused: Bool
 
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "GuildSettingsView")
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
@@ -86,7 +94,27 @@ struct GuildSettingsView: View {
         _cachedGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
         _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)])
         _cachedRewardEvents = Query(filter: rewardEventFilter, sort: [SortDescriptor(\RewardEventCache.timestamp, order: .reverse), SortDescriptor(\RewardEventCache.recordName)])
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        _cachedTemplates = Query(filter: templateFilter, sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)])
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        _currentProfileRows = Query(
+            filter: HubQueryProvider.currentProfileFilter(family: targetFamily, profile: profileRecordName),
+            sort: HubQueryProvider.currentProfileSort()
+        )
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        HubQueryProvider.resolveViewerRow(
+            rows: currentProfileRows,
+            profileRecordName: profileRecordName,
+            fallbackRecordName: appState.currentProfile?.id.recordName
+        )
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerIsGuildMaster: Bool {
+        currentProfileRow?.roleEnum == .guildMaster
     }
 
     private var isRevokeAlertPresented: Binding<Bool> {
@@ -166,6 +194,9 @@ struct GuildSettingsView: View {
                         revokeError = error
                     }
                 }
+                .onChange(of: currentProfileRows) { _, _ in
+                    rebuildViewModel()
+                }
                 .alert("Revoke Failed",
                        isPresented: isRevokeAlertPresented)
                 {
@@ -194,6 +225,8 @@ struct GuildSettingsView: View {
                     }
                 }
         }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     private var scrollViewContent: some View {
@@ -243,12 +276,139 @@ struct GuildSettingsView: View {
             onRebuild: { rebuildViewModel() },
             heroToEdit: $heroToEdit,
             showRoleTransferConfirm: $showRoleTransferConfirm,
-            isRoleTransferConfirmPresented: $isRoleTransferConfirmPresented
+            isRoleTransferConfirmPresented: $isRoleTransferConfirmPresented,
+            familyRecordName: familyRecordName,
+            profileRecordName: profileRecordName ?? currentProfileRow?.recordName
         )
-        if appState.currentProfile?.role == .guildMaster {
+        if viewerIsGuildMaster {
             GuildPayoutDefaultsSectionView(isPayoutPolicyExpanded: $isPayoutPolicyExpanded)
         }
+        ledgerHistorySection
         GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
+    }
+
+    /// WHY month window rides WeekMath: history shares the store query's UTC month derivation so paging cannot drift.
+    private var monthWindowedLedgers: [LedgerEntryCache] {
+        // WHY touch count: keeps view subscribed so indexed refetch rides @Query refresh.
+        _ = cachedLedgers.count
+        // WHY family-only in-memory month: no family+date index exists; DB narrows by family via base index, month filters in-memory.
+        let store = cacheService ?? appState.cacheService
+        let family = familyRecordName ?? appState.family?.id.recordName ?? ""
+        guard !family.isEmpty, let store else { return [] }
+        // WHY family-wide history: profile stays nil so history stays family-wide; amount threshold stays a display filter.
+        let page = store.fetchLedgerEntriesForMonth(familyRecordName: family, monthContaining: ledgerHistoryMonth, fetchLimit: ledgerHistoryLimit)
+        // WHY recordName tie-breaker: stabilizes ForEach order on the small indexed page.
+        return page.sorted {
+            if $0.date != $1.date {
+                $0.date > $1.date
+            } else {
+                $0.recordName < $1.recordName
+            }
+        }
+    }
+
+    private var monthLedgerHistory: [LedgerEntryCache] {
+        Array(monthLedgerFiltered.prefix(ledgerHistoryLimit))
+    }
+
+    private var monthLedgerFiltered: [LedgerEntryCache] {
+        // WHY amount gate stays in-memory: the threshold is a display filter, never part of the indexed store predicate.
+        let threshold = CurrencyFormatter.pennies(from: historyMinAmountText) ?? 0
+        guard threshold > 0 else { return monthWindowedLedgers }
+        return monthWindowedLedgers.filter { abs($0.amount) >= threshold }
+    }
+
+    private var ledgerHistorySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Recent Activity")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button {
+                    shiftHistoryMonth(by: -1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .accessibilityIdentifier("settings.history.prevMonth")
+                Text(ledgerHistoryMonth.formatted(.dateTime.month(.abbreviated).year()))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Button {
+                    shiftHistoryMonth(by: 1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .accessibilityIdentifier("settings.history.nextMonth")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            TextField("Minimum amount", text: $historyMinAmountText)
+                .keyboardType(.decimalPad)
+                .focused($isHistoryAmountFocused)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("settings.history.minAmount")
+                .onChange(of: historyMinAmountText) { _, _ in ledgerHistoryLimit = 50 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
+            if monthLedgerHistory.isEmpty {
+                Text("No activity this month.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+            } else {
+                ForEach(monthLedgerHistory, id: \.recordName) { entry in
+                    ledgerHistoryRow(entry)
+                    Divider()
+                }
+                // WHY page-full gate: store page is already limited so prefix cannot reveal more; full page means maybe more.
+                if monthWindowedLedgers.count >= ledgerHistoryLimit {
+                    Button("Show more (\(monthLedgerHistory.count) shown)") {
+                        ledgerHistoryLimit += 50
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .accessibilityIdentifier("settings.history.showMore")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+        )
+        .padding(.horizontal)
+        .decimalPadDoneToolbar(isFocused: $isHistoryAmountFocused)
+    }
+
+    private func ledgerHistoryRow(_ entry: LedgerEntryCache) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.entryDescription)
+                    .font(.subheadline)
+                Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(CurrencyFormatter.string(pennies: entry.amount))
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.dangerRed))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private func shiftHistoryMonth(by delta: Int) {
+        // WHY paging resets on window change: a new month starts from its first page.
+        ledgerHistoryMonth = Calendar.iso8601UTC.date(byAdding: .month, value: delta, to: ledgerHistoryMonth) ?? ledgerHistoryMonth
+        ledgerHistoryLimit = 50
     }
 
     private var familyHeaderSection: some View {
@@ -265,7 +425,7 @@ struct GuildSettingsView: View {
                         .font(.body.weight(.semibold))
                 }
                 Spacer()
-                if appState.currentProfile?.role == .guildMaster {
+                if viewerIsGuildMaster {
                     if isEditingFamilyName {
                         Button("Save") {
                             Task { await saveFamilyName() }
@@ -286,7 +446,7 @@ struct GuildSettingsView: View {
 
             Divider()
 
-            if appState.currentProfile?.role == .guildMaster {
+            if viewerIsGuildMaster {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -356,8 +516,10 @@ struct GuildSettingsView: View {
 
     @MainActor
     private func confirmTransferGuildMaster(to newOwner: ProfileCache) async {
-        guard let current = appState.currentProfile else { return }
+        // WHY: mutation actor derives from the cache row so role transfer never reads session domain state.
+        guard let row = currentProfileRow else { return }
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: newOwner)
+        let current = row.toProfile(zoneID: zoneID)
         do {
             try await familyService.updateMemberRole(profile: newOwner.toProfile(zoneID: zoneID), newRole: .guildMaster)
             try await familyService.updateMemberRole(profile: current, newRole: .ranger)

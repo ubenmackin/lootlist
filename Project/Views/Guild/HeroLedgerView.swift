@@ -11,6 +11,7 @@ import SwiftUI
 struct HeroLedgerView: View {
     let hero: ProfileCache
     let familyRecordName: String?
+    private let profileRecordName: String?
     private let spending: SpendingService
 
     @Environment(AppState.self) private var appState
@@ -33,10 +34,12 @@ struct HeroLedgerView: View {
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
-    init(hero: ProfileCache, familyRecordName: String?, spending: SpendingService) {
+    init(hero: ProfileCache, familyRecordName: String?, spending: SpendingService, profileRecordName: String? = nil) {
         self.hero = hero
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         self.spending = spending
         let targetFamily = familyRecordName ?? ""
         let targetProfile = hero.recordName
@@ -46,27 +49,51 @@ struct HeroLedgerView: View {
         let allowancePeriodFilter = AllowancePeriodCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
 
+        // WHY stable sorts: secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedLedgers = Query(
             filter: ledgerFilter,
-            sort: \LedgerEntryCache.date,
-            order: .reverse
+            sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedAllowancePeriods = Query(
             filter: allowancePeriodFilter,
-            sort: \AllowancePeriodCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        _cachedTemplates = Query(
+            filter: templateFilter,
+            sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        if let viewerProfile = profileRecordName.sanitizedNilIfEmpty {
+            _currentProfileRows = Query(
+                filter: ProfileCache.recordPredicate(recordName: viewerProfile, familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        } else {
+            // WHY: family fallback keeps viewer gating live before the profile param propagates; row still resolves via session identity.
+            _currentProfileRows = Query(
+                filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        }
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        currentProfileRow?.roleEnum
     }
 
     var body: some View {
@@ -80,6 +107,7 @@ struct HeroLedgerView: View {
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .onChange(of: cachedTemplates) { _, _ in rebuild() }
+            .onChange(of: currentProfileRows) { _, _ in rebuild() }
             .onChange(of: scope) { _, _ in rebuild() }
             .sheet(isPresented: $isShowingDeposit) {
                 depositSheetContent
@@ -94,6 +122,8 @@ struct HeroLedgerView: View {
             .sheet(isPresented: $showShareSheet) {
                 shareSheetContent
             }
+            // WHY: view identity tracks family+subject+viewer so @Query predicates (init-captured) are recreated on scope switch.
+            .id("\(familyRecordName ?? "")-\(hero.recordName)-\(profileRecordName ?? "")")
     }
 
     private var scrollBody: some View {
@@ -136,7 +166,8 @@ struct HeroLedgerView: View {
     }
 
     private var payoutDay: PayoutDay {
-        hero.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
+        // WHY: subject hero override wins; viewer row keeps week math cache-derived with session fallback.
+        hero.payoutDayEnum ?? currentProfileRow?.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
     }
 
     @ToolbarContentBuilder
@@ -148,7 +179,7 @@ struct HeroLedgerView: View {
                 Image(systemName: "square.and.arrow.up")
             }
             // WHY disabled for non-parents: ledger export is a privileged mutation surface.
-            .disabled(appState.currentProfile?.role.isParent != true)
+            .disabled(viewerRole?.isParent != true)
         }
     }
 

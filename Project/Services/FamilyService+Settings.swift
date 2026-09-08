@@ -153,6 +153,12 @@ extension FamilyService {
     }
 
     @discardableResult
+    func updateProfileDisplayName(profileCache: ProfileCache, newName: String) async throws -> Profile {
+        guard let zoneID = appState.familyZoneID else { throw FamilyServiceError.unauthorized }
+        return try await updateProfileDisplayName(profile: profileCache.toProfile(zoneID: zoneID), newName: newName)
+    }
+
+    @discardableResult
     func updateProfileDisplayName(profile: Profile, newName: String) async throws -> Profile {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -171,6 +177,7 @@ extension FamilyService {
         var updated = profile
         updated.displayName = trimmed
 
+        // WHY write-through: cache upsert renders instantly while enqueueSave syncs later, never session assignment alone.
         await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
