@@ -16,7 +16,7 @@ import UserNotifications
 @Observable
 final class AppDependencies {
     /// WHY Mutex: widget extensions and App Intents access shared off the main actor; synchronized store prevents data races on the process-bound shim.
-    private static let sharedMutex = Mutex<AppDependencies?>(nil)
+    private nonisolated static let sharedMutex = Mutex<AppDependencies?>(nil)
     /// Process-bound seam for code that executes outside the SwiftUI environment.
     /// App Intents (Siri / Shortcuts) and `BGTaskScheduler` handlers run in
     /// extension / background-process contexts where `@Environment` injection is
@@ -29,10 +29,25 @@ final class AppDependencies {
     /// is the single source of truth — `shared` is a process-boundary shim, not a
     /// general service locator. Kept unconditional (not `#if DEBUG`-only) because
     /// Intents/BGTasks need it in release builds.
-    private(set) static var shared: AppDependencies? {
+    private(set) nonisolated static var shared: AppDependencies? {
         get { sharedMutex.withLock { $0 } }
         set { sharedMutex.withLock { $0 = newValue } }
     }
+
+    #if DEBUG
+
+        // MARK: - Test Helpers
+
+        /// WHY isolation: unit-test host may have set shared at launch, so cold-start tests reset first.
+        nonisolated static func resetSharedForTests() {
+            sharedMutex.withLock { $0 = nil }
+        }
+
+        /// WHY isolation: cold-start tests nil the process-bound shim, so restore the pre-test value on exit.
+        nonisolated static func restoreSharedForTests(_ previous: AppDependencies?) {
+            sharedMutex.withLock { $0 = previous }
+        }
+    #endif
 
     let appState: AppState
     let cloudKitService: CloudKitService

@@ -46,21 +46,21 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func registerBackgroundTasks() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.weeklyPayoutTaskId, using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.weeklyPayoutTaskId, using: .main) { task in
             guard let refreshTask = task as? BGAppRefreshTask else { return }
             Self.handleWeeklyPayoutBackgroundRefresh(task: refreshTask)
         }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.syncTaskId, using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.syncTaskId, using: .main) { task in
             guard let processingTask = task as? BGProcessingTask else { return }
             Self.handleSyncProcessingTask(task: processingTask)
         }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.spendDigestTaskId, using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.spendDigestTaskId, using: .main) { task in
             guard let refreshTask = task as? BGAppRefreshTask else { return }
             Self.handleSpendDigestBackgroundRefresh(task: refreshTask)
         }
     }
 
-    static func scheduleWeeklyPayoutRefresh(payoutDay: PayoutDay = .sunday) {
+    nonisolated static func scheduleWeeklyPayoutRefresh(payoutDay: PayoutDay = .sunday) {
         #if targetEnvironment(simulator)
             logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
             return
@@ -82,28 +82,41 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
     }
 
+    @MainActor
     private static func handleWeeklyPayoutBackgroundRefresh(task: BGAppRefreshTask) {
-        task.expirationHandler = {
-            logger.warning("Weekly payout BGAppRefreshTask expired prior to completion")
-            // Complete the expired task as failed — an uncompleted task counts
-            // as a failure and iOS throttles future background refreshes.
-            task.setTaskCompleted(success: false)
-        }
+        let taskIdentifier = task.identifier
+        var isDone = false
 
-        Task { @MainActor in
+        let workTask = Task { @MainActor in
             guard let shared = AppDependencies.shared else {
-                // Background cold start before AppDependencies is constructed: the family's payout day cannot be
-                // resolved and no payout work can run.
-                task.setTaskCompleted(success: false)
+                logger.warning("Weekly payout \(taskIdentifier) missing dependencies prior to completion")
+                if !isDone {
+                    isDone = true
+                    task.setTaskCompleted(success: false)
+                }
                 return
             }
 
             let success = await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
-            task.setTaskCompleted(success: success)
+            if !isDone {
+                isDone = true
+                task.setTaskCompleted(success: success)
+            }
+        }
+
+        task.expirationHandler = {
+            Task { @MainActor in
+                logger.warning("Weekly payout BGAppRefreshTask \(taskIdentifier) expired prior to completion")
+                workTask.cancel()
+                if !isDone {
+                    isDone = true
+                    task.setTaskCompleted(success: false)
+                }
+            }
         }
     }
 
-    static func scheduleSpendDigestRefresh(now: Date = Date()) {
+    nonisolated static func scheduleSpendDigestRefresh(now: Date = Date()) {
         #if targetEnvironment(simulator)
             logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
             return
@@ -122,28 +135,42 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
     }
 
+    @MainActor
     private static func handleSpendDigestBackgroundRefresh(task: BGAppRefreshTask) {
-        // WHY snapshot: BGAppRefreshTask is non-Sendable, so capture identifier before Task and keep Task captures Sendable.
         let taskIdentifier = task.identifier
-        task.expirationHandler = { [task, taskIdentifier] in
-            logger.warning("Spend digest BGAppRefreshTask \(taskIdentifier) expired prior to completion")
-            task.setTaskCompleted(success: false)
-        }
+        var isDone = false
 
-        Task { @MainActor @Sendable [task, taskIdentifier] in
+        let workTask = Task { @MainActor in
             guard let shared = AppDependencies.shared else {
                 logger.warning("Spend digest \(taskIdentifier) missing dependencies prior to completion")
-                task.setTaskCompleted(success: false)
+                if !isDone {
+                    isDone = true
+                    task.setTaskCompleted(success: false)
+                }
                 return
             }
 
             let success = await shared.appSyncCoordinator.handleSpendDigestBackgroundRefresh()
             scheduleSpendDigestRefresh()
-            task.setTaskCompleted(success: success)
+            if !isDone {
+                isDone = true
+                task.setTaskCompleted(success: success)
+            }
+        }
+
+        task.expirationHandler = {
+            Task { @MainActor in
+                logger.warning("Spend digest BGAppRefreshTask \(taskIdentifier) expired prior to completion")
+                workTask.cancel()
+                if !isDone {
+                    isDone = true
+                    task.setTaskCompleted(success: false)
+                }
+            }
         }
     }
 
-    static func scheduleSyncProcessingTask() {
+    nonisolated static func scheduleSyncProcessingTask() {
         #if targetEnvironment(simulator)
             logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
             return
@@ -164,27 +191,38 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
     }
 
+    @MainActor
     private static func handleSyncProcessingTask(task: BGProcessingTask) {
         // WHY: terminated-push coverage — retries pending uploads when silent pushes are throttled or jetsam kills app before sync.
-        let expired = Mutex(false)
-        var syncTask: Task<Void, Never>?
-        task.expirationHandler = {
-            logger.warning("Sync BGProcessingTask expired prior to completion")
-            expired.withLock { $0 = true }
-            syncTask?.cancel()
-            task.setTaskCompleted(success: false)
-        }
+        let taskIdentifier = task.identifier
+        var isDone = false
 
-        syncTask = Task { @MainActor in
+        let syncTask = Task { @MainActor in
             guard let shared = AppDependencies.shared else {
-                guard !expired.withLock({ $0 }) else { return }
-                task.setTaskCompleted(success: false)
+                logger.warning("Sync \(taskIdentifier) missing dependencies prior to completion")
+                if !isDone {
+                    isDone = true
+                    task.setTaskCompleted(success: false)
+                }
                 return
             }
 
             await shared.lifecycleCoordinator.performManualSync()
-            guard !expired.withLock({ $0 }) else { return }
-            task.setTaskCompleted(success: true)
+            if !isDone {
+                isDone = true
+                task.setTaskCompleted(success: true)
+            }
+        }
+
+        task.expirationHandler = {
+            Task { @MainActor in
+                logger.warning("Sync BGProcessingTask \(taskIdentifier) expired prior to completion")
+                syncTask.cancel()
+                if !isDone {
+                    isDone = true
+                    task.setTaskCompleted(success: false)
+                }
+            }
         }
     }
 
