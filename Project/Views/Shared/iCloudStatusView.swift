@@ -17,6 +17,13 @@ struct iCloudStatusView: View {
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator: AppSyncCoordinator?
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
+    #if DEBUG
+        /// WHY protocol seam: the DEBUG seed resolves CloudKit through the lifecycle
+        /// coordinator so Release holds no CloudKit dependency in this view.
+        private var seedCloudKit: (any CloudKitServiceProtocol)? {
+            lifecycleCoordinator?.cloudKitService
+        }
+    #endif
 
     private let familyRecordName: String?
 
@@ -34,6 +41,10 @@ struct iCloudStatusView: View {
     @Query private var allGoals: [GoalCache]
     @Query private var allGemLedgers: [GemLedgerCache]
     @Query private var allRewardEvents: [RewardEventCache]
+    #if DEBUG
+        @State private var isSeedingSchema = false
+        @State private var schemaSeedResult: String?
+    #endif
 
     private var accountStatus: CloudAccountStatus {
         appState.cloudAccountStatus
@@ -216,6 +227,7 @@ struct iCloudStatusView: View {
             cloudKitAccountSection
             #if DEBUG
                 debugSyncHealthSection
+                schemaSeedSection
             #endif
             actionsSection
         }
@@ -617,7 +629,65 @@ struct iCloudStatusView: View {
         }
     #endif
 
-    // MARK: Section 6 — Actions
+    // MARK: Section 6 — Debug — Schema Seed (DEBUG-only writer)
+
+    #if DEBUG
+        private var schemaSeedSection: some View {
+            Section {
+                Button {
+                    Task { await pushSchemaSeed() }
+                } label: {
+                    HStack {
+                        Label("Push Dev Schema Seed", systemImage: "table.badge.more")
+                        if isSeedingSchema {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isSeedingSchema)
+                .accessibilityIdentifier("debug.pushSchemaSeed")
+                if let schemaSeedResult, !schemaSeedResult.isEmpty {
+                    Text(schemaSeedResult)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("Debug — Schema Seed")
+            } footer: {
+                Text(
+                    "Pushes 12 exemplar rows to the active family zone (Family is the existing parent, not seeded), "
+                        + "then deletes the rows. Check the Dev schema in the CloudKit Console, then deploy Dev to Production."
+                )
+                .font(.caption2)
+            }
+        }
+
+        @MainActor
+        private func pushSchemaSeed() async {
+            guard let seedCloudKit else {
+                schemaSeedResult = "CloudKit unavailable."
+                return
+            }
+            guard let family = appState.family else {
+                schemaSeedResult = "Join a family first."
+                return
+            }
+            isSeedingSchema = true
+            defer { isSeedingSchema = false }
+            do {
+                let pushed = try await SchemaSeedService(cloudKit: seedCloudKit).pushSchemaSeed(family: family)
+                schemaSeedResult = "Seeded \(pushed.count) types: \(pushed.map(\.recordType).sorted().joined(separator: ", ")). Rows cleaned up."
+                toastManager?.show(message: "Dev schema seed pushed.", type: .success)
+            } catch {
+                schemaSeedResult = "Seed failed: \(error.localizedDescription)"
+                toastManager?.show(message: "Schema seed failed.", type: .error)
+            }
+        }
+    #endif
+
+    // MARK: Section 7 — Actions
 
     private var actionsSection: some View {
         Section {

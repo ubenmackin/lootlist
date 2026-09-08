@@ -248,16 +248,22 @@ final class BucketService {
                   family: Family,
                   transferID: String) async throws -> LedgerEntry
     {
-        let now = Date()
+        // WHY: Legacy 3-part IDs use day-granularity dedup, so a fresh Date()
+        // is fine. Modern 4-part ms-format IDs encode the original instant;
+        // reconstructing it keeps isSameMillisecond dedup consistent across retries.
+        let date: Date
+        if isLegacyTransferID(transferID) {
+            date = Date()
+        } else if let ms = transferID.split(separator: "-").first.flatMap({ Int($0) }) {
+            date = Date(timeIntervalSince1970: Double(ms) / 1000.0)
+        } else {
+            date = Date()
+        }
         logger
             .debug(
-                "BucketService.transfer transferID \(transferID, privacy: .private) timestamp \(now.timeIntervalSince1970, privacy: .public)"
+                "BucketService.transfer transferID \(transferID, privacy: .private) timestamp \(date.timeIntervalSince1970, privacy: .public)"
             )
-        // If an explicit transferID already exists in cache, reject duplicate
-        let existingName = DeterministicRecordID.transfer(profileRecordName: profile.id.recordName, transferID: transferID)
-        if cacheService.fetchLedgerEntry(recordName: existingName, family: family.id.recordName) != nil {
-            throw BucketServiceError.duplicateTodayTransfer
-        }
+        // WHY single gate: transferInternal dedupes identical retries and extends divergent collisions.
         return try await transferInternal(
             from: from,
             to: to,
@@ -265,7 +271,7 @@ final class BucketService {
             profile: profile,
             family: family,
             transferID: transferID,
-            date: now
+            date: date
         )
     }
 
@@ -315,7 +321,7 @@ final class BucketService {
         // Only a truly divergent payload extends, deterministically so every device converges.
         var attempt = 0
         while let existing = cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) {
-            if isIdenticalTransfer(existing, amount: amount, from: from, to: to, date: date) {
+            if isIdenticalTransfer(existing, amount: amount, from: from, to: to, date: date, transferID: transferID) {
                 throw BucketServiceError.duplicateTodayTransfer
             }
             effectiveTransferID = extendedTransferID(
@@ -357,31 +363,41 @@ final class BucketService {
         "\(dayBucket)-\(from.rawValue)-\(to.rawValue)"
     }
 
-    /// WHY deterministic extension: hash all discriminating fields so the same
-    /// divergent payload yields the same recordName on every device, never a random fork.
+    /// WHY deterministic extension: hash all discriminating fields including the date key mirrored from
+    /// identity matching so divergent dates fork on the first attempt on every device, never a random fork.
     private func extendedTransferID(base: String, amount: Double, from: BucketKind, to: BucketKind, date: Date, attempt: Int) -> String {
-        let ms = Int(date.timeIntervalSince1970 * 1000)
         let cents = Int((abs(amount) * 100).rounded())
-        let payload = "\(base)|\(ms)|\(cents)|\(from.rawValue)|\(to.rawValue)|\(attempt)"
+        // WHY mirror identity: legacy IDs discriminate by UTC day while ms IDs discriminate by millisecond.
+        let dateKey = isLegacyTransferID(base) ? String(WeekMath.dayBucket(for: date)) : String(Int(date.timeIntervalSince1970 * 1000))
+        let payload = "\(base)|\(cents)|\(from.rawValue)|\(to.rawValue)|\(dateKey)|\(attempt)"
         let hash = SHA256.hash(data: Data(payload.utf8))
         let hex = hash.prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(base)-\(hex)-\(ms % 1000)"
+        return "\(base)-\(hex)"
     }
 
-    /// WHY millisecond tolerance: cache round-trips quantize dates, so exact
-    /// equality would fork deterministic names for the same logical instant.
+    private func isLegacyTransferID(_ transferID: String) -> Bool {
+        transferID.split(separator: "-").count == 3
+    }
+
     private func isSameMillisecond(_ lhs: Date, _ rhs: Date) -> Bool {
         abs(lhs.timeIntervalSince1970 - rhs.timeIntervalSince1970) < 0.001
     }
 
-    private func isIdenticalTransfer(_ existing: LedgerEntryCache, amount: Double, from: BucketKind, to: BucketKind, date: Date) -> Bool {
+    private func isIdenticalTransfer(_ existing: LedgerEntryCache, amount: Double, from: BucketKind, to: BucketKind, date: Date, transferID: String) -> Bool {
         guard existing.source == LedgerSource.transfer.rawValue else { return false }
         guard existing.fromBucket == from.rawValue, existing.toBucket == to.rawValue else { return false }
         guard existing.bucketKind == to.rawValue else { return false }
         let existingCents = Int((abs(existing.amount) * 100).rounded())
         let requestCents = Int((abs(amount) * 100).rounded())
         guard existingCents == requestCents else { return false }
-        return isSameMillisecond(existing.date, date)
+        // WHY day discrimination: legacy IDs carry only day+pair so same-day retries dedupe while cross-day reuse extends.
+        if isLegacyTransferID(transferID) {
+            guard WeekMath.dayBucket(for: existing.date) == WeekMath.dayBucket(for: date) else { return false }
+        } else {
+            // WHY ms discrimination: ms-cents IDs already encode the instant so only the same millisecond replays idempotently.
+            guard isSameMillisecond(existing.date, date) else { return false }
+        }
+        return true
     }
 
     // MARK: - Checklist Helpers

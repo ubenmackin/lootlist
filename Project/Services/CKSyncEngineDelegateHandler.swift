@@ -27,6 +27,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     /// Test-visible hydration accounting for single-save batch verification.
     var hydrateCallCount = 0
 
+    #if DEBUG
+        var lastDiscardedSaveDiagnostic: String?
+    #endif
+
     init(
         backgroundCache: BackgroundCacheActor? = nil,
         conflictResolver: CKSyncConflictResolver,
@@ -655,14 +659,39 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                         "Could not resolve family for stale invalidation — skipping freshness invalidation for \(typeLabel, privacy: .public) id=\(recordName, privacy: .private)"
                     )
                 }
-                let staleType = CachedRecordType.recordType(for: record.recordType)
-                let message = LedgerRevertMessage.saveFailedMessage(
-                    for: staleType,
-                    sourceRawValue: record["source"] as? String
-                )
+                let message = discardedSaveMessage(for: record)
+                logDiscardedSave(record: record, error: error, scope: scope)
                 toastManager?.show(message: message, type: .warning)
             }
         }
+    }
+
+    func discardedSaveMessage(for record: CKRecord) -> String {
+        LedgerRevertMessage.saveFailedMessage(
+            for: CachedRecordType.recordType(for: record.recordType),
+            sourceRawValue: record["source"] as? String
+        )
+    }
+
+    func discardedSaveDiagnostic(for record: CKRecord, error: CKError, scope: CKDatabase.Scope) -> String {
+        let nsError = error as NSError
+        return LedgerRevertMessage.saveFailureDiagnostic(
+            record: record,
+            codeValue: error.code.rawValue,
+            codeLabel: String(describing: error.code),
+            domain: nsError.domain,
+            description: error.localizedDescription,
+            scopeLabel: String(describing: scope),
+            serverRecordPresent: error.serverRecord != nil
+        )
+    }
+
+    private func logDiscardedSave(record: CKRecord, error: CKError, scope: CKDatabase.Scope) {
+        let diagnostic = discardedSaveDiagnostic(for: record, error: error, scope: scope)
+        logger.error("Discarded save \(diagnostic, privacy: .private)")
+        #if DEBUG
+            lastDiscardedSaveDiagnostic = diagnostic
+        #endif
     }
 
     private func processSentDeletes(

@@ -26,10 +26,41 @@ extension SyncOutcome {
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {
-    static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
-    static let syncTaskId = "com.volcrypt.lootlist.sync"
-    static let spendDigestTaskId = "com.volcrypt.lootlist.spenddigest"
+    nonisolated static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
+    nonisolated static let syncTaskId = "com.volcrypt.lootlist.sync"
+    nonisolated static let spendDigestTaskId = "com.volcrypt.lootlist.spenddigest"
     private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
+
+    /// Thread-safe exactly-once completion box for BGTask expiration/finish races.
+    /// `BGTask.setTaskCompleted(success:)` is thread-safe from any isolation
+    /// domain; the `Mutex` guarantees at-most-once delivery without requiring
+    /// a MainActor hop.
+    private final class ExactlyOnceCompletion: Sendable {
+        private let state = Mutex<Bool>(false)
+
+        func complete(_ task: BGTask, success: Bool) {
+            let shouldComplete = state.withLock { done -> Bool in
+                guard !done else { return false }
+                done = true
+                return true
+            }
+            if shouldComplete {
+                task.setTaskCompleted(success: success)
+            }
+        }
+    }
+
+    /// Returns the shared dependencies if available, logging a warning if nil.
+    /// Exposed as a seam for unit tests since BGTask cannot be instantiated.
+    nonisolated static func resolveDependencies(
+        for taskIdentifier: String
+    ) -> AppDependencies? {
+        guard let shared = AppDependencies.shared else {
+            logger.warning("\(taskIdentifier) missing dependencies prior to completion")
+            return nil
+        }
+        return shared
+    }
 
     func application(
         _: UIApplication,
@@ -85,34 +116,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     @MainActor
     private static func handleWeeklyPayoutBackgroundRefresh(task: BGAppRefreshTask) {
         let taskIdentifier = task.identifier
-        var isDone = false
+        let completion = ExactlyOnceCompletion()
 
         let workTask = Task { @MainActor in
-            guard let shared = AppDependencies.shared else {
-                logger.warning("Weekly payout \(taskIdentifier) missing dependencies prior to completion")
-                if !isDone {
-                    isDone = true
-                    task.setTaskCompleted(success: false)
-                }
+            guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
+                completion.complete(task, success: false)
                 return
             }
 
             let success = await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
-            if !isDone {
-                isDone = true
-                task.setTaskCompleted(success: success)
-            }
+            completion.complete(task, success: success)
         }
 
         task.expirationHandler = {
-            Task { @MainActor in
-                logger.warning("Weekly payout BGAppRefreshTask \(taskIdentifier) expired prior to completion")
-                workTask.cancel()
-                if !isDone {
-                    isDone = true
-                    task.setTaskCompleted(success: false)
-                }
-            }
+            logger.warning("Weekly payout BGAppRefreshTask \(taskIdentifier) expired prior to completion")
+            workTask.cancel()
+            completion.complete(task, success: false)
         }
     }
 
@@ -138,35 +157,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     @MainActor
     private static func handleSpendDigestBackgroundRefresh(task: BGAppRefreshTask) {
         let taskIdentifier = task.identifier
-        var isDone = false
+        let completion = ExactlyOnceCompletion()
 
         let workTask = Task { @MainActor in
-            guard let shared = AppDependencies.shared else {
-                logger.warning("Spend digest \(taskIdentifier) missing dependencies prior to completion")
-                if !isDone {
-                    isDone = true
-                    task.setTaskCompleted(success: false)
-                }
+            guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
+                completion.complete(task, success: false)
                 return
             }
 
             let success = await shared.appSyncCoordinator.handleSpendDigestBackgroundRefresh()
             scheduleSpendDigestRefresh()
-            if !isDone {
-                isDone = true
-                task.setTaskCompleted(success: success)
-            }
+            completion.complete(task, success: success)
         }
 
         task.expirationHandler = {
-            Task { @MainActor in
-                logger.warning("Spend digest BGAppRefreshTask \(taskIdentifier) expired prior to completion")
-                workTask.cancel()
-                if !isDone {
-                    isDone = true
-                    task.setTaskCompleted(success: false)
-                }
-            }
+            logger.warning("Spend digest BGAppRefreshTask \(taskIdentifier) expired prior to completion")
+            workTask.cancel()
+            completion.complete(task, success: false)
         }
     }
 
@@ -195,34 +202,22 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     private static func handleSyncProcessingTask(task: BGProcessingTask) {
         // WHY: terminated-push coverage — retries pending uploads when silent pushes are throttled or jetsam kills app before sync.
         let taskIdentifier = task.identifier
-        var isDone = false
+        let completion = ExactlyOnceCompletion()
 
         let syncTask = Task { @MainActor in
-            guard let shared = AppDependencies.shared else {
-                logger.warning("Sync \(taskIdentifier) missing dependencies prior to completion")
-                if !isDone {
-                    isDone = true
-                    task.setTaskCompleted(success: false)
-                }
+            guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
+                completion.complete(task, success: false)
                 return
             }
 
             await shared.lifecycleCoordinator.performManualSync()
-            if !isDone {
-                isDone = true
-                task.setTaskCompleted(success: true)
-            }
+            completion.complete(task, success: true)
         }
 
         task.expirationHandler = {
-            Task { @MainActor in
-                logger.warning("Sync BGProcessingTask \(taskIdentifier) expired prior to completion")
-                syncTask.cancel()
-                if !isDone {
-                    isDone = true
-                    task.setTaskCompleted(success: false)
-                }
-            }
+            logger.warning("Sync BGProcessingTask \(taskIdentifier) expired prior to completion")
+            syncTask.cancel()
+            completion.complete(task, success: false)
         }
     }
 

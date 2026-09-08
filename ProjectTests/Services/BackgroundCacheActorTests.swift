@@ -385,6 +385,41 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(ProfileCache.self, in: container) == 1)
     }
 
+    @Test
+    func `purgeMissingOfType in settled reconciliation prunes empty record types while preserving pending`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "seed_")
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+
+        // In settled reconciliation, empty validRecordNames for a single type
+        // represents legitimate server-zero (e.g. all quests deleted on server),
+        // so it must prune unpreserved rows once context is saved.
+        await actor.purgeMissingOfType(.quest, validRecordNames: [], familyRecordName: "fam")
+        await actor.saveContext()
+        #expect(try remainingCount(QuestCache.self, in: container) == 0)
+    }
+
+    @Test
+    func `purgeMissingOfType preserves unacked local rows when server has zero records`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "seed_")
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+
+        // Unacked local rows (preservedRecordNames) are retained even when server validRecordNames is empty.
+        await actor.purgeMissingOfType(
+            .quest,
+            validRecordNames: [],
+            familyRecordName: "fam",
+            preservedRecordNames: ["seed_quest"]
+        )
+        await actor.saveContext()
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+    }
+
     // MARK: Quests
 
     @Test
@@ -799,5 +834,61 @@ struct BackgroundCacheActorTests {
         await actor.batchUpsertProfileAchievements([profileAchievement])
 
         #expect(try remainingCount(ProfileAchievementCache.self, in: container) == 1)
+    }
+
+    @Test
+    func `pending transfer survives server-missing snapshot and stays unsynced`() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+        let container = try ModelContainer(
+            for: QuestCache.self,
+            QuestTemplateCache.self,
+            ProfileCache.self,
+            QuestCompletionCache.self,
+            FamilyCache.self,
+            LedgerEntryCache.self,
+            AllowancePeriodCache.self,
+            AchievementCache.self,
+            ProfileAchievementCache.self,
+            NotificationPreferenceCache.self,
+            GemLedgerCache.self,
+            RewardEventCache.self,
+            GoalCache.self,
+            configurations: config
+        )
+        let actor = BackgroundCacheActor(container: container)
+        let zoneID = CKRecordZone.ID(zoneName: "PreserveZone", ownerName: "Owner")
+        let now = Date()
+        let ctx = ModelContext(container)
+        ctx.insert(LedgerEntryCache(
+            recordName: "transfer-pending", profileRecordName: "hero",
+            familyRecordName: "fam", amount: 2.5, entryDescription: "Move",
+            date: now, source: "transfer", fromBucket: "spend", toBucket: "shortTermSave"
+        ))
+        ctx.insert(LedgerEntryCache(
+            recordName: "stale-synced", profileRecordName: "hero",
+            familyRecordName: "fam", amount: 1.0, entryDescription: "Old",
+            date: now, source: "manual", changeTag: "v1"
+        ))
+        try ctx.save()
+
+        let outcome = await actor.reconcileParticipantSet(
+            records: [],
+            validRecordNamesByType: [.ledgerEntry: Set(["server-entry"])],
+            familyRecordName: "fam",
+            databaseScope: .shared,
+            zoneID: zoneID
+        )
+        #expect(outcome?.commitSucceeded == true)
+
+        let remaining = try ModelContext(container).fetch(FetchDescriptor<LedgerEntryCache>())
+        let names = Set(remaining.map(\.recordName))
+        // WHY: Unacked transfer is absent server-side until re-enqueue; only acked stale rows prune.
+        #expect(names.contains("transfer-pending"))
+        #expect(!names.contains("stale-synced"))
+
+        let unsynced = await actor.fetchUnsyncedRecordIDs(familyRecordName: "fam", zoneID: zoneID)
+        let unsyncedNames = Set(unsynced.map(\.recordName))
+        #expect(unsyncedNames.contains("transfer-pending"))
+        #expect(!unsyncedNames.contains("stale-synced"))
     }
 }

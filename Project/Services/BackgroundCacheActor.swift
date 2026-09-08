@@ -280,61 +280,62 @@ actor BackgroundCacheActor {
         }
     }
 
+    private func pendingNames<T: CacheMergeable & CacheSystemFields>(
+        _: T.Type,
+        familyRecordName: String,
+        isPending: (T) -> Bool
+    ) -> Set<String> {
+        let rows: [T]
+        do {
+            rows = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
+        } catch {
+            logger.error("Failed to fetch \(T.self, privacy: .private) for pending scan: \(error, privacy: .private)")
+            return []
+        }
+        return Set(rows.filter(isPending).map(\.recordName))
+    }
+
+    // WHY: Single pending-scan home so re-enqueue and reconcile preservation agree on what survives a snapshot.
+    private func collectPendingNames(familyRecordName: String) -> [CachedRecordType: Set<String>] {
+        var pending: [CachedRecordType: Set<String>] = [:]
+        func store(_ type: CachedRecordType, _ names: Set<String>) {
+            guard !names.isEmpty else { return }
+            pending[type] = names
+        }
+        store(.quest, pendingNames(QuestCache.self, familyRecordName: familyRecordName) { $0.isActive && ($0.changeTag ?? "").isEmpty })
+        store(.questTemplate, pendingNames(QuestTemplateCache.self, familyRecordName: familyRecordName) { $0.isActive && ($0.changeTag ?? "").isEmpty })
+        store(.goal, pendingNames(GoalCache.self, familyRecordName: familyRecordName) { !$0.isArchived && ($0.changeTag ?? "").isEmpty })
+        store(.questCompletion, pendingNames(QuestCompletionCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.ledgerEntry, pendingNames(LedgerEntryCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.profile, pendingNames(ProfileCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.allowancePeriod, pendingNames(AllowancePeriodCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.achievement, pendingNames(AchievementCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.profileAchievement, pendingNames(ProfileAchievementCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(
+            .notificationPreference,
+            pendingNames(NotificationPreferenceCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty }
+        )
+        store(.gemLedger, pendingNames(GemLedgerCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.rewardEvent, pendingNames(RewardEventCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        do {
+            let familyRows = try modelContext.fetch(FamilyCache.fetchDescriptor(recordName: familyRecordName))
+            let names = Set(familyRows.filter { ($0.changeTag ?? "").isEmpty }.map(\.recordName))
+            store(.family, names)
+        } catch {
+            logger.error("Failed to fetch FamilyCache for pending scan: \(error, privacy: .private)")
+        }
+        return pending
+    }
+
     private func collectUnsyncedRecordIDs(familyRecordName: String, zoneID: CKRecordZone.ID) async -> [CKRecord.ID] {
+        let grouped = collectPendingNames(familyRecordName: familyRecordName)
         var ids: [CKRecord.ID] = []
         ids.reserveCapacity(32)
-
-        // Quest — active only, never synced.
-        do {
-            let quests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in quests where row.isActive && (row.changeTag ?? "").isEmpty {
-                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
+        for names in grouped.values {
+            for name in names {
+                ids.append(CKRecord.ID(recordName: name, zoneID: zoneID))
             }
-        } catch {
-            logger.error("Failed to fetch QuestCache for unsynced re-enqueue: \(error, privacy: .private)")
         }
-
-        // QuestTemplate — active only, never synced.
-        do {
-            let templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in templates where row.isActive && (row.changeTag ?? "").isEmpty {
-                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
-            }
-        } catch {
-            logger.error("Failed to fetch QuestTemplateCache for unsynced re-enqueue: \(error, privacy: .private)")
-        }
-
-        // Goal — non-archived only, never synced.
-        do {
-            let goals = try modelContext.fetch(FetchDescriptor<GoalCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in goals where !row.isArchived && (row.changeTag ?? "").isEmpty {
-                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
-            }
-        } catch {
-            logger.error("Failed to fetch GoalCache for unsynced re-enqueue: \(error, privacy: .private)")
-        }
-
-        // QuestCompletion — never synced.
-        do {
-            let completions = try modelContext.fetch(FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in completions where (row.changeTag ?? "").isEmpty {
-                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
-            }
-        } catch {
-            logger.error("Failed to fetch QuestCompletionCache for unsynced re-enqueue: \(error, privacy: .private)")
-        }
-
-        // LedgerEntry — never synced (covers deterministic money flows:
-        // contrib-*, purchase-*, interest-*, match-*, transfer-*, payout-*, rt-*, reward-*, import-*).
-        do {
-            let entries = try modelContext.fetch(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in entries where (row.changeTag ?? "").isEmpty {
-                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
-            }
-        } catch {
-            logger.error("Failed to fetch LedgerEntryCache for unsynced re-enqueue: \(error, privacy: .private)")
-        }
-
         // Deterministic ordering so paging cap is stable across passes.
         ids.sort { $0.recordName < $1.recordName }
         return ids
@@ -449,8 +450,10 @@ actor BackgroundCacheActor {
             logger.error("Participant reconciliation upsert failed", family: familyRecordName, zone: zoneID.zoneName)
             return false
         }
+        // WHY: Unacked rows are missing server-side until re-enqueue uploads them; purging would drop them first.
+        let pending = collectPendingNames(familyRecordName: familyRecordName)
         for (type, validRecordNames) in validRecordNamesByType {
-            await purgeMissingOfType(type, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingOfType(type, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: pending[type] ?? [])
         }
         guard saveContext() else {
             logger.error("Participant reconciliation save failed", family: familyRecordName, zone: zoneID.zoneName)

@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 9/6/26.
 //
 
+import CloudKit
 import Foundation
 
 /// Single source for ledger revert/save-failure toast copy.
@@ -66,5 +67,28 @@ enum LedgerRevertMessage {
         default:
             return "Your spending change couldn't be saved — pull to refresh."
         }
+    }
+
+    /// Shared save-failure diagnostic for the conflict resolver and the sync delegate.
+    /// WHY single source: both previously formatted the identical code/domain/record/bucket/zone/scope string inline.
+    static func saveFailureDiagnostic(
+        record: CKRecord,
+        codeValue: Int,
+        codeLabel: String,
+        domain: String,
+        description: String,
+        scopeLabel: String,
+        serverRecordPresent: Bool
+    ) -> String {
+        let source = (record["source"] as? String) ?? "nil"
+        let bucketKind = (record["bucketKind"] as? String) ?? "nil"
+        let fromBucket = (record["fromBucket"] as? String) ?? "nil"
+        let toBucket = (record["toBucket"] as? String) ?? "nil"
+        return "code=\(codeValue) (\(codeLabel)) domain=\(domain) "
+            + "description=\(description) recordType=\(record.recordType) "
+            + "recordName=\(record.recordID.recordName) source=\(source) "
+            + "bucketKind=\(bucketKind) fromBucket=\(fromBucket) toBucket=\(toBucket) "
+            + "zone=\(record.recordID.zoneID.zoneName)/\(record.recordID.zoneID.ownerName) "
+            + "scope=\(scopeLabel) serverRecordPresent=\(serverRecordPresent)"
     }
 }

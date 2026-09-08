@@ -74,30 +74,24 @@ enum DismissalKeys {
     }
 
     /// Single binding path so Views share one computation instead of triplicating get/set wrappers.
+    @MainActor
     static func scopedBinding(
         _ base: String,
         familyRecordName: String?,
         profileRecordName: String?,
         defaults: UserDefaults = .standard
     ) -> Binding<Bool> {
-        let box = DefaultsBox(defaults: defaults)
-        return Binding(
-            get: { effectiveBool(base, familyRecordName: familyRecordName, profileRecordName: profileRecordName, defaults: box.defaults) },
+        Binding(
+            get: { effectiveBool(base, familyRecordName: familyRecordName, profileRecordName: profileRecordName, defaults: defaults) },
             set: { newValue in
                 DismissalStore.set(
                     newValue,
                     forKey: scoped(base, familyRecordName: familyRecordName, profileRecordName: profileRecordName),
-                    defaults: box.defaults
+                    defaults: defaults
                 )
             }
         )
     }
-}
-
-/// Sendable holder for a UserDefaults suite.
-/// WHY unchecked: UserDefaults is thread-safe, so sharing one suite across the @Sendable Binding closures is race-safe.
-private struct DefaultsBox: @unchecked Sendable {
-    let defaults: UserDefaults
 }
 
 /// Service-owned device-local store for dismissal gates.

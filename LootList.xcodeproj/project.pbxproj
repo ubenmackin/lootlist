@@ -74,6 +74,7 @@
 		2C0024A3CC6966BD80475E98 /* GoalServiceFIFOTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33C9B9CDE214B8BDBBE281D /* GoalServiceFIFOTests.swift */; };
 		2D37658CD0E4C76D4116B754 /* FamilyDashboardViewModelTests+Invitations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140BA379E20551BFFF39194D /* FamilyDashboardViewModelTests+Invitations.swift */; };
 		2D60D4FB07885D34F74EE737 /* QuestCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F55961EF038C698EEF38952 /* QuestCompletion.swift */; };
+		2DB8FD7F34591568BEEC9120 /* SchemaSeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711D26A1E43208CEA7B856DD /* SchemaSeedService.swift */; };
 		2E7200BCE8B3F5946895FF34 /* GemLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93CD3446C77BFD7A77AE61D3 /* GemLedger.swift */; };
 		2EF69CF462F9C95DAC72D6B3 /* OptimisticRollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D827C1B1BDCCD1F2D6AA52 /* OptimisticRollbackTests.swift */; };
 		2F9B31B904F2EA47AFAD916A /* CachedRecordType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E2D5703C59B4BFBBF4A5D3 /* CachedRecordType.swift */; };
@@ -92,6 +93,7 @@
 		373105FB6B8D0E71BE36B69E /* AchievementCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22BA86AD62F4837E2182A697 /* AchievementCache.swift */; };
 		37AC4EA530872C7044E2AF0E /* CharacterSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121FF6F520EF7DA800B28557 /* CharacterSheetView.swift */; };
 		37D4866603796A0A085E0EC5 /* LinkMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93C5F84A70FD40DE98DA2456 /* LinkMetadataService.swift */; };
+		3A9DAA1BB4D11F3E5878B5A8 /* LedgerTransferParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD65718DF703A3F4500AD3A /* LedgerTransferParityTests.swift */; };
 		3B2464646AC2862B4DEDEC29 /* JourneyZone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1839C89AA82B389CF7466AF9 /* JourneyZone.swift */; };
 		3B3890A05E057C1856045FE6 /* GuildRosterSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B52249FE484BE42702A41E09 /* GuildRosterSectionView.swift */; };
 		3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6076B9096995404AD21385 /* CKSyncEngineDelegateHandler.swift */; };
@@ -134,6 +136,7 @@
 		541165B4B56FB49890EC7709 /* QuestServiceTests+Withdrawal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0866C01AF70A428642CA539D /* QuestServiceTests+Withdrawal.swift */; };
 		55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B02119865F6610D00BD4F2A /* TabBarView.swift */; };
 		5610437EA38B06E7BFAD2A73 /* QuestCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4F535D727A65E8357A42F3 /* QuestCache.swift */; };
+		5635830BFF75776D72163AA7 /* TransferSaveFailureDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BD35D506E9C468D60A0DFCA /* TransferSaveFailureDiagnosticsTests.swift */; };
 		57087BB88EC883F781661EFB /* FamilyDashboardCardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FB741873508F1F2A086B07 /* FamilyDashboardCardViews.swift */; };
 		5742740742847275A8446E5F /* BatchQuestFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4D55A65A228EFD564F4BBC /* BatchQuestFetcher.swift */; };
 		57749E46F37B3AF67734097D /* FamilyShareReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49B5A27C700FC780D0D78C1 /* FamilyShareReconcilerTests.swift */; };
@@ -222,6 +225,7 @@
 		8A4AE21E2B63B6E557A16994 /* FamilyDashboardView+Sections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADE7FFAD883A06D3962847F /* FamilyDashboardView+Sections.swift */; };
 		8BA26EB6C2E6425B81C827FC /* QuestRarity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */; };
 		8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8761871EDB01C4A39B494AA3 /* Profile.swift */; };
+		8BF9C5B039B26C32E01F22BE /* TransferTestScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8760C1A1D33C956A393D158E /* TransferTestScaffold.swift */; };
 		8CF0F691C4BA65D9E7E41B30 /* HeroDetailInlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CB1B3F830D3D9B05BD16F8 /* HeroDetailInlineView.swift */; };
 		8CFA5C8F74CC69D17C998222 /* CurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */; };
 		8D96EC37B3D9D14409727627 /* FamilyServiceTests+OwnerAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */; };
@@ -267,6 +271,7 @@
 		A45E773C945A9808AC3DF53F /* CKSyncEngineCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E53B49580742C8AB849A744 /* CKSyncEngineCoordinatorTests.swift */; };
 		A4C417A639EA1ED09CC600D9 /* AchievementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F26C22CD753C226F9DEB82B /* AchievementService.swift */; };
 		A4E8AE3F2D6B3EDD03B6CCF8 /* LootListApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89013EC78089F906DCD314F /* LootListApp.swift */; };
+		A56D4E70AC06EA4BCFCA464E /* TreasuryViewModelTransferHardeningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F47C0DBB8A90D3CCEF53797 /* TreasuryViewModelTransferHardeningTests.swift */; };
 		A5D88598EB951E148054A337 /* KidsSavingsGoalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71FA40293C366D50FE89B4C9 /* KidsSavingsGoalsView.swift */; };
 		A5EDA6D44BE252D8ACAE9A05 /* TreasuryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67019B9327EF0BF4251EBAF8 /* TreasuryViewModel.swift */; };
 		A5F050FD7940FC9D2E15B874 /* AllowancePayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DCAA1B2A51F158C1633A551 /* AllowancePayoutEngine.swift */; };
@@ -357,6 +362,7 @@
 		D3BEF5587C4B06965E1A4C0B /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0787E35E82ABF461CAFEC9FF /* EmptyStateView.swift */; };
 		D3E779C312D2C7ED1311BC24 /* AuthStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0F595013479C502D729A0 /* AuthStateMachine.swift */; };
 		D6339246F3C6EF387CDE5424 /* MascotBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5654B6FEED4474DAD9AC22D /* MascotBannerView.swift */; };
+		D65F8D6482395A57D6289666 /* AppDelegateBackgroundTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BADEAF0E5EF4394167FB116 /* AppDelegateBackgroundTaskTests.swift */; };
 		D7A10CDBC5176DA9439EBF48 /* SavingsSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */; };
 		D894D66ECFD63EB1F258765C /* FatalCacheErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */; };
 		D8A5B2891010FB02D4D54BDF /* FamilyScopedCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A45D8298C46FC546B3956B2 /* FamilyScopedCache.swift */; };
@@ -538,6 +544,8 @@
 		29FB80B3B9BCA029E30E5585 /* ViewLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewLifecycle.swift; sourceTree = "<group>"; };
 		2A50DC4F0DE367884318ECB3 /* ShareAcceptanceBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareAcceptanceBuffer.swift; sourceTree = "<group>"; };
 		2B80D9E2A60A733F696ADC70 /* ActiveFamilyScopeGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveFamilyScopeGuardTests.swift; sourceTree = "<group>"; };
+		2BADEAF0E5EF4394167FB116 /* AppDelegateBackgroundTaskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateBackgroundTaskTests.swift; sourceTree = "<group>"; };
+		2BD35D506E9C468D60A0DFCA /* TransferSaveFailureDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferSaveFailureDiagnosticsTests.swift; sourceTree = "<group>"; };
 		2C47FAAAF5A2001034107C67 /* FamilyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyService.swift; sourceTree = "<group>"; };
 		2D4F84AFC2DAC6F06A2ACB69 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
 		2E828C60E9ADE3B590E578B7 /* AppLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleCoordinator.swift; sourceTree = "<group>"; };
@@ -618,6 +626,7 @@
 		59975E89F6BF79DB7841FABB /* InviteRolePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteRolePickerView.swift; sourceTree = "<group>"; };
 		59E680036F2C2442D38675E6 /* GoalPacingCalculatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalPacingCalculatorTests.swift; sourceTree = "<group>"; };
 		5BB377F4B753419F65732040 /* DailyLoginServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyLoginServiceTests.swift; sourceTree = "<group>"; };
+		5BD65718DF703A3F4500AD3A /* LedgerTransferParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerTransferParityTests.swift; sourceTree = "<group>"; };
 		5C3ABA1D09005EC293F24135 /* CloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitService.swift; sourceTree = "<group>"; };
 		5D1B1FD3B57212828779B372 /* GoalProgressCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalProgressCalculator.swift; sourceTree = "<group>"; };
 		5D88B6F370A39EE21F662AE9 /* ExportChildPickerSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportChildPickerSheetView.swift; sourceTree = "<group>"; };
@@ -652,6 +661,7 @@
 		6E5CF0C96EB221193BE0F26B /* LedgerExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerExportService.swift; sourceTree = "<group>"; };
 		6F8ED12B868B6780FA999315 /* AppLifecycleCoordinator+Bootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppLifecycleCoordinator+Bootstrap.swift"; sourceTree = "<group>"; };
 		6F9CF39F2B42C3919B826C64 /* CloudKitService+Save.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudKitService+Save.swift"; sourceTree = "<group>"; };
+		711D26A1E43208CEA7B856DD /* SchemaSeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaSeedService.swift; sourceTree = "<group>"; };
 		712A3AA338FA9788AA3316C8 /* NotificationPrimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPrimeView.swift; sourceTree = "<group>"; };
 		713F91483330CBE92F807137 /* TreasuryServiceRealTimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryServiceRealTimeTests.swift; sourceTree = "<group>"; };
 		71FA40293C366D50FE89B4C9 /* KidsSavingsGoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidsSavingsGoalsView.swift; sourceTree = "<group>"; };
@@ -696,6 +706,7 @@
 		86D997850B328758B3EDCDEF /* QuestService+QuestLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestService+QuestLogs.swift"; sourceTree = "<group>"; };
 		87237129AEF89A3DE55E38BC /* ShopItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopItem.swift; sourceTree = "<group>"; };
 		872C97F16BCA4BE07632C3D6 /* NotificationRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouter.swift; sourceTree = "<group>"; };
+		8760C1A1D33C956A393D158E /* TransferTestScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferTestScaffold.swift; sourceTree = "<group>"; };
 		8761871EDB01C4A39B494AA3 /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		8809BA2CCE4B470D8B8554F7 /* HeroDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDetailView.swift; sourceTree = "<group>"; };
 		887A2A9E9522DED6DFD50A1B /* Goal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Goal.swift; sourceTree = "<group>"; };
@@ -733,6 +744,7 @@
 		9E9C50463C800E46BBC8579A /* HeroChecklistCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroChecklistCardView.swift; sourceTree = "<group>"; };
 		9E9F0C2BF49D9C2AA4E08A5B /* QuestService+Rewards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestService+Rewards.swift"; sourceTree = "<group>"; };
 		9EE5E3D8D810E51ADA1E99FB /* CloudKitModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitModelTests.swift; sourceTree = "<group>"; };
+		9F47C0DBB8A90D3CCEF53797 /* TreasuryViewModelTransferHardeningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryViewModelTransferHardeningTests.swift; sourceTree = "<group>"; };
 		9F48CBADCF880C81E40964C2 /* PresetPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetPill.swift; sourceTree = "<group>"; };
 		A0D3EF8B71154F31B6F89D4F /* HeroLedgerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroLedgerViewModel.swift; sourceTree = "<group>"; };
 		A1963A5C399D6D7074A33D08 /* CheckmarkMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckmarkMenu.swift; sourceTree = "<group>"; };
@@ -967,6 +979,7 @@
 				8FA4B6503D1684E537104F9C /* QuestManagerViewModelTests.swift */,
 				63CB3B3860E66B17113116B5 /* TreasuryViewModelTests.swift */,
 				74114C21EC0E2837E55792D5 /* TreasuryViewModelTransferCollisionTests.swift */,
+				9F47C0DBB8A90D3CCEF53797 /* TreasuryViewModelTransferHardeningTests.swift */,
 				1EBB2FDDB10B0B4FAEDB5651 /* TrophyRoomViewModelTests.swift */,
 			);
 			path = ViewModels;
@@ -1107,6 +1120,7 @@
 				86D997850B328758B3EDCDEF /* QuestService+QuestLogs.swift */,
 				9E9F0C2BF49D9C2AA4E08A5B /* QuestService+Rewards.swift */,
 				9162B55882719C5378F48EF6 /* RecordBridge.swift */,
+				711D26A1E43208CEA7B856DD /* SchemaSeedService.swift */,
 				BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */,
 				A8DCAC9147DBA316A1D95311 /* SoundManager.swift */,
 				01E47E3C8F0E7621310CD632 /* SpendDigestService.swift */,
@@ -1153,6 +1167,14 @@
 				12C28A2C0B5AAB19470498A4 /* LootListWidgets.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		4363F95C9D4EA19F55028277 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				8760C1A1D33C956A393D158E /* TransferTestScaffold.swift */,
+			);
+			path = Helpers;
 			sourceTree = "<group>";
 		};
 		46779C3A92828FA7CAF66B73 /* Frameworks */ = {
@@ -1248,6 +1270,7 @@
 				8418B2778C70952E03CE2358 /* HeroBoardServiceTests.swift */,
 				41B23C330040CF5222E25760 /* InviteErrorTests.swift */,
 				A3A14024274BCCB6C894C00D /* JourneyServiceTests.swift */,
+				5BD65718DF703A3F4500AD3A /* LedgerTransferParityTests.swift */,
 				E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */,
 				FBD501FFB54C16F2EA10C1DE /* MockCloudKitServiceTests.swift */,
 				F56074526FD4DE3AADA0F3DA /* NotificationServiceTests.swift */,
@@ -1269,6 +1292,7 @@
 				36E3CF9BA2A6EB9C5DDEEB6A /* SpendDigestServiceTests.swift */,
 				60E8122888D7243A795D93C5 /* SpendingServiceTests.swift */,
 				57E6DF9A305C00115C614D6E /* SpriteSnapshotRenderingTests.swift */,
+				2BD35D506E9C468D60A0DFCA /* TransferSaveFailureDiagnosticsTests.swift */,
 				713F91483330CBE92F807137 /* TreasuryServiceRealTimeTests.swift */,
 				5340AFA0EE98F0109EF27FE6 /* TreasuryServiceTests.swift */,
 				1EA6AE07C808B78BAC355720 /* TreasuryServiceTests+Authorization.swift */,
@@ -1317,6 +1341,7 @@
 			isa = PBXGroup;
 			children = (
 				D3E7A76B0EC11CFD11E6F4F1 /* App */,
+				4363F95C9D4EA19F55028277 /* Helpers */,
 				2E6C3527872D9D25380DD041 /* Models */,
 				489757A44BEED7866C226343 /* Services */,
 				E2279D02D48DC03F16CC5CDC /* Utilities */,
@@ -1482,6 +1507,7 @@
 		D3E7A76B0EC11CFD11E6F4F1 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				2BADEAF0E5EF4394167FB116 /* AppDelegateBackgroundTaskTests.swift */,
 				4D86F4AD3247A61B61DB1836 /* AppLifecycleCoordinatorTests.swift */,
 				ADCF93C3FA2FCF0F94FBA4EE /* AppStateTests.swift */,
 			);
@@ -2060,6 +2086,7 @@
 				C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */,
 				D7A10CDBC5176DA9439EBF48 /* SavingsSplitView.swift in Sources */,
 				4B2DDC650ED6CBC2A211C075 /* SceneDelegate.swift in Sources */,
+				2DB8FD7F34591568BEEC9120 /* SchemaSeedService.swift in Sources */,
 				E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */,
 				DB0A7BB32938897F61E0FE54 /* SectionHeader.swift in Sources */,
 				CEE615BF73574AC3316572F3 /* SerialMutationQueue.swift in Sources */,
@@ -2138,6 +2165,7 @@
 			files = (
 				C9D797F2CCCC2985649768DB /* AchievementServiceTests.swift in Sources */,
 				0F875494740B30818381D710 /* ActiveFamilyScopeGuardTests.swift in Sources */,
+				D65F8D6482395A57D6289666 /* AppDelegateBackgroundTaskTests.swift in Sources */,
 				E70AB0791C7BE6A45EB91F91 /* AppLifecycleCoordinatorTests.swift in Sources */,
 				BB97F4E07462D3B76705389F /* AppStateTests.swift in Sources */,
 				CA0644EA1397B92DF9672BB4 /* AutoPayoutCoordinatorTests.swift in Sources */,
@@ -2184,6 +2212,7 @@
 				AC9782DB2EB7052A12F5167F /* JourneyZoneTests.swift in Sources */,
 				E2EC7FEA3E0A4FFDE13AAD57 /* LedgerExportServiceTests.swift in Sources */,
 				41A51D171301F8D6A3F741F5 /* LedgerImportServiceTests.swift in Sources */,
+				3A9DAA1BB4D11F3E5878B5A8 /* LedgerTransferParityTests.swift in Sources */,
 				AC553229DBE01C76F1817097 /* LootListTests.swift in Sources */,
 				DFEAD6B1C37337AF65451C96 /* ManualSpendingServiceTests.swift in Sources */,
 				EF28614BEC17CBDA2E6FF11A /* MatchServiceTests.swift in Sources */,
@@ -2212,11 +2241,14 @@
 				B332C3390E94185975D736AF /* SpriteSnapshotRenderingTests.swift in Sources */,
 				DCD15CF9101BFF6BA73DBBE7 /* StreakCalculatorTests.swift in Sources */,
 				31E53FCF8A383ABF12210796 /* TestUserDefaults.swift in Sources */,
+				5635830BFF75776D72163AA7 /* TransferSaveFailureDiagnosticsTests.swift in Sources */,
+				8BF9C5B039B26C32E01F22BE /* TransferTestScaffold.swift in Sources */,
 				49EAFC2C0033E54A6F284C8D /* TreasuryServiceRealTimeTests.swift in Sources */,
 				C89615FA836F409ED2AF27D3 /* TreasuryServiceTests+Authorization.swift in Sources */,
 				9CA9A3AB32C5FF1DACEBC5AA /* TreasuryServiceTests.swift in Sources */,
 				A37A85ADB8D3166ECBEF621C /* TreasuryViewModelTests.swift in Sources */,
 				C801E21300399270F8BC29F9 /* TreasuryViewModelTransferCollisionTests.swift in Sources */,
+				A56D4E70AC06EA4BCFCA464E /* TreasuryViewModelTransferHardeningTests.swift in Sources */,
 				957052A8DCF34967984A5ECD /* TrophyRoomViewModelTests.swift in Sources */,
 				8FC45C8C876E528AE9456991 /* WidgetDataBridgeTests.swift in Sources */,
 				1FAA4DB4ADD5C7F7B2A84527 /* XPServiceTests.swift in Sources */,
