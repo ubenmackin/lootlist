@@ -16,13 +16,15 @@ enum BatchQuestFetcher {
     static func fetchMissingQuests<T: CloudKitRecord>(
         names: [String],
         family: Family,
-        cloudKit: any CloudKitServiceProtocol
+        cloudKit: any CloudKitServiceProtocol,
+        databaseScope: CKDatabase.Scope? = nil,
+        hydrationHandler: (any HydrationHandling)? = nil
     ) async throws -> [T] where T.ID == CKRecord.ID {
         guard !names.isEmpty else { return [] }
         // WHY direct fetch by ID: recordName is not server-queryable, so the predicate path always misses on device and degrades to N sequential fetches.
         let uniqueNames = Array(Set(names))
         let zoneID = family.id.zoneID
-        return try await withThrowingTaskGroup(of: T.self, returning: [T].self) { group in
+        let fetched = try await withThrowingTaskGroup(of: T.self, returning: [T].self) { group in
             for recordName in uniqueNames {
                 group.addTask {
                     let recordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
@@ -41,5 +43,10 @@ enum BatchQuestFetcher {
             }
             return collected
         }
+        // WHY hydrate: stitch-missing patches must converge in cache for the next CacheFirst hit.
+        if let scope = databaseScope, let handler = hydrationHandler, !fetched.isEmpty {
+            await handler.hydrateFromQuery(models: fetched, databaseScope: scope, zoneID: zoneID)
+        }
+        return fetched
     }
 }

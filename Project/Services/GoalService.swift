@@ -394,8 +394,9 @@ final class GoalService {
             recordID: goal.id,
             familyRecordName: family.id.recordName
         )
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.deleteGoal")
+        // WHY invalidate first: a crash between steps must not leave a server-deleted row revived by owner upsert.
         await cacheService.invalidate(identity: identity, type: .goal, expectedActiveZone: appState.familyZoneID)
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.deleteGoal")
 
         logger.info("Deleted goal \"\(goal.name, privacy: .private)\"")
     }

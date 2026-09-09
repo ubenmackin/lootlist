@@ -83,6 +83,7 @@ actor BackgroundCacheActor {
         let cached = Array(cachedByName.values)
         let log = logger
         // WHY batched stitch: one concurrent missing-ID pass replaces the per-row CloudKit N+1.
+        // WHY transient: backfill patches names in-memory for display; snapshot reconciliation persists templates via ingest.
         let stitched: [QuestTemplate]
         do {
             stitched = try await CacheFirst.stitch(needed: needed, cached: cached) { missing in
@@ -348,9 +349,9 @@ actor BackgroundCacheActor {
             guard !names.isEmpty else { return }
             pending[type] = names
         }
-        store(.quest, pendingNames(QuestCache.self, familyRecordName: familyRecordName) { $0.isActive && ($0.changeTag ?? "").isEmpty })
-        store(.questTemplate, pendingNames(QuestTemplateCache.self, familyRecordName: familyRecordName) { $0.isActive && ($0.changeTag ?? "").isEmpty })
-        store(.goal, pendingNames(GoalCache.self, familyRecordName: familyRecordName) { !$0.isArchived && ($0.changeTag ?? "").isEmpty })
+        store(.quest, pendingNames(QuestCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.questTemplate, pendingNames(QuestTemplateCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
+        store(.goal, pendingNames(GoalCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
         store(.questCompletion, pendingNames(QuestCompletionCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
         store(.ledgerEntry, pendingNames(LedgerEntryCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })
         store(.profile, pendingNames(ProfileCache.self, familyRecordName: familyRecordName) { ($0.changeTag ?? "").isEmpty })

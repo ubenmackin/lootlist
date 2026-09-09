@@ -263,16 +263,21 @@ struct DataMigrationsCoordinatorTests {
         )
 
         cloudKit.seedMockRecords([heroProfile, parentProfile, heroPeriod, parentPeriod])
+        let cache = try CacheService(inMemory: true)
+        await cache.upsertAllowancePeriod(heroPeriod)
+        await cache.upsertAllowancePeriod(parentPeriod)
+        let spy = PurgeDeleteSpy()
 
-        let step = DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: nil)
+        let step = DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: spy)
         try await step.run()
 
-        #expect(cloudKit.deletedRecordIDs.contains(parentPeriod.id))
-        #expect(!cloudKit.deletedRecordIDs.contains(heroPeriod.id))
-
-        let remaining = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
-        #expect(remaining.count == 1)
-        #expect(remaining.first?.id == heroPeriod.id)
+        // WHY single path: engine sends the delete so no direct cloudKit.delete lands here.
+        #expect(cloudKit.deletedRecordIDs.isEmpty)
+        #expect(spy.deleted.contains(parentPeriod.id.recordName))
+        #expect(!spy.deleted.contains(heroPeriod.id.recordName))
+        // WHY family-scoped: purge invalidates only the parent row in the owning family.
+        #expect(cache.fetchAllowancePeriod(recordName: parentPeriod.id.recordName, family: "fam1") == nil)
+        #expect(cache.fetchAllowancePeriod(recordName: heroPeriod.id.recordName, family: "fam1") != nil)
     }
 
     // MARK: - Schema V8 transition
@@ -328,4 +333,16 @@ struct DataMigrationsCoordinatorTests {
 
         defaults.removePersistentDomain(forName: suite)
     }
+}
+
+/// WHY spy: records engine-bound deletes without a live CKSyncEngine.
+@MainActor
+private final class PurgeDeleteSpy: SyncEnqueuing {
+    var deleted: [String] = []
+    func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+    func enqueueDelete(recordID: CKRecord.ID, isOwner _: Bool) {
+        deleted.append(recordID.recordName)
+    }
+
+    func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
 }

@@ -480,7 +480,7 @@ extension DataMigrationsCoordinator {
     static func purgeParentAllowancePeriodsV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) -> MigrationStep {
         MigrationStep(id: "purgeParentAllowancePeriodsV1", version: 1) {
             let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
@@ -502,8 +502,14 @@ extension DataMigrationsCoordinator {
             var deleted = 0
             for period in parentPeriods {
                 let recordID = period.id
-                try await cloudKit.delete(recordID, in: zoneID)
-                await cacheService?.invalidate(recordName: recordID.recordName, family: familyRecordName, type: .allowancePeriod)
+                // WHY capture first: tombstone ID must survive local row removal; engine sends the delete.
+                let identity = ScopedRecordIdentity(
+                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
+                    zoneID: zoneID,
+                    recordID: recordID,
+                    familyRecordName: familyRecordName
+                )
+                await cacheService?.invalidate(identity: identity, type: .allowancePeriod, expectedActiveZone: zoneID)
                 syncCoordinator?.enqueueDelete(recordID: recordID, isOwner: isOwner)
                 deleted += 1
             }

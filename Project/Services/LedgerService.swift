@@ -116,8 +116,7 @@ final class LedgerService {
             cacheService: cacheService,
             appState: appState,
             fetchCache: { [cacheService, profile, dateRange] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
-                    .filter { dateRange.contains($0.date) }
+                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, familyRecordName: familyName, start: dateRange.lowerBound, end: dateRange.upperBound)
             },
             map: { [profile] cache in
                 cache.toLedgerEntry(zoneID: profile.id.zoneID)
@@ -156,19 +155,14 @@ final class LedgerService {
         )
         let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState.familyZoneID == targetZoneID)
         let scopeForHydrate: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: isOwner)
-        // WHY: dateRange filtering is applied once in fetchCache. The previous
-        // post-filter `result.filter { dateRange.contains($0.date) }` was a
-        // redundant second pass over the same bounded set (cached path and
-        // stale-network fallback both already filter in fetchCache); keeping a
-        // single filter preserves sort order without double iteration.
+        // WHY indexed window: family+profile+date narrows via V10 composite index so history never scans.
         return try await CacheFirst.cacheFirst(
             type: .ledgerEntry,
             family: family,
             cacheService: cacheService,
             appState: appState,
             fetchCache: { [cacheService, profileName, dateRange] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-                    .filter { dateRange.contains($0.date) }
+                cacheService.fetchLedgerEntries(profileRecordName: profileName, familyRecordName: familyName, start: dateRange.start, end: dateRange.end)
             },
             map: { [targetZoneID] cache in
                 cache.toLedgerEntry(zoneID: targetZoneID)

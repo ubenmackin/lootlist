@@ -272,8 +272,15 @@ extension TreasuryService {
     ) async {
         let stale = existing.filter { !expected.contains($0.recordName) }
         for twin in stale {
-            await cacheService.invalidate(recordName: twin.recordName, family: familyName, type: .ledgerEntry)
-            syncCoordinator.enqueueDelete(recordID: CKRecord.ID(recordName: twin.recordName, zoneID: zoneID), isOwner: isOwner)
+            // WHY capture first: tombstone ID must survive local row removal.
+            let identity = ScopedRecordIdentity(
+                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
+                zoneID: zoneID,
+                recordID: CKRecord.ID(recordName: twin.recordName, zoneID: zoneID),
+                familyRecordName: familyName
+            )
+            await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
+            syncCoordinator.enqueueDelete(recordID: identity.recordID, isOwner: isOwner)
         }
     }
 

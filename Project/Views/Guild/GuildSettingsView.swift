@@ -287,35 +287,9 @@ struct GuildSettingsView: View {
         GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
     }
 
-    /// WHY month window rides WeekMath: history shares the store query's UTC month derivation so paging cannot drift.
-    private var monthWindowedLedgers: [LedgerEntryCache] {
-        // WHY touch count: keeps view subscribed so indexed refetch rides @Query refresh.
-        _ = cachedLedgers.count
-        // WHY family-only in-memory month: no family+date index exists; DB narrows by family via base index, month filters in-memory.
-        let store = cacheService ?? appState.cacheService
-        let family = familyRecordName ?? appState.family?.id.recordName ?? ""
-        guard !family.isEmpty, let store else { return [] }
-        // WHY family-wide history: profile stays nil so history stays family-wide; amount threshold stays a display filter.
-        let page = store.fetchLedgerEntriesForMonth(familyRecordName: family, monthContaining: ledgerHistoryMonth, fetchLimit: ledgerHistoryLimit)
-        // WHY recordName tie-breaker: stabilizes ForEach order on the small indexed page.
-        return page.sorted {
-            if $0.date != $1.date {
-                $0.date > $1.date
-            } else {
-                $0.recordName < $1.recordName
-            }
-        }
-    }
-
-    private var monthLedgerHistory: [LedgerEntryCache] {
-        Array(monthLedgerFiltered.prefix(ledgerHistoryLimit))
-    }
-
-    private var monthLedgerFiltered: [LedgerEntryCache] {
-        // WHY amount gate stays in-memory: the threshold is a display filter, never part of the indexed store predicate.
-        let threshold = CurrencyFormatter.pennies(from: historyMinAmountText) ?? 0
-        guard threshold > 0 else { return monthWindowedLedgers }
-        return monthWindowedLedgers.filter { abs($0.amount) >= threshold }
+    /// WHY month window rides WeekMath: history shares WeekMath UTC month derivation so paging cannot drift.
+    private var effectiveHistoryFamily: String {
+        familyRecordName ?? appState.family?.id.recordName ?? ""
     }
 
     private var ledgerHistorySection: some View {
@@ -355,29 +329,15 @@ struct GuildSettingsView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
 
-            if monthLedgerHistory.isEmpty {
-                Text("No activity this month.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-            } else {
-                ForEach(monthLedgerHistory, id: \.recordName) { entry in
-                    ledgerHistoryRow(entry)
-                    Divider()
-                }
-                // WHY page-full gate: store page is already limited so prefix cannot reveal more; full page means maybe more.
-                if monthWindowedLedgers.count >= ledgerHistoryLimit {
-                    Button("Show more (\(monthLedgerHistory.count) shown)") {
-                        ledgerHistoryLimit += 50
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                    .accessibilityIdentifier("settings.history.showMore")
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                }
-            }
+            GuildMonthLedgerListView(
+                familyRecordName: effectiveHistoryFamily,
+                monthContaining: ledgerHistoryMonth,
+                minAmountText: historyMinAmountText,
+                limit: ledgerHistoryLimit,
+                onShowMore: { ledgerHistoryLimit += 50 }
+            )
+            // WHY identity tracks family+month: @Query predicates are init-captured so a new month needs a fresh query.
+            .id("\(effectiveHistoryFamily)-\(WeekMath.monthKey(for: ledgerHistoryMonth))")
         }
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -385,24 +345,6 @@ struct GuildSettingsView: View {
         )
         .padding(.horizontal)
         .decimalPadDoneToolbar(isFocused: $isHistoryAmountFocused)
-    }
-
-    private func ledgerHistoryRow(_ entry: LedgerEntryCache) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.entryDescription)
-                    .font(.subheadline)
-                Text(entry.date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(CurrencyFormatter.string(pennies: entry.amount))
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.dangerRed))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
     private func shiftHistoryMonth(by delta: Int) {
@@ -542,6 +484,93 @@ struct GuildSettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - GuildMonthLedgerListView
+
+private struct GuildMonthLedgerListView: View {
+    @Query private var monthEntries: [LedgerEntryCache]
+
+    private let minAmountText: String
+    private let limit: Int
+    private let onShowMore: () -> Void
+
+    init(
+        familyRecordName: String,
+        monthContaining: Date,
+        minAmountText: String,
+        limit: Int,
+        onShowMore: @escaping () -> Void
+    ) {
+        self.minAmountText = minAmountText
+        self.limit = limit
+        self.onShowMore = onShowMore
+        let monthStart = WeekMath.monthStart(for: monthContaining)
+        let monthEnd = WeekMath.monthEnd(for: monthContaining)
+        let targetFamily = familyRecordName
+        // WHY empty family matches zero rows: no cache row stores an empty family.
+        _monthEntries = Query(
+            filter: #Predicate<LedgerEntryCache> {
+                $0.familyRecordName == targetFamily && $0.date >= monthStart && $0.date < monthEnd
+            },
+            sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        )
+    }
+
+    private var monthLedgerFiltered: [LedgerEntryCache] {
+        // WHY amount gate stays in-memory: the threshold is a display filter, never part of the indexed store predicate.
+        let threshold = CurrencyFormatter.pennies(from: minAmountText) ?? 0
+        guard threshold > 0 else { return monthEntries }
+        return monthEntries.filter { abs($0.amount) >= threshold }
+    }
+
+    private var monthLedgerHistory: [LedgerEntryCache] {
+        Array(monthLedgerFiltered.prefix(limit))
+    }
+
+    var body: some View {
+        if monthLedgerHistory.isEmpty {
+            Text("No activity this month.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+        } else {
+            ForEach(monthLedgerHistory, id: \.recordName) { entry in
+                ledgerHistoryRow(entry)
+                Divider()
+            }
+            // WHY prefix gate: the query holds the full month so more rows means a further page exists.
+            if monthLedgerFiltered.count >= limit {
+                Button("Show more (\(monthLedgerHistory.count) shown)") {
+                    onShowMore()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                .accessibilityIdentifier("settings.history.showMore")
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func ledgerHistoryRow(_ entry: LedgerEntryCache) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.entryDescription)
+                    .font(.subheadline)
+                Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(CurrencyFormatter.string(pennies: entry.amount))
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.dangerRed))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 }
 

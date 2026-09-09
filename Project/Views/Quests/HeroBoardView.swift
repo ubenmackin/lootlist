@@ -14,6 +14,7 @@ struct HeroBoardView: View {
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
 
     @State private var viewModel: HeroBoardViewModel?
     @State private var isSubmitting = false
@@ -29,6 +30,7 @@ struct HeroBoardView: View {
         let targetFamily = familyRecordName ?? ""
         let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
 
         // WHY: secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(
@@ -38,6 +40,10 @@ struct HeroBoardView: View {
         _cachedProfiles = Query(
             filter: profileFilter,
             sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+        )
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
     }
 
@@ -63,6 +69,9 @@ struct HeroBoardView: View {
         .onChange(of: cachedProfiles) { _, _ in
             rebuildViewModel()
         }
+        .onChange(of: cachedCompletions) { _, _ in
+            rebuildViewModel()
+        }
     }
 
     private func ensureViewModel() {
@@ -76,7 +85,7 @@ struct HeroBoardView: View {
 
     private func rebuildViewModel(_ vm: HeroBoardViewModel? = nil) {
         guard let targetVM = vm ?? viewModel else { return }
-        targetVM.rebuildLists(quests: cachedQuests, profiles: cachedProfiles)
+        targetVM.rebuildLists(quests: cachedQuests, profiles: cachedProfiles, completions: cachedCompletions)
     }
 
     private func boardContent(vm: HeroBoardViewModel) -> some View {

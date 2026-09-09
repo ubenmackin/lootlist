@@ -695,6 +695,7 @@ struct TreasuryServiceTests {
         // Cache is empty and not fresh, so weeklyBreakdown will query and hydrate.
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
         #expect(breakdown.goldFromQuests == 2500)
-        #expect(spy.hydrateCallCount == 2)
+        // WHY three hydrates: completion query + stitched quest-missing patch converging via ingest + ledger window; each rides single-save ingest with no batch saved twice.
+        #expect(spy.hydrateCallCount == 3)
     }
 }

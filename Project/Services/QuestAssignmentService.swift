@@ -307,8 +307,9 @@ final class QuestAssignmentService {
             recordID: quest.id,
             familyRecordName: quest.family.recordID.recordName
         )
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: quest.id, appState: appState, logger: logger, context: "QuestAssignmentService.unassignQuest")
+        // WHY invalidate first: a crash between steps must not leave a server-deleted row revived by owner upsert.
         await cacheService.invalidate(identity: identity, type: .quest, expectedActiveZone: appState.familyZoneID)
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: quest.id, appState: appState, logger: logger, context: "QuestAssignmentService.unassignQuest")
     }
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous

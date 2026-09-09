@@ -708,14 +708,19 @@ final class FamilyService: FamilyProfileFetching {
             let fresh = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
             // Scope mirrors the database the query ran against, which this
             // method resolves per-family rather than from the active session alone.
+            let resolvedScope = DatabaseScopeResolver.scope(isOwner: isOwner)
             if let syncCoordinator {
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: fresh,
-                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
+                    databaseScope: resolvedScope,
                     zoneID: family.id.zoneID
                 )
+                syncCoordinator.stampFreshness(for: Set([CachedRecordType.profile]), scopes: Set([resolvedScope]))
             } else {
                 await cacheService?.upsertProfiles(fresh, family: family.id.recordName)
+                if let cacheService {
+                    cacheService.stampCacheWatermarks(for: Set([CachedRecordType.profile]), scope: resolvedScope, familyRecordName: family.id.recordName)
+                }
             }
         } catch {
             logger.warning("Failed to refresh profiles from CloudKit: \(error, privacy: .private)")
