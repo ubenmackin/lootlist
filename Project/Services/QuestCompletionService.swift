@@ -10,9 +10,7 @@ import Foundation
 import os
 import Synchronization
 
-/// Completions and parent verification. Owns `QuestCompletion` lifecycle and
-/// derived reads; settles rewards through `QuestRewardService` so XP credit
-/// and deterministic `reward-{completionID}` minting stay single-sourced.
+/// WHY single-sourced: XP credit and deterministic reward minting ride QuestRewardService.
 @MainActor
 @Observable
 final class QuestCompletionService {
@@ -20,7 +18,7 @@ final class QuestCompletionService {
     let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService
     var appState: AppState
-    var syncCoordinator: CKSyncEngineCoordinator
+    var syncCoordinator: any SyncEnqueuing
     let xpService: XPService
     let notificationService: NotificationService?
     var achievementService: AchievementService?
@@ -38,7 +36,7 @@ final class QuestCompletionService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator,
+        syncCoordinator: any SyncEnqueuing,
         xpService: XPService,
         notificationService: NotificationService? = nil,
         achievementService: AchievementService? = nil,
@@ -69,7 +67,7 @@ final class QuestCompletionService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil,
         xpService: XPService? = nil,
         notificationService: NotificationService? = nil,
         achievementService: AchievementService? = nil,
@@ -84,14 +82,24 @@ final class QuestCompletionService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
+        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
+        let coord: any SyncEnqueuing
+        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
+            coord = resolvedCoord
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("QuestCompletionService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("QuestCompletionService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                coord = NoopSyncEnqueuing()
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("QuestCompletionService requires a sync coordinator in production")
+            #endif
+        }
         let xp = xpService ?? XPService(cloudKit: cloudKit)
         let reward = rewardService ?? QuestRewardService(
             cloudKit: cloudKit,
@@ -191,7 +199,7 @@ final class QuestCompletionService {
         case .parentVerify:
             log = try await completeParentVerify(log: log, quest: quest, isFinalSubPart: isFinalSubPart, resolvedZoneID: resolvedZoneID)
         }
-        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return log
     }
 
@@ -263,7 +271,7 @@ final class QuestCompletionService {
             try await applyTransientFallbackCredit(log: &mutableLog, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
         }
         toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
-        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return mutableLog
     }
 
@@ -366,35 +374,30 @@ final class QuestCompletionService {
         error _: Error
     ) async throws {
         let rewardID = RewardEvent.recordID(completionRecordName: log.id.recordName, zoneID: resolvedZoneID)
-        // WHY capture first: completion save already enqueued and reward may be server-claimed, so tombstones must survive row removal.
-        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let completionIdentity = ScopedRecordIdentity(
-            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
-            zoneID: log.id.zoneID,
-            recordID: log.id,
-            familyRecordName: quest.family.recordID.recordName
+        // WHY single step: tombstone capture survives row removal across the await.
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: log.id, familyRecordName: quest.family.recordID.recordName),
+            type: .questCompletion,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "QuestCompletionService.rollbackDelete.completion",
+                expectedActiveZone: appState.familyZoneID
+            )
         )
-        let rewardIdentity = ScopedRecordIdentity(
-            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
-            zoneID: rewardID.zoneID,
-            recordID: rewardID,
-            familyRecordName: quest.family.recordID.recordName
-        )
-        await cacheService.invalidate(identity: completionIdentity, type: .questCompletion, expectedActiveZone: appState.familyZoneID)
-        await cacheService.invalidate(identity: rewardIdentity, type: .rewardEvent, expectedActiveZone: appState.familyZoneID)
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(
-            syncCoordinator,
-            id: log.id,
-            appState: appState,
-            logger: logger,
-            context: "QuestCompletionService.rollbackDelete.completion"
-        )
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(
-            syncCoordinator,
-            id: rewardID,
-            appState: appState,
-            logger: logger,
-            context: "QuestCompletionService.rollbackDelete.reward"
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: rewardID, familyRecordName: quest.family.recordID.recordName),
+            type: .rewardEvent,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "QuestCompletionService.rollbackDelete.reward",
+                expectedActiveZone: appState.familyZoneID
+            )
         )
         if awardApplied || awardedXPCredited != nil {
             await revertProfileXPToBaseline(profile: profile, resolvedZoneID: resolvedZoneID, baselineXP: baselineXP)
@@ -467,7 +470,7 @@ final class QuestCompletionService {
             context: isFinalSubPart ? "QuestCompletionService.completeQuest" : "QuestCompletionService.completeQuest.intermediate"
         )
         dispatchParentReviewNotification(for: mutableLog, quest: quest)
-        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return mutableLog
     }
 
@@ -500,7 +503,7 @@ final class QuestCompletionService {
         updated.verificationStatus = .withdrawn
         await cacheService.upsertQuestCompletion(updated)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "QuestCompletionService.withdrawCompletion")
-        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
     }
 
     func withdrawCompletion(questLog: QuestCompletionCache, by profile: Profile) async throws {
@@ -569,7 +572,7 @@ final class QuestCompletionService {
         }
     }
 
-    // WHY: transient CloudKit errors must keep optimistic completion + XP and queue via CKSyncEngine; hard errors roll back.
+    /// WHY transient isolates optimistic path: hard errors roll back via tombstone.
     private func isTransientCompletionError(_ error: Error) -> Bool {
         if let ckError = error as? CKError {
             switch ckError.code {

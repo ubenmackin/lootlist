@@ -122,24 +122,30 @@ final class TreasuryService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing
-        if let syncCoordinator {
-            coord = syncCoordinator
-        } else if let ck = cloudKit as? CloudKitService {
-            // WHY: delegate stack still needs the concrete cache for hydration;
-            // reuse the injected cache when it is concrete so reads and writes share one store.
-            let concreteCache = cache as? CacheService ?? CacheService.inMemoryFallback(logger: Self.staticLogger)
-            let delegate = CKSyncEngineDelegateHandler(
-                backgroundCache: nil,
-                conflictResolver: CKSyncConflictResolver(cacheService: concreteCache, backgroundCache: nil, toastManager: toastManager, appState: state),
-                cacheService: concreteCache,
-                appState: state
-            )
-            coord = CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        // WHY single stack: shared coordinator owns hydration; ephemeral engines fork freshness.
+        if let coord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            self.init(cloudKit: cloudKit, notificationService: notificationService, cacheService: cache, toastManager: toastManager, appState: state, syncCoordinator: coord)
         } else {
-            coord = NoopSyncEnqueuing()
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    // WHY test seam: unit tests inject no engine, so cache-only coordination keeps reads deterministic.
+                    Self.staticLogger.warning("TreasuryService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("TreasuryService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(
+                    cloudKit: cloudKit,
+                    notificationService: notificationService,
+                    cacheService: cache,
+                    toastManager: toastManager,
+                    appState: state,
+                    syncCoordinator: NoopSyncEnqueuing()
+                )
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("TreasuryService requires a sync coordinator in production")
+            #endif
         }
-        self.init(cloudKit: cloudKit, notificationService: notificationService, cacheService: cache, toastManager: toastManager, appState: state, syncCoordinator: coord)
     }
 
     // MARK: - Balance & Weekly Breakdown
@@ -255,34 +261,40 @@ final class TreasuryService {
             }
 
             let normalizedWeekStart = WeekMath.startOfDay(for: startOfWeek)
+            // WHY fail-closed: unknown scope never queries with a guessed database.
+            guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+                throw FamilyServiceError.unauthorized
+            }
             let matched: [AllowancePeriod] = try await CacheFirst.cacheFirst(
                 type: .allowancePeriod,
                 family: family,
                 cacheService: cacheService,
-                appState: appState,
-                fetchCache: { [cacheService, profile, normalizedWeekStart] familyName in
-                    cacheService.fetchAllowancePeriods(profileRecordName: profile.id.recordName, family: familyName)
-                        .filter { $0.weekOf == normalizedWeekStart }
-                },
-                map: { [family] cache in
-                    cache.toAllowancePeriod(zoneID: family.id.zoneID)
-                },
-                query: { [cloudKit, profile, normalizedWeekStart] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(
-                        format: "profile == %@ AND weekOf == %@",
-                        profileRef as CVarArg,
-                        normalizedWeekStart as CVarArg
-                    )
-                    return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
-                },
-                hydrate: { [syncCoordinator, appState, profile] models in
-                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                        models: models,
-                        databaseScope: appState.activeDatabaseScope,
-                        zoneID: profile.id.zoneID
-                    )
-                }
+                scope: scope,
+                operations: .init(
+                    fetchCache: { [cacheService, profile, normalizedWeekStart] familyName in
+                        cacheService.fetchAllowancePeriods(profileRecordName: profile.id.recordName, family: familyName)
+                            .filter { $0.weekOf == normalizedWeekStart }
+                    },
+                    map: { [family] cache in
+                        cache.toAllowancePeriod(zoneID: family.id.zoneID)
+                    },
+                    query: { [cloudKit, profile, normalizedWeekStart] in
+                        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                        let predicate = NSPredicate(
+                            format: "profile == %@ AND weekOf == %@",
+                            profileRef as CVarArg,
+                            normalizedWeekStart as CVarArg
+                        )
+                        return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
+                    },
+                    hydrate: { [syncCoordinator, scope, profile] models in
+                        await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                            models: models,
+                            databaseScope: scope,
+                            zoneID: profile.id.zoneID
+                        )
+                    }
+                )
             )
             if let existing = matched.first {
                 return existing
@@ -460,7 +472,7 @@ final class TreasuryService {
         }
 
         if let notificationService {
-            Task { @MainActor @Sendable [weak self, logger, notificationService, period] in
+            Task { [weak self, logger, notificationService, period] in
                 do {
                     guard let self else { return }
                     let profile = try await self.resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)

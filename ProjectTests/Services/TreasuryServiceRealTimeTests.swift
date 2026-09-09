@@ -326,6 +326,9 @@ struct TreasuryServiceRealTimeTests {
             )
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
+            // WHY session: settlement guards require active family, so bind it before minting.
+            appState.family = family
+            mock.activeIsOwner = true
             mock.seedMockRecords([hero, guildMaster, family])
             cache.context?.insert(ProfileCache(from: hero))
             cache.context?.insert(ProfileCache(from: guildMaster))

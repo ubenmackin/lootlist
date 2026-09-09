@@ -16,28 +16,6 @@ struct DailyLoginServiceTests {
         CKRecordZone.ID(zoneName: name, ownerName: "DailyOwner")
     }
 
-    private func makeProfile(zoneID: CKRecordZone.ID, recordName: String = "hero1") -> Profile {
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-        let profileID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
-        return Profile(
-            displayName: "Hero",
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: profileID,
-            family: familyRef,
-            id: profileID
-        )
-    }
-
-    private func makeFamily(zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Daily Guild",
-            creatorUserRecordName: "hero1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-    }
-
     private struct TestFixture {
         let cloudKit: MockCloudKitService
         let cache: CacheService
@@ -60,8 +38,8 @@ struct DailyLoginServiceTests {
         let appState = AppState(defaults: defaults)
         appState.cacheService = cache
 
-        let family = makeFamily(zoneID: zoneID)
-        var hero = makeProfile(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Daily Guild", creatorUserRecordName: "hero1")
+        var hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero", iCloudRecordName: "hero1")
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
         cache.context?.insert(FamilyCache(from: family))
         cache.context?.insert(ProfileCache(from: hero))

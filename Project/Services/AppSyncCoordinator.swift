@@ -60,7 +60,7 @@ final class AppSyncCoordinator {
 
     private func startNotificationListeners() {
         if cloudKitNotificationTask == nil {
-            cloudKitNotificationTask = Task { @MainActor [weak self] in
+            cloudKitNotificationTask = Task { [weak self] in
                 await withTaskCancellationHandler {
                     for await notification in NotificationCenter.default.notifications(named: .cloudKitNotificationReceived) {
                         guard !Task.isCancelled else { break }
@@ -73,7 +73,7 @@ final class AppSyncCoordinator {
         }
 
         if shareAcceptedTask == nil {
-            shareAcceptedTask = Task { @MainActor [weak self] in
+            shareAcceptedTask = Task { [weak self] in
                 await withTaskCancellationHandler {
                     for await notification in NotificationCenter.default.notifications(named: .cloudKitShareAccepted) {
                         guard !Task.isCancelled else { break }

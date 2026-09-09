@@ -22,27 +22,26 @@ struct LootListTests {
     }
 
     private func makeFamilyAndProfile(zoneID: CKRecordZone.ID, familyName: String = "famW3") -> FamilySetup {
-        let family = Family(
+        // WHY shared source: single family/profile shape keeps anchors aligned.
+        let family = ExhaustiveCacheFixtures.sharedFamily(
+            zoneID: zoneID,
             name: "W3 Guild",
             creatorUserRecordName: "owner1",
-            id: CKRecord.ID(recordName: familyName, zoneID: zoneID)
+            recordName: familyName
         )
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let heroID = CKRecord.ID(recordName: "heroW3", zoneID: zoneID)
-        let hero = Profile(
+        let hero = ExhaustiveCacheFixtures.sharedHero(
+            zoneID: zoneID,
             displayName: "Hero",
-            role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "icloud-hero", zoneID: zoneID),
-            family: familyRef,
-            id: heroID
+            iCloudRecordName: "icloud-hero",
+            recordName: "heroW3",
+            familyRecordName: familyName
         )
-        let parentID = CKRecord.ID(recordName: "parentW3", zoneID: zoneID)
-        let parent = Profile(
+        let parent = ExhaustiveCacheFixtures.sharedParent(
+            zoneID: zoneID,
             displayName: "Parent",
-            role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "icloud-parent", zoneID: zoneID),
-            family: familyRef,
-            id: parentID
+            recordName: "parentW3",
+            iCloudRecordName: "icloud-parent",
+            familyRecordName: familyName
         )
         return FamilySetup(family: family, hero: hero, parent: parent)
     }
@@ -107,27 +106,25 @@ struct LootListTests {
             family: family
         )
 
-        // Exactly one cache row exists after create; family-scoped fetch isolates by familyRecordName.
+        // WHY isolation: family-scoped fetch isolates by familyRecordName.
         let allGoals = cache.fetchGoals(family: family.id.recordName)
         #expect(allGoals.count == 1)
         #expect(allGoals.first?.recordName == created.id.recordName)
         #expect(allGoals.first?.familyRecordName == family.id.recordName)
         #expect(allGoals.first?.profileRecordName == hero.id.recordName)
 
-        // Watermark stamping for both scopes must succeed atomically — no partial stamp.
-        // Simulate the atomic sweep that createGoal is required to perform: both scopes stamped together.
+        // WHY atomic sweep: both scopes stamp together with no partial stamp.
         cache.markCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .private)
         cache.markCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .shared)
 
         #expect(cache.isCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .private) == true)
         #expect(cache.isCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .shared) == true)
 
-        // Authoritative within freshness window for both scopes (3600s).
+        // WHY authoritative: freshness window covers both scopes.
         #expect(cache.isCacheAuthoritative(familyRecordName: family.id.recordName, type: .goal, scope: .private) == true)
         #expect(cache.isCacheAuthoritative(familyRecordName: family.id.recordName, type: .goal, scope: .shared) == true)
 
-        // No partial stamp: invalidating one scope must not implicitly clear the other,
-        // and re-stamping one must not over-stamp the other.
+        // WHY no over-stamp: scopes invalidate independently.
         cache.invalidateFreshness(familyRecordName: family.id.recordName, type: .goal, scope: .private)
         #expect(cache.isCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .private) == false)
         #expect(cache.isCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .shared) == true)
@@ -136,8 +133,7 @@ struct LootListTests {
         #expect(cache.isCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .private) == true)
         #expect(cache.isCacheFresh(familyRecordName: family.id.recordName, type: .goal, scope: .shared) == true)
 
-        // Exactly one row per scope invariant: the single physical row serves both scopes via family predicate,
-        // so a second create with same family must not duplicate within the same family partition.
+        // WHY one row per scope: same-family create must not duplicate.
         let second = try await service.createGoal(
             name: "Second Goal",
             targetAmountPennies: 1000,
@@ -168,7 +164,7 @@ struct LootListTests {
         let hero = setupReconcile.hero
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
 
-        // Legitimate goal that exists on server.
+        // WHY server truth: only legit-goal exists on the server.
         var legit = Goal(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
             family: familyRef,
@@ -181,8 +177,7 @@ struct LootListTests {
         // WHY acked: empty changeTag reads as pending and is preserved, so stamp synced rows.
         legit.changeTag = "v1"
 
-        // Sibling-scope row: same family, different recordName, simulates a stale
-        // cross-scope duplicate that should not survive server reconciliation.
+        // WHY stale duplicate: sibling row must not survive reconciliation.
         var sibling = Goal(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
             family: familyRef,
@@ -202,8 +197,7 @@ struct LootListTests {
         #expect(before.count == 2)
         #expect(Set(before.map(\.recordName)) == Set(["legit-goal", "sibling-goal"]))
 
-        // Drive the SAME gateway-sweep entry the lifecycle uses: BackgroundCacheActor.reconcileParticipantSet
-        // with databaseScope == .shared. Server-authoritative set contains only legit-goal.
+        // WHY same gateway: lifecycle reconciliation prunes via participant sweep.
         let legitRecord = legit.toRecord()
         let outcome = await background.reconcileParticipantSet(
             records: [legitRecord],

@@ -118,7 +118,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let taskIdentifier = task.identifier
         let completion = ExactlyOnceCompletion()
 
-        let workTask = Task { @MainActor in
+        let workTask = Task {
             guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
                 completion.complete(task, success: false)
                 return
@@ -159,7 +159,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let taskIdentifier = task.identifier
         let completion = ExactlyOnceCompletion()
 
-        let workTask = Task { @MainActor in
+        let workTask = Task {
             guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
                 completion.complete(task, success: false)
                 return
@@ -204,7 +204,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let taskIdentifier = task.identifier
         let completion = ExactlyOnceCompletion()
 
-        let syncTask = Task { @MainActor in
+        let syncTask = Task {
             guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
                 completion.complete(task, success: false)
                 return

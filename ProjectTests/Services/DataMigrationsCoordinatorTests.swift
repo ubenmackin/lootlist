@@ -153,6 +153,7 @@ struct DataMigrationsCoordinatorTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
 
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let profile = Profile(
@@ -164,8 +165,15 @@ struct DataMigrationsCoordinatorTests {
         )
         cloudKit.seedMockRecords([profile])
         cloudKit.fetchError = CloudKitServiceError.networkUnavailable
+        // WHY anchor aligned: owner scope resolves so the preferences query runs and throws.
+        let appState = AppState.testState()
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        appState.family = Family(name: "Test Guild", creatorUserRecordName: MockCloudKitService.mockUserRecordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let ownerID = CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID)
+        appState.currentProfile = Profile(displayName: "Owner", role: .guildMaster, iCloudUserID: ownerID, family: familyRef, id: ownerID)
 
-        let step = DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: nil)
+        let step = DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: nil, appState: appState)
         await #expect(throws: Error.self) {
             try await step.run()
         }
@@ -199,6 +207,7 @@ struct DataMigrationsCoordinatorTests {
         let zoneID = CKRecordZone.ID(zoneName: "fam1", ownerName: "TestOwner")
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
 
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let heroProfile = Profile(
@@ -216,8 +225,15 @@ struct DataMigrationsCoordinatorTests {
             id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([heroProfile, parentProfile])
+        // WHY anchor aligned: owner scope resolves so the hero seed writes one period.
+        let appState = AppState.testState()
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        appState.family = Family(name: "Test Guild", creatorUserRecordName: MockCloudKitService.mockUserRecordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let ownerID = CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID)
+        appState.currentProfile = Profile(displayName: "Owner", role: .guildMaster, iCloudUserID: ownerID, family: familyRef, id: ownerID)
 
-        let step = DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: nil)
+        let step = DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: nil, appState: appState)
         try await step.run()
 
         let periods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
@@ -267,8 +283,16 @@ struct DataMigrationsCoordinatorTests {
         await cache.upsertAllowancePeriod(heroPeriod)
         await cache.upsertAllowancePeriod(parentPeriod)
         let spy = PurgeDeleteSpy()
+        // WHY anchor aligned: owner scope resolves so the parent purge enqueues a tombstone.
+        let appState = AppState.testState()
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        cloudKit.activeIsOwner = true
+        appState.family = Family(name: "Test Guild", creatorUserRecordName: MockCloudKitService.mockUserRecordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let ownerID = CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID)
+        appState.currentProfile = Profile(displayName: "Owner", role: .guildMaster, iCloudUserID: ownerID, family: familyRef, id: ownerID)
 
-        let step = DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: spy)
+        let step = DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: spy, appState: appState)
         try await step.run()
 
         // WHY single path: engine sends the delete so no direct cloudKit.delete lands here.

@@ -12,7 +12,6 @@ import SwiftUI
 struct iCloudStatusView: View {
     private static let logger = Logger(category: "iCloudStatusView")
     @Environment(AppState.self) private var appState
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator: AppSyncCoordinator?
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
@@ -157,17 +156,22 @@ struct iCloudStatusView: View {
 
     // MARK: Sync Status
 
+    /// WHY struct-only: the View renders this snapshot so the engine handle never enters the View.
+    private var syncHealth: SyncHealthSnapshot {
+        lifecycleCoordinator?.syncHealthSnapshot ?? SyncHealthSnapshot()
+    }
+
     private var syncStatusLabel: String {
-        if syncCoordinator?.syncError != nil {
+        if syncHealth.syncError != nil {
             return "Failed"
         }
-        if syncCoordinator?.isSyncing == true {
+        if syncHealth.isSyncing {
             return "Syncing"
         }
-        if (syncCoordinator?.pendingUploadCount ?? 0) > 0 {
+        if syncHealth.pendingUploadCount > 0 {
             return "Pending Uploads"
         }
-        if syncCoordinator?.lastSyncedAt == nil {
+        if syncHealth.lastSyncedAt == nil {
             return "Pending"
         }
         return "Synced"
@@ -184,7 +188,7 @@ struct iCloudStatusView: View {
     }
 
     private var lastSyncedText: String {
-        guard let lastSyncedAt = syncCoordinator?.lastSyncedAt else {
+        guard let lastSyncedAt = syncHealth.lastSyncedAt else {
             return "Never synced"
         }
         return lastSyncedAt.formatted(.relative(presentation: .named))
@@ -249,7 +253,7 @@ struct iCloudStatusView: View {
         .task {
             await refreshAccountStatus()
         }
-        .onChange(of: syncCoordinator?.syncError) { _, newError in
+        .onChange(of: syncHealth.syncError) { _, newError in
             if let newError, !newError.isEmpty {
                 toastManager?.show(message: newError, type: .error)
             }
@@ -281,9 +285,9 @@ struct iCloudStatusView: View {
             HStack {
                 Text("Pending Uploads")
                 Spacer()
-                Text("\(syncCoordinator?.pendingUploadCount ?? 0)")
+                Text("\(syncHealth.pendingUploadCount)")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
+                    .foregroundStyle(syncHealth.pendingUploadCount > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
             }
             .accessibilityIdentifier("icloudStatus.pendingUploads")
 
@@ -426,12 +430,12 @@ struct iCloudStatusView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(relativeText(for: syncCoordinator?.lastSyncedAt))
+                        Text(relativeText(for: syncHealth.lastSyncedAt))
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(syncCoordinator?.lastSyncedAt == nil ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.primary)
+                            .foregroundStyle(syncHealth.lastSyncedAt == nil ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.primary)
                     }
                     HStack {
-                        Text(absoluteText(for: syncCoordinator?.lastSyncedAt))
+                        Text(absoluteText(for: syncHealth.lastSyncedAt))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -440,7 +444,7 @@ struct iCloudStatusView: View {
                 .padding(.vertical, 2)
 
                 // syncError
-                if let error = syncCoordinator?.syncError, !error.isEmpty {
+                if let error = syncHealth.syncError, !error.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Sync Error")
                             .font(.caption.weight(.semibold))
@@ -460,16 +464,16 @@ struct iCloudStatusView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(relativeText(for: syncCoordinator?.lastPushReceivedAt))
+                        Text(relativeText(for: syncHealth.lastPushReceivedAt))
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(syncCoordinator?.lastPushReceivedAt == nil ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.primary)
+                            .foregroundStyle(syncHealth.lastPushReceivedAt == nil ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.primary)
                     }
                     HStack {
-                        Text(absoluteText(for: syncCoordinator?.lastPushReceivedAt))
+                        Text(absoluteText(for: syncHealth.lastPushReceivedAt))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        if let pushDate = syncCoordinator?.lastPushReceivedAt {
+                        if let pushDate = syncHealth.lastPushReceivedAt {
                             Text(pushAgeText(for: pushDate))
                                 .font(.caption2.weight(.medium))
                                 .foregroundStyle(.secondary)
@@ -484,28 +488,29 @@ struct iCloudStatusView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     HStack(spacing: 12) {
+                        // WHY struct-only: debug chips render the snapshot so engine introspection never enters the View.
                         Label(
-                            syncCoordinator?.activeEngine(isOwner: true) != nil ? "private: active" : "private: nil",
-                            systemImage: syncCoordinator?.activeEngine(isOwner: true) != nil ? "checkmark.circle.fill" : "xmark.circle"
+                            syncHealth.isPrivateEngineActive ? "private: active" : "private: nil",
+                            systemImage: syncHealth.isPrivateEngineActive ? "checkmark.circle.fill" : "xmark.circle"
                         )
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(syncCoordinator?.activeEngine(isOwner: true) != nil ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
+                        .foregroundStyle(syncHealth.isPrivateEngineActive ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
 
                         Label(
-                            syncCoordinator?.activeEngine(isOwner: false) != nil ? "shared: active" : "shared: nil",
-                            systemImage: syncCoordinator?.activeEngine(isOwner: false) != nil ? "checkmark.circle.fill" : "xmark.circle"
+                            syncHealth.isSharedEngineActive ? "shared: active" : "shared: nil",
+                            systemImage: syncHealth.isSharedEngineActive ? "checkmark.circle.fill" : "xmark.circle"
                         )
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(syncCoordinator?.activeEngine(isOwner: false) != nil ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
+                        .foregroundStyle(syncHealth.isSharedEngineActive ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
                     }
                     HStack {
                         Text("Pending Uploads")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text("\(syncCoordinator?.pendingUploadCount ?? 0)")
+                        Text("\(syncHealth.pendingUploadCount)")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
+                            .foregroundStyle(syncHealth.pendingUploadCount > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
                     }
                 }
                 .padding(.vertical, 2)
@@ -714,16 +719,16 @@ struct iCloudStatusView: View {
             } label: {
                 HStack {
                     Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
-                    if syncCoordinator?.isSyncing == true {
+                    if syncHealth.isSyncing {
                         Spacer()
                         ProgressView()
                     }
                 }
             }
-            .disabled(syncCoordinator?.isSyncing == true)
+            .disabled(syncHealth.isSyncing)
 
             #if DEBUG
-                if let lastSyncedAt = syncCoordinator?.lastSyncedAt {
+                if let lastSyncedAt = syncHealth.lastSyncedAt {
                     Text("Last synced \(lastSyncedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption)
                         .foregroundStyle(.secondary)

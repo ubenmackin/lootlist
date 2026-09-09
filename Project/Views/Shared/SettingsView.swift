@@ -93,7 +93,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
     @Environment(FamilyService.self) private var familyService
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @AppStorage("preferredAppearance") private var preferredAppearance: String = "system"
@@ -642,7 +642,7 @@ struct SettingsView: View {
         let currentName = UIApplication.shared.alternateIconName
         guard name != currentName else { return }
         // WHY MainActor hop: setAlternateIconName resumes off-main; the Task restores MainActor for @State writes.
-        Task { @MainActor in
+        Task {
             do {
                 try await UIApplication.shared.setAlternateIconName(name)
                 activeIconName = name
@@ -660,16 +660,17 @@ struct SettingsView: View {
     }
 
     private var syncStatusText: String {
-        if syncCoordinator?.syncError != nil {
+        // WHY lifecycle health: sidebar subtitle rides the lifecycle layer so the engine handle never enters the View.
+        if lifecycleCoordinator?.syncErrorText != nil {
             "Sync failed — tap to retry"
-        } else if syncCoordinator?.isSyncing == true {
+        } else if lifecycleCoordinator?.isSyncing == true {
             "Syncing…"
-        } else if (syncCoordinator?.pendingUploadCount ?? 0) > 0 {
-            "\(syncCoordinator?.pendingUploadCount ?? 0) pending upload\(syncCoordinator?.pendingUploadCount == 1 ? "" : "s")"
-        } else if let last = syncCoordinator?.lastSyncedAt {
+        } else if (lifecycleCoordinator?.syncPendingUploadCount ?? 0) > 0 {
+            "\(lifecycleCoordinator?.syncPendingUploadCount ?? 0) pending upload\((lifecycleCoordinator?.syncPendingUploadCount ?? 0) == 1 ? "" : "s")"
+        } else if let last = lifecycleCoordinator?.syncLastSyncedAt {
             // WHY shared presentation: sidebar subtitle mirrors the iCloudStatusView prod-safe relative format.
             "Last synced \(last.formatted(.relative(presentation: .named)))"
-        } else if syncCoordinator == nil {
+        } else if lifecycleCoordinator == nil {
             "Unavailable"
         } else {
             "Not yet synced"

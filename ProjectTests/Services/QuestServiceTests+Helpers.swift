@@ -238,11 +238,11 @@ final class QueryParkingCloudKitService: MockCloudKitService {
 
 extension QuestServiceTests {
     func makeTestData() -> (MockCloudKitService, Profile, Profile, Family) { // swiftlint:disable:this large_tuple
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-        let userID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let userID = ExhaustiveCacheFixtures.id("user1", zoneID: zoneID)
 
         let parent = Profile(
             displayName: "Parent GM",
@@ -265,7 +265,7 @@ extension QuestServiceTests {
         let family = Family(
             name: "Test Guild",
             creatorUserRecordName: parent.id.recordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
 
         return (cloudKit, parent, hero, family)
@@ -295,7 +295,7 @@ extension QuestServiceTests {
             targetCount: Int = 1,
             isAllOrNothing: Bool = false
         ) throws {
-            zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+            zoneID = ExhaustiveCacheFixtures.sharedZoneID
             let resolvedCloudKit = cloudKitOverride ?? MockCloudKitService()
             resolvedCloudKit.activeFamilyZoneID = zoneID
             cloudKit = resolvedCloudKit
@@ -314,10 +314,8 @@ extension QuestServiceTests {
             // Verify/reject resolve the acting profile from the authenticated
             // session. The scaffold's default acting profile is the hero, so a
             // `markComplete(quest:by:hero)` self-completion passes the identity
-            familyRef = CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-            )
-            let parentID = CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+            familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+            let parentID = ExhaustiveCacheFixtures.id("parent1", zoneID: zoneID)
             parent = Profile(
                 displayName: "Parent GM",
                 avatarClass: .knight,
@@ -363,7 +361,7 @@ extension QuestServiceTests {
                 resolvedSpy = spy
             }
             syncSpy = resolvedSpy
-            let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            let heroID = ExhaustiveCacheFixtures.id("hero1", zoneID: zoneID)
             hero = Profile(
                 displayName: "Hero",
                 avatarClass: .mage,
@@ -375,10 +373,8 @@ extension QuestServiceTests {
             )
             appState.currentProfile = hero
 
-            let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-            let templateRef = CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
-            )
+            let questID = ExhaustiveCacheFixtures.id("quest1", zoneID: zoneID)
+            let templateRef = ExhaustiveCacheFixtures.ref("tmpl1", zoneID: zoneID)
             questRef = CKRecord.Reference(recordID: questID, action: .none)
             quest = Quest(
                 template: templateRef,
@@ -424,7 +420,7 @@ extension QuestServiceTests {
                 approvalMode: .parentVerify,
                 weekOf: quest.weekOf,
                 family: familyRef,
-                id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
+                id: ExhaustiveCacheFixtures.id(recordName, zoneID: zoneID)
             )
             log.verificationStatus = status
             return log

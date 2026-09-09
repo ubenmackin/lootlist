@@ -115,7 +115,8 @@ final class AppDependencies {
             cloudKit: foundations.cloudKit,
             cache: foundations.cache,
             backgroundCache: foundations.sharedBgActor,
-            syncCoordinator: syncStack.syncCoordinator
+            syncCoordinator: syncStack.syncCoordinator,
+            appState: foundations.app
         )
         if foundations.isTest {
             Self.seedTestData(
@@ -468,15 +469,25 @@ final class AppDependencies {
         cloudKit: CloudKitService,
         cache: CacheService,
         backgroundCache: BackgroundCacheActor?,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: CKSyncEngineCoordinator? = nil,
+        appState: AppState
     ) -> DataMigrationsCoordinator {
         let migrations = DataMigrationsCoordinator()
         if let backgroundCache {
             migrations.register(DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: backgroundCache))
         }
-        migrations.register(DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
-        migrations.register(DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
-        migrations.register(DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
+        migrations.register(DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(
+            cloudKit: cloudKit,
+            cacheService: cache,
+            syncCoordinator: syncCoordinator,
+            appState: appState
+        ))
+        migrations.register(DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator, appState: appState))
+        migrations.register(DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator, appState: appState))
+        migrations.register(DataMigrationsCoordinator.currencyToPenniesV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator, appState: appState))
+        migrations.register(DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit, appState: appState, syncCoordinator: syncCoordinator))
+        migrations.register(DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: cloudKit, cacheService: cache, appState: appState, syncCoordinator: syncCoordinator))
+        migrations.register(DataMigrationsCoordinator.achievementMigrationV1(cloudKit: cloudKit, cacheService: cache, appState: appState, syncCoordinator: syncCoordinator))
         return migrations
     }
 

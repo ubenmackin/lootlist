@@ -113,7 +113,7 @@ extension QuestCompletionService {
             guard parent.role.isParent else { return }
             guard parent.id.recordName != completerRecordName else { return }
             if let notificationService {
-                Task { @MainActor @Sendable [logger, notificationService, log, parent] in
+                Task { [logger, notificationService, log, parent] in
                     do {
                         try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                     } catch {
@@ -128,7 +128,7 @@ extension QuestCompletionService {
         {
             guard parent.role.isParent else { return }
             guard parent.id.recordName != completerRecordName else { return }
-            Task { @MainActor @Sendable [logger, notificationService, log, parent] in
+            Task { [logger, notificationService, log, parent] in
                 do {
                     try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                 } catch {
@@ -143,7 +143,7 @@ extension QuestCompletionService {
     private func dispatchRejectionNotification(for updated: QuestCompletion) {
         if let hero = resolveHero(for: updated) {
             if let notificationService {
-                Task { @MainActor @Sendable [logger, notificationService, updated, hero] in
+                Task { [logger, notificationService, updated, hero] in
                     do {
                         try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                     } catch {
@@ -156,7 +156,7 @@ extension QuestCompletionService {
         if let hero = resolveHeroViaCacheScan(for: updated),
            let notificationService
         {
-            Task { @MainActor @Sendable [logger, notificationService, updated, hero] in
+            Task { [logger, notificationService, updated, hero] in
                 do {
                     try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                 } catch {
@@ -195,7 +195,7 @@ extension QuestCompletionService {
         } else {
             logger.warning("Cache miss during verify for quest/hero; skipping reward settlement — cache will sync via CKSyncEngine")
             toastManager?.show(message: "Syncing latest quest data. Please try again.", type: .info)
-            Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.fetchChanges() }
+            Task { [weak self] in await self?.syncCoordinator.fetchChanges() }
             throw QuestServiceError.missingRecord(questLog.quest.recordID.recordName)
         }
 
@@ -203,7 +203,7 @@ extension QuestCompletionService {
 
         if let achievementService, let family = appState.family {
             let achService = achievementService
-            Task { @MainActor @Sendable [achService, hero, family, logger] in
+            Task { [achService, hero, family, logger] in
                 do {
                     _ = try await achService.evaluateAll(for: hero, family: family)
                 } catch {
@@ -214,7 +214,7 @@ extension QuestCompletionService {
 
         if let notificationService {
             let goldText = CurrencyFormatter.string(pennies: creditedGold)
-            Task { @MainActor @Sendable [logger, notificationService, hero, goldText] in
+            Task { [logger, notificationService, hero, goldText] in
                 do {
                     try await notificationService.send(
                         .questCompleted,

@@ -241,7 +241,7 @@ struct HeroTransactionView: View {
         let amountSnapshot = amount
         let dateSnapshot = date
         let modeSnapshot = mode
-        Task { @MainActor @Sendable [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot] in
+        Task { [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot] in
             let success = (modeSnapshot == .deposit)
                 ? await viewModel.deposit(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)
                 : await viewModel.withdraw(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)

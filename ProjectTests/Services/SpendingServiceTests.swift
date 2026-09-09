@@ -10,32 +10,11 @@ import Foundation
 @testable import LootList
 import Testing
 
-// WHY: This file mirrors ManualSpendingServiceTests deterministic guarantees.
-// All ledger money records use deterministic IDs so CloudKit dedupes across
-// devices; tests assert same payloads converge and divergent payloads get
-// distinct deterministic names without random UUIDs.
-
+/// WHY deterministic IDs: same payloads converge, divergent payloads stay distinct.
 @MainActor
 struct DeterministicSpendingIDTests {
     private func makeZoneID() -> CKRecordZone.ID {
-        CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-    }
-
-    private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
-        Family(name: "Test Guild", creatorUserRecordName: "parent1", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
-    }
-
-    private func makeHero(_ zoneID: CKRecordZone.ID) -> Profile {
-        let userID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        return Profile(
-            displayName: "Child Hero",
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: userID,
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none),
-            id: userID
-        )
+        ExhaustiveCacheFixtures.sharedZoneID
     }
 
     private func setupScope(appState: AppState, cloudKit: MockCloudKitService, family: Family, hero: Profile) {
@@ -50,8 +29,8 @@ struct DeterministicSpendingIDTests {
     @Test
     func `cross-device same payload converges to same recordName`() async throws {
         let zoneID = makeZoneID()
-        let family = makeFamily(zoneID)
-        let hero = makeHero(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let makeService: () throws -> SpendingService = {
             let ck = MockCloudKitService()
@@ -93,8 +72,8 @@ struct DeterministicSpendingIDTests {
     @Test
     func `divergent payloads yield distinct deterministic names`() async throws {
         let zoneID = makeZoneID()
-        let family = makeFamily(zoneID)
-        let hero = makeHero(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let desc = "Deterministic Lunch"
         let ck = MockCloudKitService()

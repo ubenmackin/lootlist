@@ -333,7 +333,7 @@ final class AutoPayoutCoordinator {
             guard let hero = heroByRecordName[assigneeRecordName] else { continue }
             let title = count == 1 ? "⚔️ New Quest Assigned!" : "⚔️ New Quests Assigned!"
             let body = "You have \(count) new quest\(count == 1 ? "" : "s") carried over for the new week."
-            Task { @MainActor @Sendable [logger, notificationService, hero, title, body] in
+            Task { [logger, notificationService, hero, title, body] in
                 do {
                     try await notificationService.send(.questAssigned, to: hero, title: title, body: body)
                 } catch {

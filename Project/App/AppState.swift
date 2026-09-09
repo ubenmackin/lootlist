@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 extension Notification.Name {
     static let didClearSession = Notification.Name("didClearSession")
@@ -161,10 +162,10 @@ final class AppState {
     }
 
     @ObservationIgnored
-    private var quickActionTask: Task<Void, Never>?
+    private let quickActionTaskLock = Mutex<Task<Void, Never>?>(nil)
 
     @ObservationIgnored
-    private var notificationRouteTask: Task<Void, Never>?
+    private let notificationRouteTaskLock = Mutex<Task<Void, Never>?>(nil)
 
     // MARK: - Session Persistence
 
@@ -180,15 +181,16 @@ final class AppState {
         let hasSession = storage.hasActiveSession
         authStatus = hasSession ? .restoringSession : .checkingCloudData
 
-        quickActionTask = Task { @MainActor [weak self] in
+        let qTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
                 if let action = notification.object as? QuickActionType {
                     self?.pendingQuickAction = action
                 }
             }
         }
+        quickActionTaskLock.withLock { $0 = qTask }
 
-        notificationRouteTask = Task { @MainActor [weak self] in
+        let nTask = Task { [weak self] in
             if let router = AppDependencies.shared?.notificationRouter,
                let pending = router.takePendingRoute()
             {
@@ -200,11 +202,12 @@ final class AppState {
                 }
             }
         }
+        notificationRouteTaskLock.withLock { $0 = nTask }
     }
 
     deinit {
-        quickActionTask?.cancel()
-        notificationRouteTask?.cancel()
+        quickActionTaskLock.withLock { $0?.cancel() }
+        notificationRouteTaskLock.withLock { $0?.cancel() }
     }
 
     // MARK: - SessionStorage Delegation

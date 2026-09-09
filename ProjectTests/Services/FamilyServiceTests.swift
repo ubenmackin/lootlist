@@ -14,7 +14,7 @@ import Testing
 @MainActor
 struct FamilyServiceTests {
     func makeDependencies() -> (FamilyService, MockCloudKitService, AppState, QuestService) { // swiftlint:disable:this large_tuple
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = true
@@ -22,11 +22,7 @@ struct FamilyServiceTests {
         appState.isZoneOwner = true
         appState.familyZoneID = zoneID
         // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         appState.family = family
         let xpService = XPService(cloudKit: cloudKit, appState: appState)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
@@ -34,36 +30,25 @@ struct FamilyServiceTests {
         return (familyService, cloudKit, appState, questService)
     }
 
-    func makeStandardFixtures(zoneName: String = "TestZone") -> ( // swiftlint:disable:this large_tuple
+    func makeStandardFixtures(zoneName: String = ExhaustiveCacheFixtures.sharedZoneID.zoneName) -> ( // swiftlint:disable:this large_tuple
         zoneID: CKRecordZone.ID,
         familyRef: CKRecord.Reference,
         family: Family,
         hero: Profile,
         parent: Profile
     ) {
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
+        let zoneID = zoneName == ExhaustiveCacheFixtures.sharedZoneID.zoneName
+            ? ExhaustiveCacheFixtures.sharedZoneID
+            : CKRecordZone.ID(zoneName: zoneName, ownerName: "TestOwner")
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-        let hero = Profile(
-            displayName: "Hero",
-            role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
-            family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        )
-        let parent = Profile(
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero")
+        let parent = ExhaustiveCacheFixtures.sharedParent(
+            zoneID: zoneID,
             displayName: "Guild Master",
-            role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
-            family: familyRef,
-            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            recordName: "gm1",
+            iCloudRecordName: "gm1"
         )
         return (zoneID, familyRef, family, hero, parent)
     }
@@ -91,14 +76,14 @@ struct FamilyServiceTests {
     @Test
     func `create family empty name validation`() async {
         let (familyService, _, _, _) = makeDependencies()
-        let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: dummyZone), action: .none)
+        let dummyZone = ExhaustiveCacheFixtures.sharedZoneID
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: dummyZone)
         let profile = Profile(
             displayName: "Test GM",
             avatarClass: .knight,
             avatarPresetID: "knight_01",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: dummyZone),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: dummyZone),
             family: familyRef
         )
 
@@ -118,15 +103,11 @@ struct FamilyServiceTests {
                                     cache: CacheService) -> FamilyService
     {
         let appState = AppState(defaults: .ephemeral())
-        let zoneID = cloudKit.activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = cloudKit.activeFamilyZoneID ?? ExhaustiveCacheFixtures.sharedZoneID
         appState.familyZoneID = zoneID
         appState.isZoneOwner = cloudKit.activeIsOwner
         // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         appState.family = family
         let xpService = XPService(cloudKit: cloudKit, appState: appState)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
@@ -140,20 +121,14 @@ struct FamilyServiceTests {
 
     @Test
     func `fetchHeroes falls back to CloudKit when cache is stale`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
 
         // Partial cache: a hero WITHOUT a freshness stamp (stale). Explicitly
         // invalidate first — stamps persist in UserDefaults for the process,
@@ -162,9 +137,9 @@ struct FamilyServiceTests {
         let cachedHero = Profile(
             displayName: "Cached Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
 
@@ -172,9 +147,9 @@ struct FamilyServiceTests {
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-ck", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-ck", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([ckHero])
 
@@ -187,28 +162,22 @@ struct FamilyServiceTests {
 
     @Test
     func `fetchHeroes serves partial cache when freshness stamp is fresh`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
 
         // Partial cache: a hero WITH a freshness stamp (fresh).
         let cachedHero = Profile(
             displayName: "Cached Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
@@ -218,9 +187,9 @@ struct FamilyServiceTests {
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-ck", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-ck", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([ckHero])
 
@@ -242,19 +211,13 @@ struct FamilyServiceTests {
 
     @Test
     func `fetchHeroes on a fresh cache performs no CloudKit query`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = QueryCountingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
 
         // Fresh cache: a hero WITH a freshness stamp. Stamps persist in
         // UserDefaults for the process, so invalidate first to isolate.
@@ -262,9 +225,9 @@ struct FamilyServiceTests {
         let cachedHero = Profile(
             displayName: "Cached Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
@@ -274,9 +237,9 @@ struct FamilyServiceTests {
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-ck", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-ck", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([ckHero])
 
@@ -296,27 +259,21 @@ struct FamilyServiceTests {
 
     @Test
     func `concurrent fresh-cache reads issue no duplicate CloudKit queries`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = QueryCountingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
 
         cache.invalidateFreshness(familyRecordName: "fam1", type: .profile)
         let cachedHero = Profile(
             displayName: "Cached Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
@@ -324,9 +281,9 @@ struct FamilyServiceTests {
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-ck", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-ck", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([ckHero])
 
@@ -351,25 +308,19 @@ struct FamilyServiceTests {
 
     @Test
     func `concurrent immediate refreshes collapse to one CloudKit query`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = GatedQueryCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero-ck", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("hero-ck", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([ckHero])
 
@@ -403,28 +354,26 @@ struct FamilyServiceTests {
 
     @Test
     func `updateProfilePayoutPolicy persists profile override`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let family = Family(
             name: "Test Guild",
             creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
         let hero = Profile(
             displayName: "Override Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
             payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -451,30 +400,24 @@ struct FamilyServiceTests {
         let cache = try CacheService(inMemory: true)
         familyService.cacheService = cache
 
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         let hero = Profile(
             displayName: "Kicked Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         // The acting profile must be a parent (Guild Master / Ranger) — the
         // service-layer authorization guard rejects non-parent actors.
         let guildMaster = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -499,28 +442,22 @@ struct FamilyServiceTests {
         let cache = try CacheService(inMemory: true)
         familyService.cacheService = cache
 
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         let hero = Profile(
             displayName: "Kicked Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         let guildMaster = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -554,26 +491,20 @@ struct FamilyServiceTests {
         let (familyService, cloudKit, appState, _) = makeDependencies()
         let cache = try CacheService(inMemory: true)
         familyService.cacheService = cache
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         let hero = Profile(
             displayName: "Leaving Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         // A quest assigned to the hero in the current week, persisted to the
         // CloudKit mock so `unassignActiveQuests` can find and purge it.
         let quest = Quest(
-            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            template: ExhaustiveCacheFixtures.ref("tmpl1", zoneID: zoneID),
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
             goldReward: 1000,
             xpReward: 20,
@@ -582,10 +513,10 @@ struct FamilyServiceTests {
             isAllOrNothing: false,
             approvalMode: .autoApprove,
             weekOf: WeekMath.startOfWeek(for: Date()),
-            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: "gm1", zoneID: zoneID), action: .none),
+            createdBy: ExhaustiveCacheFixtures.ref("gm1", zoneID: zoneID),
             family: familyRef,
             name: "Active Quest",
-            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("quest1", zoneID: zoneID)
         )
 
         await cache.upsertFamily(family)
@@ -612,7 +543,7 @@ struct FamilyServiceTests {
 
     @Test
     func `fetchHeroes on empty family returns empty array`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
@@ -622,7 +553,7 @@ struct FamilyServiceTests {
         let family = Family(
             name: "Empty Guild",
             creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
 
         let heroes = try await familyService.fetchHeroes(for: family)
@@ -635,21 +566,15 @@ struct FamilyServiceTests {
     @Test
     func `updateFamilyName with empty name throws persistenceFailed`() async {
         let (familyService, _, appState, _) = makeDependencies()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         let parent = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID)
         )
         appState.currentProfile = parent
 
@@ -666,16 +591,14 @@ struct FamilyServiceTests {
     @Test
     func `updateProfileDisplayName with empty name throws persistenceFailed`() async {
         let (familyService, _, appState, _) = makeDependencies()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let hero = Profile(
             displayName: "Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         appState.currentProfile = hero
 
@@ -691,21 +614,19 @@ struct FamilyServiceTests {
 
     @Test
     func `updateProfilePayoutPolicy on save failure throws persistenceFailed and rolls back`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let hero = Profile(
             displayName: "Override Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
             payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         await cache.upsertProfile(hero)
         familyService.appState.currentProfile = hero
@@ -719,7 +640,7 @@ struct FamilyServiceTests {
 
     @Test
     func `kickMember updates local cache immediately`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState(defaults: .ephemeral())
@@ -732,29 +653,23 @@ struct FamilyServiceTests {
             cacheService: cache
         )
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let family = Family(
-            name: "Test Guild",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
         let hero = Profile(
             displayName: "Kicked Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         // The acting profile must be a parent for the kick to proceed to the
         // save step (service-layer authorization guard).
         let guildMaster = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -768,27 +683,25 @@ struct FamilyServiceTests {
 
     @Test
     func `updatePayoutPolicy pre-canceled leaves AppState and cache unchanged`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = true
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let family = Family(
             name: "Test Guild",
             creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
         let parent = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         cloudKit.seedMockRecords([family], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
@@ -817,28 +730,26 @@ struct FamilyServiceTests {
 
     @Test
     func `updateProfilePayoutPolicy pre-canceled leaves cache and AppState unchanged`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = true
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let family = Family(
             name: "Test Guild",
             creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
         let hero = Profile(
             displayName: "Hero",
             role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u1", zoneID: zoneID),
             family: familyRef,
             payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)

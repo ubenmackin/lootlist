@@ -71,6 +71,8 @@ struct TreasuryViewModelTests {
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         appState.familyZoneID = zoneID
+        // WHY owner anchor: creator matches current user, so scope resolves to private.
+        appState.isZoneOwner = true
         return TestAppState(appState: appState, zoneID: zoneID, profileName: "hero1")
     }
 

@@ -149,12 +149,9 @@ struct TrophyRoomView: View {
 
     private func hydrateDefinitionsIfNeeded(family: Family) async {
         guard viewModel?.allAchievements.isEmpty ?? false else { return }
-        if let cache = cacheService {
-            // WHY authoritative gate: lifecycle sync owns trophy evaluation; views stay reactive via @Query.
-            let scope = appState.activeDatabaseScope
-            if cache.isCacheAuthoritative(familyRecordName: family.id.recordName, type: .achievement, scope: scope) {
-                return
-            }
+        // WHY authoritative gate: lifecycle sync owns trophy evaluation; views stay reactive via @Query.
+        if achievementService.isAchievementCacheAuthoritative(familyRecordName: family.id.recordName) {
+            return
         }
         do {
             _ = try await achievementService.fetchAllDefinitions(family: family)

@@ -83,8 +83,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
 
         let types = CachedRecordType.allCases
         for type in types {
-            let isFresh = cacheService.isCacheFresh(familyRecordName: "active-family", type: type)
-            XCTAssertFalse(isFresh, "Cache should NOT be fresh for \(type) when engines are nil")
+            for scope in [CKDatabase.Scope.private, .shared] {
+                let isFresh = cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: scope)
+                XCTAssertFalse(isFresh, "Cache should NOT be fresh for \(type) in \(scope) when engines are nil")
+            }
         }
     }
 
@@ -95,8 +97,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
 
         let types = CachedRecordType.allCases
         for type in types {
-            let isFresh = cacheService.isCacheFresh(familyRecordName: "active-family", type: type)
-            XCTAssertFalse(isFresh, "Cache should NOT be fresh for \(type) after a send pass")
+            for scope in [CKDatabase.Scope.private, .shared] {
+                let isFresh = cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: scope)
+                XCTAssertFalse(isFresh, "Cache should NOT be fresh for \(type) in \(scope) after a send pass")
+            }
         }
     }
 
@@ -141,7 +145,8 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         appState.familyZoneID = zoneID
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type))
+            XCTAssertFalse(cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private))
+            XCTAssertFalse(cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .shared))
         }
 
         let familyRecord = family.toRecord()
@@ -195,7 +200,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
 
         // Verify that freshness is now stamped for active family
         for type in CachedRecordType.allCases {
-            XCTAssertTrue(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "Cache should be fresh for \(type) after successful fetch pass")
+            XCTAssertTrue(
+                cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private),
+                "Cache should be fresh for \(type) after successful fetch pass"
+            )
         }
     }
 
@@ -215,7 +223,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "Parse failures must block freshness stamping for \(type)")
+            XCTAssertFalse(
+                cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private),
+                "Parse failures must block freshness stamping for \(type)"
+            )
         }
     }
 
@@ -224,7 +235,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private, .shared], completedScopes: [.private])
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "Incomplete database engine passes must block freshness stamping for \(type)")
+            XCTAssertFalse(
+                cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private),
+                "Incomplete database engine passes must block freshness stamping for \(type)"
+            )
         }
     }
 
@@ -233,7 +247,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "Cache write failures must block freshness stamping for \(type)")
+            XCTAssertFalse(
+                cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private),
+                "Cache write failures must block freshness stamping for \(type)"
+            )
         }
     }
 
@@ -242,7 +259,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private], hasParseFailures: true)
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "hasParseFailures=true must block freshness for \(type)")
+            XCTAssertFalse(
+                cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private),
+                "hasParseFailures=true must block freshness for \(type)"
+            )
         }
     }
 
@@ -251,7 +271,10 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private], hasCacheWriteFailures: true)
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "hasCacheWriteFailures=true must block freshness for \(type)")
+            XCTAssertFalse(
+                cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private),
+                "hasCacheWriteFailures=true must block freshness for \(type)"
+            )
         }
     }
 
@@ -592,8 +615,8 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "family-stamp", type: type))
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "", type: type))
+            XCTAssertFalse(cacheService.isCacheAuthoritative(familyRecordName: "family-stamp", type: type, scope: .private))
+            XCTAssertFalse(cacheService.isCacheAuthoritative(familyRecordName: "", type: type, scope: .private))
         }
     }
 
@@ -606,7 +629,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
 
         for type in CachedRecordType.allCases {
-            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "fallback-zone", type: type))
+            XCTAssertFalse(cacheService.isCacheAuthoritative(familyRecordName: "fallback-zone", type: type, scope: .private))
         }
 
         let family = Family(name: "Stamp", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-stamp-real", zoneID: zoneID))
@@ -614,7 +637,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
 
         for type in CachedRecordType.allCases {
-            XCTAssertTrue(cacheService.isCacheFresh(familyRecordName: "family-stamp-real", type: type))
+            XCTAssertTrue(cacheService.isCacheAuthoritative(familyRecordName: "family-stamp-real", type: type, scope: .private))
         }
     }
 
@@ -678,7 +701,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         coordinator.simulateFetchPassSettlement(activeScopes: [], completedScopes: [])
 
         for type in CachedRecordType.allCases {
-            let isFresh = cacheService.isCacheFresh(familyRecordName: "active-family", type: type)
+            let isFresh = cacheService.isCacheAuthoritative(familyRecordName: "active-family", type: type, scope: .private)
             XCTAssertFalse(isFresh, "Cache should NOT be fresh for \(type) after empty scope settlement")
         }
     }

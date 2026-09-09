@@ -9,6 +9,7 @@ import Foundation
 import Network
 import Observation
 import os
+import Synchronization
 
 @MainActor
 @Observable
@@ -33,7 +34,9 @@ final class NetworkMonitor {
         }
     }
 
-    private let monitor: NWPathMonitor
+    // WHY: Under Swift 6 (SE-0412), `let` constants of Sendable types (`Mutex<T>`) on @MainActor classes
+    // are non-isolated and safe to read/lock from any execution context (including deinit).
+    private let monitorLock: Mutex<NWPathMonitor>
     private let queue = DispatchQueue(label: "com.volcrypt.lootlist.networkmonitor", qos: .utility)
     private let logger = Logger(category: "NetworkMonitor")
 
@@ -43,46 +46,55 @@ final class NetworkMonitor {
     private(set) var isConstrained: Bool = false
 
     init(monitor: NWPathMonitor = NWPathMonitor()) {
-        self.monitor = monitor
+        self.monitorLock = Mutex(monitor)
         startMonitoring()
     }
 
     deinit {
-        monitor.cancel()
+        monitorLock.withLock { $0.cancel() }
     }
 
     func start() {
         // Lifecycle hook
     }
 
+    func stop() {
+        monitorLock.withLock { $0.cancel() }
+    }
+
     private func startMonitoring() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let wasConnected = self.isConnected
-                self.isConnected = path.status == .satisfied
-                self.isExpensive = path.isExpensive
-                self.isConstrained = path.isConstrained
-
-                if path.usesInterfaceType(.wifi) {
-                    self.connectionType = .wifi
-                } else if path.usesInterfaceType(.cellular) {
-                    self.connectionType = .cellular
-                } else if path.usesInterfaceType(.wiredEthernet) {
-                    self.connectionType = .ethernet
-                } else {
-                    self.connectionType = .none
-                }
-
-                if wasConnected != self.isConnected {
-                    self.logger.info("Network connectivity changed: isConnected=\(self.isConnected), type=\(self.connectionType.rawValue)")
-                    if self.isConnected, !wasConnected {
-                        NotificationCenter.default.post(name: .networkDidReconnect, object: self)
-                    }
+        monitorLock.withLock { monitor in
+            monitor.pathUpdateHandler = { [weak self] path in
+                Task { [weak self] in
+                    await self?.handlePathUpdate(path)
                 }
             }
+            monitor.start(queue: queue)
         }
-        monitor.start(queue: queue)
+    }
+
+    private func handlePathUpdate(_ path: NWPath) {
+        let wasConnected = isConnected
+        isConnected = path.status == .satisfied
+        isExpensive = path.isExpensive
+        isConstrained = path.isConstrained
+
+        if path.usesInterfaceType(.wifi) {
+            connectionType = .wifi
+        } else if path.usesInterfaceType(.cellular) {
+            connectionType = .cellular
+        } else if path.usesInterfaceType(.wiredEthernet) {
+            connectionType = .ethernet
+        } else {
+            connectionType = .none
+        }
+
+        if wasConnected != isConnected {
+            logger.info("Network connectivity changed: isConnected=\(self.isConnected), type=\(self.connectionType.rawValue)")
+            if isConnected, !wasConnected {
+                NotificationCenter.default.post(name: .networkDidReconnect, object: self)
+            }
+        }
     }
 }
 

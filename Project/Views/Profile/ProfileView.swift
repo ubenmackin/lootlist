@@ -698,6 +698,8 @@ final class ProfileViewModel {
     /// WHY Int64 pennies: ledger sums stay exact with no Double drift; renders via CurrencyFormatter.
     var goldBalance: Int64?
     var earnedAchievements: [AchievementCache] = []
+    /// WHY snapshot-fed: Views render this Bool so scope-gated authority never crosses into the View layer.
+    var isProfileAuthoritative: Bool = false
 
     private let eligibilityDefaults: UserDefaults
 
@@ -713,6 +715,7 @@ final class ProfileViewModel {
         savingsStreak = nil
         goldBalance = nil
         earnedAchievements = []
+        isProfileAuthoritative = false
         lastEligibilityKey = nil
         lastEarnedAchievements = []
     }
@@ -766,6 +769,11 @@ final class ProfileViewModel {
         earnedAchievements = lastEarnedAchievements
     }
 
+    /// WHY snapshot push: authority resolves off the cache snapshot so Views read a Bool.
+    func applyAuthoritySnapshot(profileAuthoritative: Bool, achievementAuthoritative: Bool) {
+        isProfileAuthoritative = profileAuthoritative && achievementAuthoritative
+    }
+
     /// WHY explicit record: recompute runs on every @Query update, so eligibility
     /// persists from .task rather than during view updates.
     func recordSavingsStreakMilestone() {
@@ -784,18 +792,22 @@ final class ProfileViewModel {
         var needsEarned = true
         var needsDefinitions = true
         if let cache = achievementService.cacheService {
-            let familyName = profile.family.recordID.recordName
-            let scope = (appState ?? achievementService.appState)?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
-            let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, scope: scope)
-            let achievementAuthoritative = family.map { fam in
-                cache.isCacheAuthoritative(familyRecordName: fam.id.recordName, type: .achievement, scope: scope)
-            } ?? true
-            if profileAuthoritative, achievementAuthoritative {
+            guard let authority = CacheFreshness.profileAuthority(
+                profile: profile,
+                family: family,
+                cache: cache,
+                appState: appState ?? achievementService.appState
+            ) else {
+                Logger(category: "ProfileView").debug("Profile freshness staying cache-only: unknown database scope")
+                return
+            }
+            applyAuthoritySnapshot(profileAuthoritative: authority.earned, achievementAuthoritative: authority.definitions)
+            if isProfileAuthoritative {
                 return
             }
             // WHY per-type gate: skip the fetch that is already hydrated so one stale scope never refetches both.
-            needsEarned = !profileAuthoritative
-            needsDefinitions = !achievementAuthoritative
+            needsEarned = !authority.earned
+            needsDefinitions = !authority.definitions
         }
         if needsEarned {
             do {

@@ -92,21 +92,25 @@ struct ChildHubView: View {
         familyRecordName ?? ""
     }
 
+    /// WHY Bool snapshot: placeholder gates read ViewModel-owned freshness so scope never crosses into the View.
+    private var isProfileFresh: Bool {
+        CacheFreshness.isProfileFresh(familyRecordName: targetFamilyForFreshness, appState: appState)
+    }
+
     private var isSyncingPlaceholder: Bool {
         guard currentProfileRow == nil else { return false }
         guard appState.authStatus == .authenticated else { return false }
         guard !targetFamilyForFreshness.isEmpty else { return false }
         let isEmpty = cachedQuests.isEmpty && cachedProfiles.isEmpty && cachedGoals.isEmpty
         guard isEmpty else { return false }
-        let isFresh = appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForFreshness, type: .profile) ?? false
-        return !isFresh
+        return !isProfileFresh
     }
 
     private var isProfileNotFoundPlaceholder: Bool {
         guard currentProfileRow == nil else { return false }
         guard appState.authStatus == .authenticated else { return false }
         guard !targetFamilyForFreshness.isEmpty else { return false }
-        return appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForFreshness, type: .profile) ?? false
+        return isProfileFresh
     }
 
     private var staleBannerCount: Int {
@@ -118,8 +122,13 @@ struct ChildHubView: View {
         )
     }
 
+    /// WHY struct-only: banner renders this snapshot so the engine handle never enters the View.
+    private var syncHealth: SyncHealthSnapshot {
+        lifecycleCoordinator?.syncHealthSnapshot ?? SyncHealthSnapshot()
+    }
+
     private var isBannerSyncing: Bool {
-        lifecycleCoordinator?.isSyncing == true
+        syncHealth.isSyncing
     }
 
     private var hubDisplayName: String? {
@@ -349,7 +358,7 @@ struct ChildHubView: View {
             return
         }
         let profile = row.toProfile(zoneID: zoneID)
-        Task { @MainActor @Sendable [logSnapshot, profile, qID] in
+        Task { [logSnapshot, profile, qID] in
             defer { submittingQuestIDs.remove(qID) }
             do {
                 try await questService.withdrawCompletion(questLog: logSnapshot, by: profile)
@@ -378,7 +387,7 @@ struct ChildHubView: View {
         }
         let profile = row.toProfile(zoneID: zoneID)
         let celebration = $showCelebration
-        Task { @MainActor @Sendable [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
+        Task { [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
             defer { submittingQuestIDs.remove(qID) }
             do {
                 let completion = try await questService.markComplete(
@@ -394,7 +403,7 @@ struct ChildHubView: View {
                     if isFinal {
                         HapticsService.success()
                         celebration.wrappedValue = true
-                        Task { @MainActor @Sendable [celebration] in
+                        Task { [celebration] in
                             do {
                                 try await Task.sleep(
                                     for: .seconds(DesignSystemConstants.Celebration.confettiLifetime)

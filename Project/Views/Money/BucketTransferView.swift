@@ -13,7 +13,7 @@ import SwiftUI
 /// moves per day), fires haptic.
 struct BucketTransferView: View {
     @Environment(AppState.self) private var appState
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
+    @Environment(BucketService.self) private var bucketService
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(\.dismiss) private var dismiss
 
@@ -39,14 +39,6 @@ struct BucketTransferView: View {
         // == profile.id) requires profile scope.
         let filter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _ledgerCaches = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
-    }
-
-    private var bucketService: BucketService {
-        BucketService(
-            cacheService: appState.cacheService as (any CacheServicing)?,
-            syncCoordinator: syncCoordinator,
-            appState: appState
-        )
     }
 
     private var profile: Profile? {

@@ -9,9 +9,7 @@ import CloudKit
 import Foundation
 import os
 
-/// Reward application and XP banking. Mints deterministic `reward-{completionID}`
-/// events via an atomic claim before crediting XP so CloudKit dedupes across
-/// devices; rolls loot drops after the quest bank advances.
+/// WHY atomic claim: deterministic reward minting dedupes across devices.
 @MainActor
 @Observable
 final class QuestRewardService {
@@ -19,7 +17,7 @@ final class QuestRewardService {
     let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService
     var appState: AppState
-    var syncCoordinator: CKSyncEngineCoordinator
+    var syncCoordinator: any SyncEnqueuing
     let xpService: XPService
     var treasuryService: TreasuryService?
     var lootDropService: LootDropService?
@@ -29,7 +27,7 @@ final class QuestRewardService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator,
+        syncCoordinator: any SyncEnqueuing,
         xpService: XPService,
         treasuryService: TreasuryService? = nil,
         lootDropService: LootDropService? = nil,
@@ -52,7 +50,7 @@ final class QuestRewardService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil,
         xpService: XPService? = nil,
         treasuryService: TreasuryService? = nil,
         lootDropService: LootDropService? = nil,
@@ -66,25 +64,44 @@ final class QuestRewardService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
-        let xp = xpService ?? XPService(cloudKit: cloudKit)
-        self.init(
-            cloudKit: cloudKit,
-            cacheService: cache,
-            appState: state,
-            syncCoordinator: coord,
-            xpService: xp,
-            treasuryService: treasuryService,
-            lootDropService: lootDropService,
-            toastManager: toastManager
-        )
+        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
+        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
+        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
+            let xp = xpService ?? XPService(cloudKit: cloudKit)
+            self.init(
+                cloudKit: cloudKit,
+                cacheService: cache,
+                appState: state,
+                syncCoordinator: coord,
+                xpService: xp,
+                treasuryService: treasuryService,
+                lootDropService: lootDropService,
+                toastManager: toastManager
+            )
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    // WHY test seam: unit tests inject no engine, so cache-only coordination keeps reads deterministic.
+                    Self.staticLogger.warning("QuestRewardService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("QuestRewardService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                let xp = xpService ?? XPService(cloudKit: cloudKit)
+                self.init(
+                    cloudKit: cloudKit,
+                    cacheService: cache,
+                    appState: state,
+                    syncCoordinator: NoopSyncEnqueuing(),
+                    xpService: xp,
+                    treasuryService: treasuryService,
+                    lootDropService: lootDropService,
+                    toastManager: toastManager
+                )
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("QuestRewardService requires a sync coordinator in production")
+            #endif
+        }
     }
 
     // MARK: - Reward Application & XP Banking
@@ -125,45 +142,52 @@ final class QuestRewardService {
         return alreadyCounted ? max(1, priorApproved) : max(1, priorApproved + 1)
     }
 
-    /// Cache-first log read backing the approved-count gate. Mirrors the
-    /// completion service's quest-scoped fetch so the reward path stays
-    /// self-contained without a service cycle; both ride `CacheFirst`.
+    /// WHY cache-first: reward path stays self-contained without a service cycle.
     private func fetchLogsForReward(forQuest quest: Quest) async throws -> [QuestCompletion] {
         let family = Family(
             name: "",
             creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
         )
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuestCompletions(family: family.id.recordName)
+                .filter { $0.questRecordName == quest.id.recordName }
+                .map { [quest] cache in cache.toQuestCompletion(zoneID: quest.id.zoneID) }
+                .sorted { $0.completedDate > $1.completedDate }
+        }
         return try await CacheFirst.cacheFirst(
             type: .questCompletion,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, quest] familyName in
-                cacheService.fetchQuestCompletions(family: familyName)
-                    .filter { $0.questRecordName == quest.id.recordName }
-            },
-            map: { [quest] cache in
-                cache.toQuestCompletion(zoneID: quest.id.zoneID)
-            },
-            query: { [cloudKit, quest] in
-                let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
-                let predicate = NSPredicate(format: "quest == %@", questRef)
-                return try await cloudKit.query(
-                    QuestCompletion.self,
-                    predicate: predicate,
-                    in: quest.id.zoneID,
-                    sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
-                )
-            },
-            hydrate: { [syncCoordinator, appState, quest] models in
-                await syncCoordinator.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: quest.id.zoneID
-                )
-            },
-            sortedBy: { $0.completedDate > $1.completedDate }
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService, quest] familyName in
+                    cacheService.fetchQuestCompletions(family: familyName)
+                        .filter { $0.questRecordName == quest.id.recordName }
+                },
+                map: { [quest] cache in
+                    cache.toQuestCompletion(zoneID: quest.id.zoneID)
+                },
+                query: { [cloudKit, quest] in
+                    let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
+                    let predicate = NSPredicate(format: "quest == %@", questRef)
+                    return try await cloudKit.query(
+                        QuestCompletion.self,
+                        predicate: predicate,
+                        in: quest.id.zoneID,
+                        sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                    )
+                },
+                hydrate: { [syncCoordinator, scope, quest] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: quest.id.zoneID
+                    )
+                },
+                sortedBy: { $0.completedDate > $1.completedDate }
+            )
         )
     }
 
@@ -221,7 +245,7 @@ final class QuestRewardService {
         do {
             let claimed = try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil)
             if !claimed {
-                // Loser: no phantom was persisted before claim, so ensure no pending enqueue remains.
+                // WHY loser drops phantom: no pending enqueue survives lost claim race.
                 await cacheService.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
                 syncCoordinator.dequeueSave(recordID: rewardID)
                 syncCoordinator.dequeueSave(recordID: currentQuest.id)
@@ -304,13 +328,13 @@ final class QuestRewardService {
     }
 
     private func enqueueRewardEvent(_ rewardEvent: RewardEvent) {
-        let isOwnerReward = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwnerReward = appState.isZoneOwner
-        if isOwnerReward != storedOwnerReward {
-            Logger(category: "QuestRewardService")
-                .warning("QuestRewardService.applyReward rewardEvent isOwner corrected via creator anchor: stored=\(storedOwnerReward) resolved=\(isOwnerReward)")
+        // WHY fail-closed: unknown scope never enqueues on a guessed database.
+        guard DatabaseScopeResolver.resolvedScope(appState: appState) != nil else {
+            logger.warning("QuestRewardService.applyReward dropped enqueue: unresolved scope")
+            return
         }
-        syncCoordinator.enqueueRewardEvent(rewardEvent, isOwner: isOwnerReward)
+        let isOwnerReward = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "QuestRewardService.applyReward")
+        syncCoordinator.enqueueSave(recordID: rewardEvent.id, isOwner: isOwnerReward)
     }
 
     private struct RewardBaselines {
@@ -501,20 +525,23 @@ final class QuestRewardService {
         )
     }
 
-    // WHY: Bespoke fallback to local profile streak without CloudKit query/hydrate — intentionally inline, not a CacheFirst flow.
+    /// WHY local streak: stats stay cache-first so offline evaluation still resolves.
     /// Computes quest completion streak from local cache without network round-trips.
     private func currentStreak(for hero: Profile, familyName: String) -> Int {
         let cache = cacheService
         let heroLogs = cache.fetchQuestCompletions(family: familyName)
             .filter { $0.completerRecordName == hero.id.recordName }
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
+        // WHY fail-closed: unknown scope falls back without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return hero.dailyLoginStreakDays
+        }
         if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope) {
             return hero.dailyLoginStreakDays
         }
         return StreakCalculator.computeStreak(from: heroLogs)
     }
 
-    // WHY: transient CloudKit errors keep optimistic reward + XP and remain queued; hard errors rollback.
+    /// WHY optimistic queue: transient errors keep reward queued, hard errors roll back.
     private func isTransientRewardError(_ error: Error) -> Bool {
         if let ckError = error as? CKError {
             switch ckError.code {

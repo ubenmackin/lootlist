@@ -438,8 +438,13 @@ struct GoalServiceFIFOTests {
         app.family = family
         app.currentProfile = hero
         app.authStatus = .authenticated
+        // WHY session: scope guards require active zone, so bind it before mutating.
+        app.familyZoneID = familyZoneID
+        app.isZoneOwner = true
 
         let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = familyZoneID
+        cloudKit.activeIsOwner = true
         let cache = try CacheService(inMemory: true)
         let goalService = GoalService(cloudKit: cloudKit, cacheService: cache, appState: app)
 

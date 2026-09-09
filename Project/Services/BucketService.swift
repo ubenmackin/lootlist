@@ -68,10 +68,26 @@ final class BucketService {
         return CacheService.inMemoryFallback(logger: Self.staticLogger)
     }
 
-    /// Convenience for read-only callers that only need balance attribution.
-    /// Uses the same container-backed cache instance but a no-op coordinator.
+    private static func resolveSyncCoordinator(_ syncCoordinator: (any SyncEnqueuing)?) -> any SyncEnqueuing {
+        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            return resolvedCoord
+        }
+        #if DEBUG
+            if TestEnvironment.isRunningUnitOrUITests {
+                Self.staticLogger.warning("BucketService initialized without syncCoordinator; using test Noop seam.")
+            } else {
+                Self.staticLogger.error("BucketService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+            }
+            return NoopSyncEnqueuing()
+        #else
+            // WHY fail-closed: production without engine must not drop writes.
+            preconditionFailure("BucketService requires a sync coordinator in production")
+        #endif
+    }
+
+    /// Convenience for callers that supply cacheService only.
     convenience init(cacheService: any CacheServicing) {
-        self.init(cacheService: cacheService, syncCoordinator: NoopSyncEnqueuing(), appState: AppState())
+        self.init(cacheService: cacheService, syncCoordinator: Self.resolveSyncCoordinator(nil), appState: AppState())
     }
 
     /// Legacy optional shim for call sites that have not yet migrated.
@@ -80,12 +96,12 @@ final class BucketService {
     }
 
     convenience init(cacheService: any CacheServicing, syncCoordinator: (any SyncEnqueuing)?, appState: AppState) {
-        self.init(cacheService: cacheService, syncCoordinator: syncCoordinator ?? NoopSyncEnqueuing(), appState: appState)
+        self.init(cacheService: cacheService, syncCoordinator: Self.resolveSyncCoordinator(syncCoordinator), appState: appState)
     }
 
     /// Optional-cache shim that also forwards an optional sync coordinator.
     convenience init(cacheService: (any CacheServicing)?, syncCoordinator: (any SyncEnqueuing)?, appState: AppState) {
-        self.init(cacheService: Self.resolveCache(cacheService), syncCoordinator: syncCoordinator, appState: appState)
+        self.init(cacheService: Self.resolveCache(cacheService), syncCoordinator: Self.resolveSyncCoordinator(syncCoordinator), appState: appState)
     }
 
     // MARK: - Split Math

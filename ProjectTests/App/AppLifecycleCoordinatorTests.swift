@@ -13,8 +13,7 @@ import Testing
 
 // MARK: - Test Doubles
 
-/// Gated sync double that parks `fetchChanges` until released.
-/// Lets tests open a deterministic in-flight window for single-flight assertions.
+/// WHY deterministic window: parked fetch proves single-flight collapse.
 @MainActor
 final class GatedSyncCoordinator: SyncCoordinating {
     private let gate = SyncGate()
@@ -115,17 +114,13 @@ private final class SyncGate: Sendable {
 
 @MainActor
 private func makeFamilyAndProfile(zoneID: CKRecordZone.ID) -> (Family, Profile) {
-    let family = Family(
-        name: "Test Guild",
-        creatorUserRecordName: "owner",
-        id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-    )
-    let profile = Profile(
+    // WHY shared source: single family/parent shape keeps scope anchor aligned.
+    let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner")
+    let profile = ExhaustiveCacheFixtures.sharedParent(
+        zoneID: zoneID,
         displayName: "GM",
-        role: .guildMaster,
-        iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
-        family: CKRecord.Reference(recordID: family.id, action: .none),
-        id: CKRecord.ID(recordName: "prof1", zoneID: zoneID)
+        recordName: "prof1",
+        iCloudRecordName: MockCloudKitService.mockUserRecordName
     )
     return (family, profile)
 }
@@ -699,7 +694,7 @@ struct AppLifecycleCoordinatorTests {
 
         // Precondition: no freshness before foreground sync.
         for type in CachedRecordType.allCases {
-            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type, scope: .shared) == false)
             #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type, scope: .private) == false)
         }
 
@@ -712,7 +707,7 @@ struct AppLifecycleCoordinatorTests {
         // which ultimately stamps cache_fresh_<family>_<type>_<scope> per type/scope.
         for type in CachedRecordType.allCases where type.fetchScopes.contains(.private) {
             #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type, scope: .private) == true)
-            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type) == true)
+            #expect(cache.isCacheAuthoritative(familyRecordName: "fg-family", type: type, scope: .private) == true)
         }
         // Shared-scope types must not be stamped by a private-only pass.
         for type in CachedRecordType.allCases where !type.fetchScopes.contains(.private) {
@@ -765,7 +760,7 @@ struct AppLifecycleCoordinatorTests {
             hasParseFailures: true
         )
         for type in CachedRecordType.allCases {
-            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .shared) == false)
             #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .private) == false)
         }
 
@@ -783,7 +778,8 @@ struct AppLifecycleCoordinatorTests {
             hasCacheWriteFailures: true
         )
         for type in CachedRecordType.allCases {
-            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .private) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .shared) == false)
         }
 
         // Incomplete scope — active has private+shared but only private completed.
@@ -799,7 +795,8 @@ struct AppLifecycleCoordinatorTests {
             completedScopes: [.private]
         )
         for type in CachedRecordType.allCases {
-            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .private) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .shared) == false)
         }
     }
 

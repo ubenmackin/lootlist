@@ -66,6 +66,13 @@ extension QuestServiceTests {
 
         cloudKit.seedMockRecords([family, hero, quest])
 
+        // WHY session: fail-closed reads require active scope, so bind it before querying.
+        questService.appState.family = family
+        questService.appState.familyZoneID = zoneID
+        questService.appState.isZoneOwner = true
+        questService.appState.currentProfile = hero
+        cloudKit.activeIsOwner = true
+
         let activeQuests = try await questService.fetchActiveQuests(profile: hero, weekOf: monday)
 
         #expect(activeQuests.count == 1)
@@ -128,6 +135,13 @@ extension QuestServiceTests {
 
         cloudKit.seedMockRecords([family, hero, quest])
 
+        // WHY session: fail-closed reads require active scope, so bind it before querying.
+        questService.appState.family = family
+        questService.appState.familyZoneID = zoneID
+        questService.appState.isZoneOwner = true
+        questService.appState.currentProfile = hero
+        cloudKit.activeIsOwner = true
+
         let activeQuests = try await questService.fetchActiveQuests(profile: hero, weekOf: fridayStart)
 
         #expect(activeQuests.count == 1)
@@ -185,6 +199,13 @@ extension QuestServiceTests {
         )
 
         cloudKit.seedMockRecords([family, hero, quest])
+
+        // WHY session: fail-closed reads require active scope, so bind it before querying.
+        questService.appState.family = family
+        questService.appState.familyZoneID = zoneID
+        questService.appState.isZoneOwner = true
+        questService.appState.currentProfile = hero
+        cloudKit.activeIsOwner = true
 
         let activeQuests = try await questService.fetchActiveQuests(profile: hero, weekOf: monday)
 

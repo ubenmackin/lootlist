@@ -15,8 +15,8 @@ struct MockCloudKitServiceTests {
     @Test
     func `mock share title round-trips the hero role token`() async throws {
         let mock = MockCloudKitService()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let rootID = CKRecord.ID(recordName: "root", zoneID: zoneID)
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let rootID = ExhaustiveCacheFixtures.id("root", zoneID: zoneID)
 
         let share = try await mock.fetchOrCreateShare(for: rootID, role: .hero)
 
@@ -28,8 +28,8 @@ struct MockCloudKitServiceTests {
     @Test
     func `cloud kit service mints distinct role-titled shares on happy path`() async throws {
         let cloudKit = MockCloudKitService()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let rootID = CKRecord.ID(recordName: "root", zoneID: zoneID)
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let rootID = ExhaustiveCacheFixtures.id("root", zoneID: zoneID)
 
         let rangerShare = try await cloudKit.fetchOrCreateShare(for: rootID, role: .ranger)
         let heroShare = try await cloudKit.fetchOrCreateShare(for: rootID, role: .hero)
@@ -44,8 +44,8 @@ struct MockCloudKitServiceTests {
     @Test
     func `removeParticipant by identity revokes from both hero and ranger shares`() async throws {
         let mock = MockCloudKitService()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let rootID = CKRecord.ID(recordName: "root", zoneID: zoneID)
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let rootID = ExhaustiveCacheFixtures.id("root", zoneID: zoneID)
 
         // A family root carries two coexisting role shares; the same identity
         // ("memberKid") can be invited onto both. CloudKit cannot fabricate
@@ -80,8 +80,8 @@ struct MockCloudKitServiceTests {
         let zoneA = CKRecordZone.ID(zoneName: "ZoneA", ownerName: "OwnerA")
         let zoneB = CKRecordZone.ID(zoneName: "ZoneB", ownerName: "OwnerB")
 
-        let famA = Family(name: "Family A", creatorUserRecordName: "uA", id: CKRecord.ID(recordName: "fam1", zoneID: zoneA))
-        let famB = Family(name: "Family B", creatorUserRecordName: "uB", id: CKRecord.ID(recordName: "fam1", zoneID: zoneB))
+        let famA = Family(name: "Family A", creatorUserRecordName: "uA", id: ExhaustiveCacheFixtures.id("fam1", zoneID: zoneA))
+        let famB = Family(name: "Family B", creatorUserRecordName: "uB", id: ExhaustiveCacheFixtures.id("fam1", zoneID: zoneB))
 
         // Save famA in zoneA under private database
         mock.activeFamilyZoneID = zoneA

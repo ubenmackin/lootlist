@@ -88,9 +88,7 @@ struct LedgerCSVParserTests {
 
     @Test
     func `literal leading apostrophe text is preserved verbatim`() {
-        // A lone apostrophe followed by a non-formula character is real text,
-        // not a spreadsheet guard — it must survive parsing untouched so its
-        // content hash stays stable across re-imports.
+        // WHY hash stability: literal apostrophe text must survive untouched.
         let csv = "2026-08-01,'90s toy,Vintage Shop,5.00,Ava"
         let rows = LedgerCSVParser.parse(csv)
         #expect(rows.count == 1)
@@ -111,7 +109,7 @@ struct LedgerCSVParserTests {
         #expect(LedgerCSVParser.parseDate("8/9/2026") != nil)
         #expect(LedgerCSVParser.parseDate("Aug 9, 2026") != nil)
         #expect(LedgerCSVParser.parseDate("August 9, 2026") != nil)
-        // Locale-independent determinism: US format never flips month/day.
+        // WHY determinism: US format never flips month/day.
         let augustNinth = LedgerCSVParser.parseDate("08/09/2026")
         #expect(augustNinth.map { Calendar.iso8601UTC.component(.month, from: $0) } == 8)
         #expect(augustNinth.map { Calendar.iso8601UTC.component(.day, from: $0) } == 9)
@@ -187,46 +185,7 @@ struct LedgerImportServiceTests {
     // MARK: - Shared Fixtures
 
     private func makeZoneID() -> CKRecordZone.ID {
-        CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-    }
-
-    private func makeFamilyRef(_ zoneID: CKRecordZone.ID) -> CKRecord.Reference {
-        CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-            action: .none
-        )
-    }
-
-    private func makeParent(_ zoneID: CKRecordZone.ID) -> Profile {
-        Profile(
-            displayName: "Guild Master",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
-            family: makeFamilyRef(zoneID),
-            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
-        )
-    }
-
-    private func makeHero(_ zoneID: CKRecordZone.ID, name: String = "Ava", recordName: String = "hero1") -> Profile {
-        Profile(
-            displayName: name,
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: recordName, zoneID: zoneID),
-            family: makeFamilyRef(zoneID),
-            id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
-        )
-    }
-
-    private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Test Guild",
-            creatorUserRecordName: "parent1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        ExhaustiveCacheFixtures.sharedZoneID
     }
 
     private func setupActiveScope(
@@ -265,8 +224,13 @@ struct LedgerImportServiceTests {
         let appState = AppState()
         let service = LedgerImportService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: makeParent(zoneID))
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        setupActiveScope(
+            appState: appState,
+            cloudKit: cloudKit,
+            family: family,
+            actingProfile: ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Guild Master", iCloudRecordName: "parent1")
+        )
 
         let summary = try await service.finalize([makeAssignedRow()], family: family)
 
@@ -286,14 +250,19 @@ struct LedgerImportServiceTests {
         let appState = AppState()
         let service = LedgerImportService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: makeParent(zoneID))
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        setupActiveScope(
+            appState: appState,
+            cloudKit: cloudKit,
+            family: family,
+            actingProfile: ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Guild Master", iCloudRecordName: "parent1")
+        )
 
         let firstRun = try await service.finalize([makeAssignedRow()], family: family)
         #expect(firstRun.importedCount == 1)
         #expect(firstRun.skippedDuplicates == 0)
 
-        // Double-run safety: same content hashes to the same deterministic ID.
+        // WHY idempotency: same content must hash to the same deterministic ID.
         let secondRun = try await service.finalize([makeAssignedRow()], family: family)
         #expect(secondRun.importedCount == 0)
         #expect(secondRun.skippedDuplicates == 1)
@@ -310,11 +279,15 @@ struct LedgerImportServiceTests {
         let appState = AppState()
         let service = LedgerImportService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: makeParent(zoneID))
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        setupActiveScope(
+            appState: appState,
+            cloudKit: cloudKit,
+            family: family,
+            actingProfile: ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Guild Master", iCloudRecordName: "parent1")
+        )
 
-        // Round-trip safety for literal apostrophe text: parsing the same
-        // content twice yields identical deterministic IDs.
+        // WHY dedup stability: same parse must yield identical deterministic IDs.
         let rowA = makeAssignedRow(description: "'90s toy")
         let rowB = makeAssignedRow(description: "'90s toy")
         #expect(
@@ -333,8 +306,7 @@ struct LedgerImportServiceTests {
         #expect(cached.count == 1, "Literal apostrophe text must not duplicate on re-import")
         #expect(cached.first?.entryDescription == "'90s toy")
 
-        // The formula-guarded variant strips to different text ("=90s toy"),
-        // so it must never collide with the literal "'90s toy" entry.
+        // WHY no collision: guarded text strips to different content.
         let guardedRow = makeAssignedRow(description: "'=90s toy")
         #expect(guardedRow.descriptionText == "=90s toy")
         #expect(
@@ -365,8 +337,13 @@ struct LedgerImportServiceTests {
         let appState = AppState()
         let service = LedgerImportService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: makeParent(zoneID))
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        setupActiveScope(
+            appState: appState,
+            cloudKit: cloudKit,
+            family: family,
+            actingProfile: ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Guild Master", iCloudRecordName: "parent1")
+        )
 
         var unassigned = makeAssignedRow()
         unassigned.assignedProfileRecordName = nil
@@ -385,8 +362,13 @@ struct LedgerImportServiceTests {
         let appState = AppState()
         let service = LedgerImportService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: makeParent(zoneID))
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        setupActiveScope(
+            appState: appState,
+            cloudKit: cloudKit,
+            family: family,
+            actingProfile: ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Guild Master", iCloudRecordName: "parent1")
+        )
 
         var malformed = LedgerCSVParser.parse("not a date,Bad,Store,nope,Ava")[0]
         malformed.isExcluded = true
@@ -405,8 +387,13 @@ struct LedgerImportServiceTests {
         let appState = AppState()
         let service = LedgerImportService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: makeHero(zoneID))
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        setupActiveScope(
+            appState: appState,
+            cloudKit: cloudKit,
+            family: family,
+            actingProfile: ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Ava", iCloudRecordName: "hero1")
+        )
 
         do {
             _ = try await service.finalize([makeAssignedRow()], family: family)

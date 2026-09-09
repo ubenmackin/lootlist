@@ -12,14 +12,18 @@ import SwiftData
 
 private let cacheConversionsLogger = Logger(category: "CacheConversions")
 
-/// Returns private/shared from zone owner — private zones use default owner or non-underscore names
-/// (tests), shared zones start with "_".
-func inferDatabaseScope(from zoneID: CKRecordZone.ID) -> String {
+/// WHY sanctioned exception: cache metadata lacks session anchor so zone-owner heuristic stays local; mapping rides single resolver.
+func inferDatabaseScope(from zoneID: CKRecordZone.ID) -> String? {
     let owner = zoneID.ownerName
-    if owner == CKCurrentUserDefaultName || owner == "TestOwner" || owner == "Owner" || !owner.hasPrefix("_") {
-        return "private"
-    }
-    return "shared"
+    // WHY unknown owner proves nothing: empty stays nil so validation defers instead of guessing private.
+    guard !owner.isEmpty else { return nil }
+    #if DEBUG
+        let isOwner = owner == CKCurrentUserDefaultName || (TestEnvironment.isRunningUnitOrUITests && (owner == "TestOwner" || owner == "Owner")) || !owner.hasPrefix("_")
+    #else
+        let isOwner = owner == CKCurrentUserDefaultName || !owner.hasPrefix("_")
+    #endif
+    let scope = DatabaseScopeResolver.scope(isOwner: isOwner)
+    return scope == .private ? "private" : "shared"
 }
 
 extension FamilyScopedCache {
@@ -43,7 +47,8 @@ extension FamilyScopedCache {
     }
 
     func validatedDatabaseScope(expectedScope: CKDatabase.Scope) -> CKDatabase.Scope? {
-        guard let persisted = persistedDatabaseScope else { return expectedScope }
+        // WHY fail-closed: missing scope proves nothing, so reject instead of guessing.
+        guard let persisted = persistedDatabaseScope else { return nil }
         guard persisted == expectedScope else {
             cacheConversionsLogger.warning(
                 "Database scope mismatch: expected \(String(describing: expectedScope), privacy: .public) got \(self.sourceDatabaseScope ?? "nil", privacy: .private)"
@@ -54,8 +59,7 @@ extension FamilyScopedCache {
     }
 }
 
-/// Shared system-field handling so each toDomain copy doesn't repeat
-/// validatedZoneID + changeTag/encodedSystemFields boilerplate.
+/// WHY single path: domain copies share zone/system-field hydration.
 protocol DomainSystemFields {
     var changeTag: String? { get set }
     var encodedSystemFields: Data? { get set }

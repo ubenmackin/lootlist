@@ -591,7 +591,7 @@ struct MyChoresView: View {
             return
         }
         let profile = row.toProfile(zoneID: zoneID)
-        Task { @MainActor @Sendable [logSnapshot, profile, qID] in
+        Task { [logSnapshot, profile, qID] in
             defer { submittingQuestIDs.remove(qID) }
             do {
                 try await questService.withdrawCompletion(questLog: logSnapshot, by: profile)
@@ -619,7 +619,7 @@ struct MyChoresView: View {
         }
         let profile = row.toProfile(zoneID: zoneID)
         let celebration = $showCelebration
-        Task { @MainActor @Sendable [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
+        Task { [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
             defer { submittingQuestIDs.remove(qID) }
             do {
                 let completion = try await questService.markComplete(
@@ -635,7 +635,7 @@ struct MyChoresView: View {
                     if isFinal {
                         HapticsService.success()
                         celebration.wrappedValue = true
-                        Task { @MainActor @Sendable [celebration] in
+                        Task { [celebration] in
                             do {
                                 try await Task.sleep(
                                     for: .seconds(DesignSystemConstants.Celebration.confettiLifetime)

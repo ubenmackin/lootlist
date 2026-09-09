@@ -80,24 +80,23 @@ class SpendingService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing
-        if let syncCoordinator {
-            coord = syncCoordinator
-        } else if let ck = cloudKit as? CloudKitService {
-            // WHY: delegate stack still needs the concrete cache for hydration;
-            // reuse the injected cache when it is concrete so reads and writes share one store.
-            let concreteCache = cache as? CacheService ?? CacheService.inMemoryFallback(logger: Self.staticLogger)
-            let delegate = CKSyncEngineDelegateHandler(
-                backgroundCache: nil,
-                conflictResolver: CKSyncConflictResolver(cacheService: concreteCache, backgroundCache: nil, toastManager: nil, appState: state),
-                cacheService: concreteCache,
-                appState: state
-            )
-            coord = CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        // WHY single stack: shared coordinator owns hydration; ephemeral engines fork freshness.
+        if let coord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
         } else {
-            coord = NoopSyncEnqueuing()
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    // WHY test seam: unit tests inject no engine, so cache-only coordination keeps reads deterministic.
+                    Self.staticLogger.warning("SpendingService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("SpendingService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("SpendingService requires a sync coordinator in production")
+            #endif
         }
-        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 
     func isAvailable() -> Bool {

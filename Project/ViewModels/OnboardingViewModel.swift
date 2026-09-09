@@ -201,7 +201,7 @@ final class OnboardingViewModel {
         }
         checkForExistingHero()
         // Schedule join on next runloop so navigation settles before the async join mutates state.
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             await Task.yield()
             await self?.joinFamilyViaAcceptedShareClaimed()
         }

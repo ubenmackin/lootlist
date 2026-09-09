@@ -24,31 +24,17 @@ struct TransferTestScaffold {
     private let familyRef: CKRecord.Reference
 
     init() throws {
-        zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let mock = MockCloudKitService(zoneID: zoneID)
         cache = try CacheService(inMemory: true)
         appState = AppState()
-        hero = Profile(
-            displayName: "Test Hero",
-            role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
-            family: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-            ),
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        )
-        family = Family(
-            name: "Test Family",
-            creatorUserRecordName: "u1",
-            payoutDay: .sunday,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Test Family", creatorUserRecordName: "u1")
         appState.currentProfile = hero
         appState.family = family
         appState.familyZoneID = zoneID
-        // The engine never initializes under TestEnvironment, so enqueued
-        // saves buffer in memory instead of reaching CloudKit.
-        let handler = CKSyncEngineDelegateHandler(conflictResolver: CKSyncConflictResolver())
+        // WHY app-owned resolver persists merges against the test cache/session.
+        let handler = ExhaustiveCacheFixtures.appOwnedHandler(cache: cache, appState: appState)
         let coordinator = CKSyncEngineCoordinator(cloudKitService: mock, delegateHandler: handler, appState: appState)
         buckets = BucketService(cacheService: cache, syncCoordinator: coordinator, appState: appState)
         profileRef = CKRecord.Reference(recordID: hero.id, action: .none)
@@ -71,7 +57,7 @@ struct TransferTestScaffold {
             fromBucket: fromBucket,
             toBucket: toBucket,
             family: familyRef,
-            id: CKRecord.ID(recordName: name, zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(name, zoneID: zoneID)
         )))
         _ = cache.saveContext()
     }

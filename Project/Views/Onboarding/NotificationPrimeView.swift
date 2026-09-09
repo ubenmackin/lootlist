@@ -195,7 +195,7 @@ struct NotificationPrimeView: View {
     // MARK: - Handlers
 
     private func handleEnable() {
-        Task { @MainActor in
+        Task {
             isRequesting = true
             defer { isRequesting = false }
             do {

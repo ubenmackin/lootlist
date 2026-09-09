@@ -87,17 +87,12 @@ final class FamilyDashboardViewModel {
     /// Observes roster changes to refresh invitations when members join or leave.
     func startRosterObserver() {
         guard rosterObserverTask == nil else { return }
-        rosterObserverTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "startRosterObserver must hop to MainActor")
-            #endif
+        rosterObserverTask = Task { [weak self] in
             await withTaskCancellationHandler {
                 for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
                     guard !Task.isCancelled else { break }
                     guard let self else { break }
-                    #if DEBUG
-                        assert(Thread.isMainThread)
-                    #endif
+                    // WHY hop: notification sequence resumes off isolation, so awaiting re-enters MainActor before touching view state.
                     await self.refreshInvitations()
                 }
             } onCancel: {}
@@ -500,20 +495,15 @@ final class FamilyDashboardViewModel {
         guard syncSubscriptionID == nil else { return }
         let (stream, id) = coordinator.subscribe()
         syncSubscriptionID = id
-        syncTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "subscribeToSyncEvents must hop to MainActor")
-            #endif
+        syncTask = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
-                #if DEBUG
-                    assert(Thread.isMainThread)
-                #endif
+                // WHY hop: stream resumes off isolation, so awaiting re-enters MainActor before touching view state.
                 switch event {
                 case .recordChanged:
-                    handleRecordChangedSync()
+                    self.handleRecordChangedSync()
                 case .shareAccepted, .zoneReset:
-                    await refresh()
+                    await self.refresh()
                 }
             }
         }

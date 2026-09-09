@@ -13,7 +13,6 @@ struct TreasuryView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     private let spending: SpendingService
 
@@ -135,13 +134,7 @@ struct TreasuryView: View {
                 toastManager?.show(message: newError, type: .error)
             }
         }
-        .onChange(of: syncCoordinator?.pendingUploadCount) { _, _ in
-            pushSyncSnapshot()
-        }
-        .onChange(of: syncCoordinator?.lastSyncedAt) { _, _ in
-            pushSyncSnapshot()
-        }
-        .onChange(of: syncCoordinator?.isSyncing) { _, _ in
+        .onChange(of: syncHealth) { _, _ in
             pushSyncSnapshot()
         }
         .refreshable {
@@ -268,7 +261,7 @@ struct TreasuryView: View {
                 family: targetFamilyForStale,
                 type: .ledgerEntry,
                 count: cachedLedgers.count + cachedCompletions.count,
-                isSyncing: lifecycleCoordinator?.isSyncing == true
+                isSyncing: syncHealth.isSyncing
             )
             .padding(.horizontal)
         }
@@ -305,31 +298,37 @@ struct TreasuryView: View {
         }
     }
 
+    /// WHY struct-only: footnote and banner render this snapshot so the engine handle never enters the View.
+    private var syncHealth: SyncHealthSnapshot {
+        lifecycleCoordinator?.syncHealthSnapshot ?? SyncHealthSnapshot()
+    }
+
     /// WHY prod-safe subset: inline footnote mirrors iCloudStatusView counts without DEBUG diagnostics.
     private var syncFootnote: some View {
         SyncFootnoteView(
             pendingCount: pendingCount,
-            isSyncing: lifecycleCoordinator?.isSyncing == true,
-            lastSyncedAt: viewModel?.lastSyncedAt ?? syncCoordinator?.lastSyncedAt
+            isSyncing: syncHealth.isSyncing,
+            lastSyncedAt: viewModel?.lastSyncedAt ?? syncHealth.lastSyncedAt
         )
         .accessibilityIdentifier("treasury.syncFootnote")
     }
 
-    /// WHY scope-free probe: empty cache is never stale so freshness alone decides empty versus loading.
+    /// WHY Bool snapshot: empty-versus-loading reads ViewModel-owned freshness so scope never crosses into the View.
     private var isLedgerFresh: Bool {
-        guard !targetFamilyForStale.isEmpty else { return false }
-        return appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForStale, type: .ledgerEntry) ?? false
+        CacheFreshness.isLedgerFresh(familyRecordName: targetFamilyForStale, appState: appState)
     }
 
-    /// WHY single source: footnote reads the pushed snapshot with coordinator fallback in one place.
+    /// WHY single source: footnote reads the pushed snapshot with lifecycle fallback in one place.
     private var pendingCount: Int {
-        viewModel?.pendingUploadCount ?? syncCoordinator?.pendingUploadCount ?? 0
+        // WHY lifecycle health: footnote counts ride the lifecycle layer so the engine handle never enters the View.
+        viewModel?.pendingUploadCount ?? syncHealth.pendingUploadCount
     }
 
     private func pushSyncSnapshot() {
+        // WHY lifecycle health: snapshot pushes ride the lifecycle layer so the engine handle never enters the View.
         viewModel?.applySyncSnapshot(
-            pendingUploadCount: syncCoordinator?.pendingUploadCount ?? 0,
-            lastSyncedAt: syncCoordinator?.lastSyncedAt
+            pendingUploadCount: syncHealth.pendingUploadCount,
+            lastSyncedAt: syncHealth.lastSyncedAt
         )
     }
 

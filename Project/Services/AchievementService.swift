@@ -9,8 +9,7 @@ import CloudKit
 import Foundation
 import os
 
-/// V1 Trophy Spec (12) — canonical source for AchievementRequirement. Must stay in sync with ARCHITECTURE.md §1 (quest-count tiers + First Goal Created + Goal Getter);
-/// TrophyRoomViewModel builds its canonical lookup via `requirementTypeEnum?.rawValue ?? recordName`.
+/// WHY canonical source: AchievementRequirement stays in sync with ARCHITECTURE.md §1.
 enum AchievementRequirement: String, CaseIterable, Codable, Sendable {
     case firstQuest
     case questCount10
@@ -86,8 +85,8 @@ struct ProfileStats: Sendable {
 final class AchievementService {
     private let logger = Logger(category: "AchievementService")
 
-    let cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
+    let cacheService: (any CacheServicing)?
+    var syncCoordinator: (any SyncEnqueuing)?
 
     let toastManager: ToastManager?
 
@@ -100,11 +99,11 @@ final class AchievementService {
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
+        cacheService: (any CacheServicing)? = nil,
         toastManager: ToastManager? = nil,
         appState: AppState? = nil,
         celebrationManager: CelebrationManager? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -118,6 +117,7 @@ final class AchievementService {
 
     func seedDefaultAchievements(family: Family) async throws {
         guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
+            logger.warning("Unauthorized attempt to seed default achievements")
             return
         }
 
@@ -125,10 +125,9 @@ final class AchievementService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)
 
-        if let cache = cacheService {
+        if let cache = cacheService, let scope = DatabaseScopeResolver.resolvedScope(appState: appState) {
             let cached = cache.fetchAchievements(family: familyName)
             let cachedIDs = Set(cached.map(\.recordName))
-            let scope: CKDatabase.Scope = appState.activeDatabaseScope
             // WHY: Bespoke seeding gate with set-membership check across defaults — intentionally inline, not a single-type CacheFirst flow.
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope),
                defaults.allSatisfy({ cachedIDs.contains($0.id.recordName) })
@@ -154,163 +153,20 @@ final class AchievementService {
         }
     }
 
-    static func defaultAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
-        questAchievements(for: familyRef)
-            + streakAchievements(for: familyRef)
-            + goalAchievements(for: familyRef)
-            + specialAchievements(for: familyRef)
-    }
-
-    static func questAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
-        let zoneID = familyRef.recordID.zoneID
-        return [
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.firstQuest.rawValue)", zoneID: zoneID),
-                name: "First Steps",
-                description: "Complete your first quest",
-                iconSystemName: "shoeprints.fill",
-                category: AchievementCategory.quest,
-                requirementType: AchievementRequirement.firstQuest,
-                requirementValue: 1,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.questCount10.rawValue)", zoneID: zoneID),
-                name: "Questing Squire",
-                description: "Complete 10 quests",
-                iconSystemName: "flag.checkered",
-                category: AchievementCategory.quest,
-                requirementType: AchievementRequirement.questCount10,
-                requirementValue: 10,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.questCount25.rawValue)", zoneID: zoneID),
-                name: "Questing Apprentice",
-                description: "Complete 25 quests",
-                iconSystemName: "flag.2.crossed.fill",
-                category: AchievementCategory.quest,
-                requirementType: AchievementRequirement.questCount25,
-                requirementValue: 25,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.questCount50.rawValue)", zoneID: zoneID),
-                name: "Quest Knight",
-                description: "Complete 50 quests",
-                iconSystemName: "figure.fencing",
-                category: AchievementCategory.quest,
-                requirementType: AchievementRequirement.questCount50,
-                requirementValue: 50,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.questCount100.rawValue)", zoneID: zoneID),
-                name: "Quest Legend",
-                description: "Complete 100 quests",
-                iconSystemName: "trophy.fill",
-                category: AchievementCategory.quest,
-                requirementType: AchievementRequirement.questCount100,
-                requirementValue: 100,
-                family: familyRef
-            )
-        ]
-    }
-
-    static func streakAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
-        let zoneID = familyRef.recordID.zoneID
-        return [
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.streak7.rawValue)", zoneID: zoneID),
-                name: "Iron Will",
-                description: "7-day streak",
-                iconSystemName: "flame.fill",
-                category: AchievementCategory.streak,
-                requirementType: AchievementRequirement.streak7,
-                requirementValue: 7,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.streak30.rawValue)", zoneID: zoneID),
-                name: "Unstoppable",
-                description: "30-day streak",
-                iconSystemName: "bolt.fill",
-                category: AchievementCategory.streak,
-                requirementType: AchievementRequirement.streak30,
-                requirementValue: 30,
-                family: familyRef
-            )
-        ]
-    }
-
-    static func goalAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
-        let zoneID = familyRef.recordID.zoneID
-        return [
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.firstGoalCreated.rawValue)", zoneID: zoneID),
-                name: "First Goal Created",
-                description: "Create your first savings goal",
-                iconSystemName: "target",
-                category: AchievementCategory.goal,
-                requirementType: AchievementRequirement.firstGoalCreated,
-                requirementValue: 1,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.goalGetter.rawValue)", zoneID: zoneID),
-                name: "Goal Getter",
-                description: "Reach a savings goal",
-                iconSystemName: "star.circle.fill",
-                category: AchievementCategory.goal,
-                requirementType: AchievementRequirement.goalGetter,
-                requirementValue: 1,
-                family: familyRef
-            )
-        ]
-    }
-
-    static func specialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
-        let zoneID = familyRef.recordID.zoneID
-        return [
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.weekly100.rawValue)", zoneID: zoneID),
-                name: "Week Warrior",
-                description: "Complete all quests in a week",
-                iconSystemName: "calendar.badge.checkmark",
-                category: AchievementCategory.special,
-                requirementType: AchievementRequirement.weekly100,
-                requirementValue: 1,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.ledgerCount10.rawValue)", zoneID: zoneID),
-                name: "Chronicler",
-                description: "Log 10 spending entries",
-                iconSystemName: "scroll.fill",
-                category: AchievementCategory.special,
-                requirementType: AchievementRequirement.ledgerCount10,
-                requirementValue: 10,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.earlyBird9am.rawValue)", zoneID: zoneID),
-                name: "Early Bird",
-                description: "Complete a quest before 9 AM",
-                iconSystemName: "sun.max.fill",
-                category: AchievementCategory.special,
-                requirementType: AchievementRequirement.earlyBird9am,
-                requirementValue: 1,
-                family: familyRef
-            )
-        ]
-    }
-
     func cachedOrSeededAchievementCaches(for family: Family) -> [AchievementCache] {
         let familyName = family.id.recordName
         if let cache = cacheService {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
-                return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
+            if let scope = DatabaseScopeResolver.resolvedScope(appState: appState) {
+                if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
+                    return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
+                }
+            } else {
+                // WHY fail-closed: unknown scope serves cache only without guessing a database.
+                logger.debug("Achievement cache read serving cache-only: unknown database scope for family '\(familyName, privacy: .private)'")
+                let cached = cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
+                if !cached.isEmpty {
+                    return cached
+                }
             }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -319,16 +175,26 @@ final class AchievementService {
 
     func ensureDefaultAchievements(for family: Family) async -> [AchievementCache] {
         let familyName = family.id.recordName
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Achievement defaults serving cache-only: unknown database scope for family '\(familyName, privacy: .private)'")
+            if let cache = cacheService {
+                let cached = cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
+                if !cached.isEmpty {
+                    return cached
+                }
+            }
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            return Self.defaultAchievements(for: familyRef).map { AchievementCache(from: $0) }.sorted { $0.name < $1.name }
+        }
         if let cache = cacheService {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
                 return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
             }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)
-        if let handler = syncCoordinator?.delegateHandler {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+        if let handler = syncCoordinator?.hydrationHandler {
             await handler.hydrateFromQuery(models: defaults, databaseScope: scope, zoneID: family.id.zoneID)
             if appState?.currentProfile?.role.isParent == true {
                 ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
@@ -359,9 +225,33 @@ final class AchievementService {
     // WHY: Bespoke fallback seeding default achievements when CloudKit empty — intentionally inline, not a single-type CacheFirst flow.
     func fetchAllDefinitions(family: Family) async throws -> [Achievement] {
         let familyName = family.id.recordName
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Achievement definitions serving cache-only: unknown database scope for family '\(familyName, privacy: .private)'")
+            if let cache = cacheService {
+                let cached = cache.fetchAchievements(family: familyName)
+                if !cached.isEmpty {
+                    return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
+                }
+            }
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let defaults = Self.defaultAchievements(for: familyRef)
+            for achievement in defaults {
+                await cacheService?.upsertAchievement(achievement)
+                if appState?.currentProfile?.role.isParent == true {
+                    ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                        syncCoordinator,
+                        id: achievement.id,
+                        appState: appState,
+                        logger: logger,
+                        context: "AchievementService.fetchAllDefinitions.fallback"
+                    )
+                }
+            }
+            return defaults
+        }
         if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
                 return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
             }
@@ -371,9 +261,9 @@ final class AchievementService {
         do {
             let results = try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
             if !results.isEmpty {
-                await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                     models: results,
-                    databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                    databaseScope: scope,
                     zoneID: family.id.zoneID
                 )
                 return results
@@ -407,8 +297,21 @@ final class AchievementService {
         let primaryFamilyName = family?.id.recordName ?? profile.family.recordID.recordName
         let fallbackFamilyName = profile.family.recordID.recordName
 
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Earned achievements serving cache-only: unknown database scope for family '\(primaryFamilyName, privacy: .private)'")
+            if let cache = cacheService {
+                var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
+                if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
+                }
+                return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
+                    .sorted { $0.earnedDate > $1.earnedDate }
+            }
+            return []
+        }
+
         if let cache = cacheService {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .profileAchievement, scope: scope) {
                 return cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
                     .map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
@@ -425,9 +328,9 @@ final class AchievementService {
                 in: profile.id.zoneID,
                 sortDescriptors: [NSSortDescriptor(key: "earnedDate", ascending: false)]
             )
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                 models: results,
-                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                databaseScope: scope,
                 zoneID: profile.id.zoneID
             )
             return results
@@ -537,9 +440,7 @@ final class AchievementService {
 
         await sendAwardNotifications(for: awarded, to: profile)
 
-        // Forward newly awarded achievements to the celebration surface ONLY if the
-        // current active device is the hero who earned the achievement. Parents approving
-        // quests remotely must not see child trophy unlock toasts/confetti on their device.
+        // Forward newly awarded achievements to the celebration surface only on the earner's device.
         let isParentActingOnChild = (appState?.currentProfile?.role.isParent == true && appState?.currentProfile?.id != profile.id)
         if !isParentActingOnChild {
             celebrationManager?.enqueue(achievements: awarded, for: profile)
@@ -605,9 +506,7 @@ final class AchievementService {
             context: "AchievementService.award"
         )
         if let syncCoordinator {
-            Task { @MainActor @Sendable [syncCoordinator] in
-                await syncCoordinator.sendPendingChanges()
-            }
+            await syncCoordinator.sendPendingChanges()
         }
         logger
             .info(
@@ -629,8 +528,24 @@ private extension AchievementService {
         let fallbackFamilyName = profile.family.recordID.recordName
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Completed logs serving cache-only: unknown database scope for family '\(primaryFamilyName, privacy: .private)'")
+            if let cache = cacheService {
+                var cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
+                    .filter { $0.completerRecordName == profileName }
+                if cachedLogs.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cachedLogs = cache.fetchQuestCompletions(family: fallbackFamilyName)
+                        .filter { $0.completerRecordName == profileName }
+                }
+                return cachedLogs
+                    .map { $0.toQuestCompletion(zoneID: zoneID) }
+                    .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+            }
+            return []
+        }
+
         if let cache = cacheService {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             let cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
                 .filter { $0.completerRecordName == profileName }
             if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .questCompletion, scope: scope) {
@@ -646,9 +561,9 @@ private extension AchievementService {
                 predicate: NSPredicate(format: "completedBy == %@", profileRef),
                 in: zoneID
             )
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                 models: questLogs,
-                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                databaseScope: scope,
                 zoneID: zoneID
             )
             return questLogs.filter {
@@ -679,8 +594,26 @@ private extension AchievementService {
         let fallbackFamilyName = profile.family.recordID.recordName
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Ledger entries serving cache-only: unknown database scope for family '\(primaryFamilyName, privacy: .private)'")
+            if let cache = cacheService {
+                var cachedLedger = cache.fetchLedgerEntries(
+                    profileRecordName: profileName,
+                    family: primaryFamilyName
+                )
+                if cachedLedger.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cachedLedger = cache.fetchLedgerEntries(
+                        profileRecordName: profileName,
+                        family: fallbackFamilyName
+                    )
+                }
+                return cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
+            }
+            return []
+        }
+
         if let cache = cacheService {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             let cachedLedger = cache.fetchLedgerEntries(
                 profileRecordName: profileName,
                 family: primaryFamilyName
@@ -696,9 +629,9 @@ private extension AchievementService {
                 predicate: NSPredicate(format: "profile == %@", profileRef),
                 in: zoneID
             )
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                 models: ledger,
-                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                databaseScope: scope,
                 zoneID: zoneID
             )
             return ledger
@@ -728,8 +661,22 @@ private extension AchievementService {
         let primaryFamilyName = family.id.recordName
         let fallbackFamilyName = profile.family.recordID.recordName
 
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Goals serving cache-only: unknown database scope for family '\(primaryFamilyName, privacy: .private)'")
+            if let cache = cacheService {
+                var cached = cache.fetchGoals(family: primaryFamilyName)
+                    .filter { $0.profileRecordName == profileName }
+                if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cached = cache.fetchGoals(family: fallbackFamilyName)
+                        .filter { $0.profileRecordName == profileName }
+                }
+                return cached.map { $0.toGoal(zoneID: zoneID) }
+            }
+            return []
+        }
+
         if let cache = cacheService {
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             let cached = cache.fetchGoals(family: primaryFamilyName)
                 .filter { $0.profileRecordName == profileName }
             if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .goal, scope: scope) {
@@ -741,9 +688,9 @@ private extension AchievementService {
         let predicate = NSPredicate(format: "profile == %@", profileRef)
         do {
             let results = try await cloudKit.query(Goal.self, predicate: predicate, in: zoneID)
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                 models: results,
-                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                databaseScope: scope,
                 zoneID: zoneID
             )
             return results
@@ -771,9 +718,20 @@ private extension AchievementService {
     ) async throws -> [CKRecord.ID: Quest] {
         var questCache: [CKRecord.ID: Quest] = [:]
 
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.debug("Quest cache serving cache-only: unknown database scope for family '\(familyName, privacy: .private)'")
+            if let cache = cacheService {
+                for questCacheRow in cache.fetchQuests(family: familyName) {
+                    let questObj = questCacheRow.toQuest(zoneID: zoneID)
+                    questCache[questObj.id] = questObj
+                }
+            }
+            return questCache
+        }
+
         if let cache = cacheService {
             let cachedQuests = cache.fetchQuests(family: familyName)
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope) {
                 for questCacheRow in cachedQuests {
                     let questObj = questCacheRow.toQuest(zoneID: zoneID)
@@ -795,9 +753,9 @@ private extension AchievementService {
             for quest in assignedQuests {
                 questCache[quest.id] = quest
             }
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                 models: assignedQuests,
-                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                databaseScope: scope,
                 zoneID: zoneID
             )
         } catch {
@@ -816,9 +774,9 @@ private extension AchievementService {
             }
         }
         if !fetchedMissing.isEmpty {
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
                 models: fetchedMissing,
-                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
+                databaseScope: scope,
                 zoneID: zoneID
             )
         }
@@ -835,7 +793,7 @@ private extension AchievementService {
             familyName: family.id.recordName,
             zoneID: profile.id.zoneID
         )
-        // WHY cache-only template map: stats stay cache-first so offline evaluation still resolves day counts.
+        // WHY cache-only templates: stats stay cache-first so offline evaluation still resolves.
         let templatesByID: [String: QuestTemplate] = if let cache = cacheService {
             SpecificDaysHelper.templatesByID(cache: cache, familyName: family.id.recordName, zoneID: profile.id.zoneID)
         } else {
@@ -897,100 +855,5 @@ private extension AchievementService {
             goalsCreated: goalsCreated,
             goalsCompleted: goalsCompleted
         )
-    }
-
-    func computeBestWeeklyCompletion(
-        profile: Profile,
-        approvedCountByQuest: [CKRecord.ID: Int],
-        questCache: [CKRecord.ID: Quest],
-        templatesByID: [String: QuestTemplate]
-    ) -> Double {
-        var bestWeekly = 0.0
-        let assignedQuests = questCache.values.filter {
-            $0.assignee.recordID == profile.id && $0.active
-        }
-        let questsByWeek = Dictionary(grouping: assignedQuests, by: \.weekOf)
-        for (_, weekQuests) in questsByWeek {
-            guard !weekQuests.isEmpty else { continue }
-            let fullyCompletedCount = weekQuests.filter { quest in
-                let approvedCount = approvedCountByQuest[quest.id] ?? 0
-                // WHY day count wins: legacy rows keep stale targetCount after template gains days.
-                let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)
-            }.count
-            let ratio = Double(fullyCompletedCount) / Double(weekQuests.count)
-            bestWeekly = max(bestWeekly, min(ratio, 1.0))
-        }
-        return bestWeekly
-    }
-
-    func longestConsecutiveStreak(in days: Set<Int>) -> Int {
-        guard !days.isEmpty else { return 0 }
-
-        let sorted = days.sorted()
-        var best = 1
-        var run = 1
-        for index in 1 ..< sorted.count {
-            // Buckets are epoch-day integers, so a gap of exactly 1 is consecutive days.
-            if sorted[index] - sorted[index - 1] == 1 {
-                run += 1
-                if run > best {
-                    best = run
-                }
-            } else {
-                run = 1
-            }
-        }
-        return best
-    }
-
-    func isRequirementMet(definition: Achievement, stats: ProfileStats) -> Bool {
-        switch definition.requirementType {
-        case AchievementRequirement.firstQuest:
-            stats.questCount >= 1
-
-        case AchievementRequirement.questCount10:
-            stats.questCount >= 10
-
-        case AchievementRequirement.questCount25:
-            stats.questCount >= 25
-
-        case AchievementRequirement.questCount50:
-            stats.questCount >= 50
-
-        case AchievementRequirement.questCount100:
-            stats.questCount >= 100
-
-        case AchievementRequirement.weekly100:
-            stats.bestWeeklyCompletion >= 1.0
-
-        case AchievementRequirement.streak7:
-            stats.longestStreakDays >= 7
-
-        case AchievementRequirement.streak30:
-            stats.longestStreakDays >= 30
-
-        case AchievementRequirement.firstGoalCreated:
-            stats.goalsCreated >= 1
-
-        case AchievementRequirement.goalGetter:
-            stats.goalsCompleted >= 1
-
-        case AchievementRequirement.ledgerCount10:
-            stats.ledgerCount >= 10
-
-        case AchievementRequirement.earlyBird9am:
-            stats.earlyBirdQualified
-
-        // Legacy evaluation — keeps previously earned gold/ledger trophies decoding correctly.
-        case AchievementRequirement.gold100:
-            stats.totalGoldEarned >= 100
-
-        case AchievementRequirement.gold500:
-            stats.totalGoldEarned >= 500
-
-        case AchievementRequirement.ledgerWeeks4:
-            stats.ledgerWeeksCount >= 4
-        }
     }
 }

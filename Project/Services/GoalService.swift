@@ -94,7 +94,22 @@ final class GoalService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
+        let coord: any SyncEnqueuing
+        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            coord = resolvedCoord
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("GoalService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("GoalService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                coord = NoopSyncEnqueuing()
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("GoalService requires a sync coordinator in production")
+            #endif
+        }
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord, achievementService: achievementService, celebrationManager: celebrationManager)
     }
 
@@ -387,16 +402,19 @@ final class GoalService {
             }
         }
 
-        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let identity = ScopedRecordIdentity(
-            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
-            zoneID: goal.id.zoneID,
-            recordID: goal.id,
-            familyRecordName: family.id.recordName
+        // WHY single step: tombstone is captured inside the helper so the delete survives row removal.
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: goal.id, familyRecordName: family.id.recordName),
+            type: .goal,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "GoalService.deleteGoal",
+                expectedActiveZone: appState.familyZoneID
+            )
         )
-        // WHY invalidate first: a crash between steps must not leave a server-deleted row revived by owner upsert.
-        await cacheService.invalidate(identity: identity, type: .goal, expectedActiveZone: appState.familyZoneID)
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.deleteGoal")
 
         logger.info("Deleted goal \"\(goal.name, privacy: .private)\"")
     }
@@ -764,7 +782,7 @@ final class GoalService {
                 family: family.id.recordName
             ) {
                 let domainProfile = cached.toProfile(zoneID: family.id.zoneID)
-                Task { @MainActor @Sendable [achievementService, domainProfile, family, logger] in
+                Task { [achievementService, domainProfile, family, logger] in
                     do {
                         try await achievementService.handleGoalCompleted(
                             for: domainProfile,

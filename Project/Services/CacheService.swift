@@ -249,21 +249,6 @@ final class CacheService: CacheServicing {
         freshnessVersion &+= 1
     }
 
-    /// Returns true if a freshness watermark exists for any database scope.
-    func isCacheFresh(familyRecordName: String, type: CachedRecordType) -> Bool {
-        _ = freshnessVersion
-        let legacyKey = freshnessKey(familyRecordName: familyRecordName, type: type)
-        if defaults.object(forKey: legacyKey) != nil {
-            return true
-        }
-        for scope in [CKDatabase.Scope.private, .shared]
-            where defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
-        {
-            return true
-        }
-        return false
-    }
-
     /// Returns true if freshness watermark was stamped for the given family, type, and scope.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
         _ = freshnessVersion

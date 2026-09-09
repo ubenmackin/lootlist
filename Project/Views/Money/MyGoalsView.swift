@@ -265,7 +265,7 @@ struct MyGoalsView: View {
                     let goalSnapshot = goal.toGoal(zoneID: zoneID)
                     let goalRecordName = goal.recordName
                     let goalName = goal.name
-                    Task { @MainActor @Sendable [goalSnapshot, goalRecordName, goalName] in
+                    Task { [goalSnapshot, goalRecordName, goalName] in
                         do {
                             try await deleteGoal(goalSnapshot)
                         } catch {
@@ -297,7 +297,7 @@ struct MyGoalsView: View {
                     let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
                     let goalSnapshot = goal.toGoal(zoneID: zoneID)
                     let goalRecordName = goal.recordName
-                    Task { @MainActor @Sendable [goalSnapshot, goalRecordName] in
+                    Task { [goalSnapshot, goalRecordName] in
                         do {
                             try await markPurchased(goalSnapshot)
                         } catch {
@@ -326,7 +326,7 @@ struct MyGoalsView: View {
                 // surface as a validation message stored in parsing-error state.
                 if msg != nil {
                     // WHY MainActor hop: auto-dismiss mutates @State after suspension.
-                    Task { @MainActor @Sendable in
+                    Task {
                         do {
                             try await Task.sleep(for: .seconds(4))
                         } catch {

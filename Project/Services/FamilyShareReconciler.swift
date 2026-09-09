@@ -40,15 +40,10 @@ final class FamilyShareReconciler {
         guard !isStarted else { return }
         isStarted = true
         observerTask.withLock { stored in
-            stored = Task { @MainActor [weak self] in
-                #if DEBUG
-                    assert(Thread.isMainThread, "FamilyShareReconciler observer must hop to MainActor")
-                #endif
+            stored = Task { [weak self] in
                 for await _ in NotificationCenter.default.notifications(named: .syncDidComplete) {
                     guard let self else { return }
-                    #if DEBUG
-                        assert(Thread.isMainThread)
-                    #endif
+                    // WHY hop: notification sequence resumes off isolation, so awaiting re-enters MainActor before touching reconciler state.
                     await self.reconcileIfOwner()
                 }
             }

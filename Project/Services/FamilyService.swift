@@ -490,26 +490,28 @@ final class FamilyService: FamilyProfileFetching {
             type: .profile,
             family: family,
             cacheService: cache,
-            appState: appState,
-            fetchCache: { cache.fetchProfiles(family: $0) },
-            map: { $0.toProfile(zoneID: family.id.zoneID) },
-            query: { [cloudKit, family, isOwner] in
-                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                let predicate = NSPredicate(format: "family == %@", familyRef)
-                let db = cloudKit.database(isOwner: isOwner)
-                return try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-            },
-            hydrate: { [syncCoordinator, cache, family, scope] models in
-                if let syncCoordinator {
-                    await syncCoordinator.delegateHandler.hydrateFromQuery(
-                        models: models,
-                        databaseScope: scope,
-                        zoneID: family.id.zoneID
-                    )
-                } else {
-                    await cache.upsertProfiles(models, family: family.id.recordName)
+            scope: scope,
+            operations: .init(
+                fetchCache: { cache.fetchProfiles(family: $0) },
+                map: { $0.toProfile(zoneID: family.id.zoneID) },
+                query: { [cloudKit, family, isOwner] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    let db = cloudKit.database(isOwner: isOwner)
+                    return try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
+                },
+                hydrate: { [syncCoordinator, cache, family, scope] models in
+                    if let syncCoordinator {
+                        await syncCoordinator.delegateHandler.hydrateFromQuery(
+                            models: models,
+                            databaseScope: scope,
+                            zoneID: family.id.zoneID
+                        )
+                    } else {
+                        await cache.upsertProfiles(models, family: family.id.recordName)
+                    }
                 }
-            }
+            )
         )
     }
 

@@ -102,7 +102,26 @@ final class DataMigrationsCoordinator {
 // MARK: - Migration Steps
 
 extension DataMigrationsCoordinator {
-    static func questNameBackfillV1(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
+    @MainActor
+    private static func migrationScope(appState: AppState?, cloudKit: any CloudKitServiceProtocol) -> CKDatabase.Scope? {
+        if let scope = DatabaseScopeResolver.resolvedScope(appState: appState) {
+            return scope
+        }
+        // WHY test seam: coordinator doubles omit session, so infer from engine flag in tests.
+        if TestEnvironment.isRunningUnitOrUITests, let zoneID = cloudKit.activeFamilyZoneID {
+            if let inferred = inferDatabaseScope(from: zoneID) {
+                return inferred == "private" ? .private : .shared
+            }
+            return DatabaseScopeResolver.scope(isOwner: cloudKit.activeIsOwner)
+        }
+        return nil
+    }
+
+    static func questNameBackfillV1(
+        cloudKit: any CloudKitServiceProtocol,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil
+    ) -> MigrationStep {
         MigrationStep(id: "QuestNameBackfillV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
             guard let activeZone = cloudKit.activeFamilyZoneID else {
@@ -160,23 +179,32 @@ extension DataMigrationsCoordinator {
             // WHY concurrent saves collapse N sequential writes into one batched phase; failures collect then throw so the versioned flag retries the remainder instead of marking
             // partial success complete.
             var failedRecordNames: [String] = []
-            await withTaskGroup(of: String?.self) { group in
+            var savedQuests: [Quest] = []
+            savedQuests.reserveCapacity(updatedQuests.count)
+            await withTaskGroup(of: (Quest?, String?).self) { group in
                 for quest in updatedQuests {
                     group.addTask {
                         do {
-                            _ = try await cloudKit.save(quest)
-                            return nil
+                            let saved = try await cloudKit.save(quest)
+                            return (saved, nil)
                         } catch {
                             logger.error("Failed to backfill quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
-                            return quest.id.recordName
+                            return (nil, quest.id.recordName)
                         }
                     }
                 }
-                for await failed in group {
+                for await (saved, failed) in group {
+                    if let saved {
+                        savedQuests.append(saved)
+                    }
                     if let failed {
                         failedRecordNames.append(failed)
                     }
                 }
+            }
+            // WHY ingest: one-shot server echo rides the single door without stamping freshness; versioned flag guards single use.
+            if let syncCoordinator, !savedQuests.isEmpty, let scope = migrationScope(appState: appState, cloudKit: cloudKit) {
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(models: savedQuests, databaseScope: scope, zoneID: activeZone)
             }
             if !failedRecordNames.isEmpty {
                 throw MigrationError.incompleteBackfill("Quest name backfill had save errors; migration marked incomplete for retry")
@@ -190,13 +218,20 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    static func questLedgerBackfillV1(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService?) -> MigrationStep {
+    static func questLedgerBackfillV1(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService _: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil
+    ) -> MigrationStep {
         MigrationStep(id: "QuestLedgerBackfillV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
             guard let zoneID = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping ledger backfill.")
                 return
             }
+            // WHY ingest-only: one-shot server echo rides the single door without stamping freshness; versioned flag plus deterministic payout IDs keep re-runs idempotent.
+            let hydrateScope = migrationScope(appState: appState, cloudKit: cloudKit)
             let periods = try await cloudKit.query(
                 AllowancePeriod.self,
                 predicate: NSPredicate(value: true),
@@ -262,14 +297,18 @@ extension DataMigrationsCoordinator {
                     id: targetID
                 )
                 let saved = try await cloudKit.save(entry, in: zoneID, using: nil)
-                await cacheService?.upsertLedgerEntry(saved)
+                if let syncCoordinator, let hydrateScope {
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: hydrateScope, zoneID: zoneID)
+                }
             }
         }
     }
 
     static func achievementMigrationV1(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService?
+        cacheService _: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) -> MigrationStep {
         MigrationStep(id: "AchievementMigrationV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
@@ -277,6 +316,9 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone, skipping achievement migration.")
                 return
             }
+            // WHY ingest-only: one-shot canonical echo rides the single door without stamping freshness; versioned flag plus deterministic family-requirement IDs keep re-runs
+            // idempotent.
+            let hydrateScope = migrationScope(appState: appState, cloudKit: cloudKit)
             let allAchievements = try await cloudKit.query(
                 Achievement.self,
                 predicate: NSPredicate(value: true),
@@ -299,7 +341,9 @@ extension DataMigrationsCoordinator {
                         family: achievement.family
                     )
                     let saved = try await cloudKit.save(canonical, in: zoneID, using: nil)
-                    await cacheService?.upsertAchievement(saved)
+                    if let syncCoordinator, let hydrateScope {
+                        await syncCoordinator.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: hydrateScope, zoneID: zoneID)
+                    }
                     do {
                         try await cloudKit.delete(achievement.id, in: zoneID, using: nil)
                     } catch {
@@ -314,8 +358,9 @@ extension DataMigrationsCoordinator {
 
     static func heroNotificationPreferenceBackfillV1(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService?,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        cacheService _: CacheService? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "heroNotificationPreferenceBackfillV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
@@ -323,8 +368,9 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone, skipping notification preference backfill.")
                 return
             }
+            // WHY fail-closed: unknown scope drops so tokens re-deliver instead of guessing a database.
+            guard let scope = migrationScope(appState: appState, cloudKit: cloudKit) else { return }
             let familyRecordName = zoneID.zoneName
-            let isOwner = cloudKit.activeIsOwner
             let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
             let activeProfiles = profiles.filter(\.isActive)
             guard !activeProfiles.isEmpty else {
@@ -343,15 +389,6 @@ extension DataMigrationsCoordinator {
                     if existingNames.contains(deterministicName) || existingNames.contains(altName) {
                         continue
                     }
-                    if let cacheService,
-                       cacheService.fetchNotificationPreference(
-                           profileRecordName: profileName,
-                           familyRecordName: familyRecordName,
-                           eventType: event.rawValue
-                       ) != nil
-                    {
-                        continue
-                    }
                     let recordID = CKRecord.ID(recordName: deterministicName, zoneID: zoneID)
                     let pref = NotificationPreference(
                         profile: CKRecord.Reference(recordID: profile.id, action: .none),
@@ -367,13 +404,12 @@ extension DataMigrationsCoordinator {
                 logger.info("No missing notification preferences to backfill.")
                 return
             }
-            if let cacheService {
-                await cacheService.upsertNotificationPreferences(toCreate, family: familyRecordName)
-            }
+            let isOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "DataMigrations.heroNotificationPreferenceBackfillV1")
             for pref in toCreate {
                 do {
                     let saved = try await cloudKit.save(pref, in: zoneID, using: nil)
-                    await cacheService?.upsertNotificationPreference(saved)
+                    // WHY ingest: one-shot server echo rides the single door without stamping freshness; versioned flag guards single use.
+                    await syncCoordinator?.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: scope, zoneID: zoneID)
                     syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                 } catch {
                     logger.warning("Failed to backfill notification preference \(pref.id.recordName, privacy: .private): \(error, privacy: .private)")
@@ -386,7 +422,8 @@ extension DataMigrationsCoordinator {
     static func allowancePeriodSeedV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "allowancePeriodSeedV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
@@ -395,7 +432,6 @@ extension DataMigrationsCoordinator {
                 return
             }
             let familyRecordName = zoneID.zoneName
-            let isOwner = cloudKit.activeIsOwner
             let family: Family? = if let cached = cacheService?.fetchFamily(recordName: familyRecordName) {
                 cached.toFamily(zoneID: zoneID)
             } else {
@@ -423,6 +459,9 @@ extension DataMigrationsCoordinator {
                 {
                     continue
                 }
+                // WHY fail-closed: unknown scope drops hydrate/enqueue so tokens re-deliver instead of guessing.
+                guard let scope = migrationScope(appState: appState, cloudKit: cloudKit) else { continue }
+                let isOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "DataMigrations.allowancePeriodSeedV1")
                 let period = AllowancePeriod(
                     weekOf: startOfWeek,
                     profile: CKRecord.Reference(recordID: profile.id, action: .none),
@@ -432,9 +471,10 @@ extension DataMigrationsCoordinator {
                 )
                 do {
                     let saved = try await cloudKit.save(period, in: zoneID, using: nil)
-                    await cacheService?.upsertAllowancePeriod(saved)
-                    syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                     created += 1
+                    // WHY ingest: one-shot server echo rides the single door without stamping freshness; versioned flag guards single use.
+                    await syncCoordinator?.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: scope, zoneID: zoneID)
+                    syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                 } catch {
                     logger.warning("Failed to seed allowance period \(recordName, privacy: .private): \(error, privacy: .private)")
                 }
@@ -480,7 +520,8 @@ extension DataMigrationsCoordinator {
     static func purgeParentAllowancePeriodsV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "purgeParentAllowancePeriodsV1", version: 1) {
             let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
@@ -489,7 +530,6 @@ extension DataMigrationsCoordinator {
                 return
             }
             let familyRecordName = zoneID.zoneName
-            let isOwner = cloudKit.activeIsOwner
 
             let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
             let parentProfileRecordNames = Set(profiles.filter(\.role.isParent).map(\.id.recordName))
@@ -501,16 +541,20 @@ extension DataMigrationsCoordinator {
 
             var deleted = 0
             for period in parentPeriods {
-                let recordID = period.id
-                // WHY capture first: tombstone ID must survive local row removal; engine sends the delete.
-                let identity = ScopedRecordIdentity(
-                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
-                    zoneID: zoneID,
-                    recordID: recordID,
-                    familyRecordName: familyRecordName
+                // WHY canonical: single delete path keeps the tombstone alive across row removal.
+                guard let cacheService else { continue }
+                await ActiveFamilyScopeGuard.deleteAndEnqueue(
+                    cacheService: cacheService,
+                    target: ActiveFamilyScopeGuard.ScopedDeleteTarget(recordID: period.id, familyRecordName: familyRecordName),
+                    type: .allowancePeriod,
+                    deleteContext: ActiveFamilyScopeGuard.ScopedDeleteContext(
+                        coordinator: syncCoordinator,
+                        appState: appState,
+                        logger: logger,
+                        context: "DataMigrations.purgeParentAllowancePeriodsV1",
+                        expectedActiveZone: zoneID
+                    )
                 )
-                await cacheService?.invalidate(identity: identity, type: .allowancePeriod, expectedActiveZone: zoneID)
-                syncCoordinator?.enqueueDelete(recordID: recordID, isOwner: isOwner)
                 deleted += 1
             }
             if deleted > 0 {
@@ -519,14 +563,12 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    /// Converts legacy Double-dollar money fields to Int64 pennies with round
-    /// half up. Double-run safe: domain decoding coerces legacy dollars to
-    /// pennies and re-saving converges, nil paidAmount stays nil, and the
-    /// versioned runner flag prevents reruns.
+    /// WHY pennies: domain round-trip converges idempotently; versioned flag prevents reruns.
     static func currencyToPenniesV1(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        cacheService _: CacheService? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "CurrencyToPenniesV1", version: 1) {
             let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
@@ -534,7 +576,9 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone, skipping currency to pennies migration.")
                 return
             }
-            let isOwner = cloudKit.activeIsOwner
+            // WHY fail-closed: unknown scope drops so tokens re-deliver instead of guessing a database.
+            guard let scope = migrationScope(appState: appState, cloudKit: cloudKit) else { return }
+            let isOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "DataMigrations.currencyToPenniesV1")
             var converted = 0
             var hadFailures = false
 
@@ -548,8 +592,8 @@ extension DataMigrationsCoordinator {
                 AllowancePeriod.self,
                 cloudKit: cloudKit,
                 zoneID: zoneID,
+                scope: scope,
                 isOwner: isOwner,
-                cacheUpsert: { await cacheService?.upsertAllowancePeriod($0) },
                 syncCoordinator: syncCoordinator,
                 logger: logger
             )
@@ -560,8 +604,8 @@ extension DataMigrationsCoordinator {
                 LedgerEntry.self,
                 cloudKit: cloudKit,
                 zoneID: zoneID,
+                scope: scope,
                 isOwner: isOwner,
-                cacheUpsert: { await cacheService?.upsertLedgerEntry($0) },
                 syncCoordinator: syncCoordinator,
                 logger: logger
             )
@@ -572,8 +616,8 @@ extension DataMigrationsCoordinator {
                 Quest.self,
                 cloudKit: cloudKit,
                 zoneID: zoneID,
+                scope: scope,
                 isOwner: isOwner,
-                cacheUpsert: { await cacheService?.upsertQuest($0) },
                 syncCoordinator: syncCoordinator,
                 logger: logger
             )
@@ -584,8 +628,8 @@ extension DataMigrationsCoordinator {
                 QuestTemplate.self,
                 cloudKit: cloudKit,
                 zoneID: zoneID,
+                scope: scope,
                 isOwner: isOwner,
-                cacheUpsert: { await cacheService?.upsertQuestTemplate($0) },
                 syncCoordinator: syncCoordinator,
                 logger: logger
             )
@@ -596,8 +640,8 @@ extension DataMigrationsCoordinator {
                 RewardEvent.self,
                 cloudKit: cloudKit,
                 zoneID: zoneID,
+                scope: scope,
                 isOwner: isOwner,
-                cacheUpsert: { await cacheService?.upsertRewardEvent($0) },
                 syncCoordinator: syncCoordinator,
                 logger: logger
             )
@@ -616,9 +660,9 @@ extension DataMigrationsCoordinator {
         _ type: T.Type,
         cloudKit: any CloudKitServiceProtocol,
         zoneID: CKRecordZone.ID,
+        scope: CKDatabase.Scope,
         isOwner: Bool,
-        cacheUpsert: ((T) async -> Void)?,
-        syncCoordinator: CKSyncEngineCoordinator?,
+        syncCoordinator: (any SyncEnqueuing)?,
         logger: Logger
     ) async -> (converted: Int, hadFailures: Bool) where T.ID == CKRecord.ID {
         var converted = 0
@@ -628,9 +672,8 @@ extension DataMigrationsCoordinator {
             for record in records {
                 do {
                     let saved = try await cloudKit.save(record, in: zoneID, using: nil)
-                    if let cacheUpsert {
-                        await cacheUpsert(saved)
-                    }
+                    // WHY ingest: one-shot server echo rides the single door without stamping freshness; versioned flag guards single use.
+                    await syncCoordinator?.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: scope, zoneID: zoneID)
                     syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                     converted += 1
                 } catch {

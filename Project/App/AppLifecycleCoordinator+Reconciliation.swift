@@ -153,7 +153,7 @@ extension AppLifecycleCoordinator {
         }
 
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let targetScope: CKDatabase.Scope = isOwner ? .private : .shared
+        let targetScope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: isOwner)
         let snapshot = await fetchFamilySnapshot(family: family, zoneID: zoneID, isOwner: isOwner)
 
         guard !snapshot.isEmpty else {
@@ -215,20 +215,9 @@ extension AppLifecycleCoordinator {
                 let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
                 concrete.stampFreshness(for: cleanTypes, scopes: [targetScope])
             }
-        } else if let backgroundCache = appState.backgroundCacheActor {
-            // WHY: test doubles lack a coordinator door, so an ephemeral handler keeps snapshot writes on ingest().
-            let resolver = CKSyncConflictResolver(
-                cacheService: appState.cacheService,
-                backgroundCache: backgroundCache,
-                appState: appState
-            )
-            let handler = CKSyncEngineDelegateHandler(
-                backgroundCache: backgroundCache,
-                conflictResolver: resolver,
-                cacheService: appState.cacheService,
-                appState: appState
-            )
-            let outcome = await handler.handleIncomingRecordsDirectly(
+        } else if let sharedHandler = AppDependencies.shared?.syncEngineDelegateHandler {
+            // WHY single stack: shared handler keeps snapshot writes on ingest().
+            let outcome = await sharedHandler.handleIncomingRecordsDirectly(
                 snapshot.inboundRecords,
                 databaseScope: targetScope,
                 zoneID: zoneID

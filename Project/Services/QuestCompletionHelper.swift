@@ -72,7 +72,7 @@ enum QuestCompletionHelper {
             toastManager: toastManager,
             triggerCelebration: {
                 showCelebration.wrappedValue = true
-                Task { @MainActor @Sendable [showCelebration] in
+                Task { [showCelebration] in
                     do {
                         try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
                     } catch {

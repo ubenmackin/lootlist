@@ -330,7 +330,7 @@ struct CKSyncEngineTests {
         // A `.unknownItem` save failure signals the record no longer exists on
         // the server, which funnels through the resolver's deletion invalidation
         // path (main store + background store), leaving no ghost row behind.
-        let result = await resolver.resolveFailedSave(record: quest.toRecord(), error: CKError(.unknownItem))
+        let result = await resolver.resolveFailedSave(record: quest.toRecord(), error: CKError(.unknownItem), databaseScope: .private)
         #expect(result == nil)
         #expect(cache.fetchQuest(recordName: questID.recordName, family: "fam1") == nil)
         #expect(try containerCount(QuestCache.self, in: container) == 0)
@@ -604,13 +604,13 @@ struct CKSyncEngineTests {
 
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
         for type in CachedRecordType.allCases {
-            #expect(cache.isCacheFresh(familyRecordName: "fallback-zone", type: type) == false)
+            #expect(cache.isCacheAuthoritative(familyRecordName: "fallback-zone", type: type, scope: .private) == false)
         }
 
         appState.family = Family(name: "Real", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-real", zoneID: zoneID))
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
         for type in CachedRecordType.allCases {
-            #expect(cache.isCacheFresh(familyRecordName: "family-real", type: type) == true)
+            #expect(cache.isCacheAuthoritative(familyRecordName: "family-real", type: type, scope: .private) == true)
         }
         defaults.removePersistentDomain(forName: suite)
     }

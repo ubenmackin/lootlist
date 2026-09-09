@@ -26,23 +26,26 @@ struct CacheFirstTests {
         let coordinator = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: failingCloudKit).coordinator
 
         // CacheFirst must not throw when cached is empty — brand-new hero tolerance.
+        let scope = appState.activeDatabaseScope
         let result: [LedgerEntry] = try await CacheFirst.cacheFirst(
             type: .ledgerEntry,
             family: family,
             cacheService: cache,
-            appState: appState,
-            fetchCache: { familyName in
-                cache.fetchLedgerEntries(family: familyName)
-            },
-            map: { cache in
-                cache.toLedgerEntry(zoneID: zoneID)
-            },
-            query: {
-                throw CloudKitServiceError.networkUnavailable
-            },
-            hydrate: { _ in
-                await coordinator.delegateHandler.hydrateFromQuery(models: [LedgerEntry](), databaseScope: appState.activeDatabaseScope, zoneID: zoneID)
-            }
+            scope: scope,
+            operations: .init(
+                fetchCache: { familyName in
+                    cache.fetchLedgerEntries(family: familyName)
+                },
+                map: { cache in
+                    cache.toLedgerEntry(zoneID: zoneID)
+                },
+                query: {
+                    throw CloudKitServiceError.networkUnavailable
+                },
+                hydrate: { _ in
+                    await coordinator.delegateHandler.hydrateFromQuery(models: [LedgerEntry](), databaseScope: scope, zoneID: zoneID)
+                }
+            )
         )
         #expect(result.isEmpty)
     }
@@ -73,23 +76,26 @@ struct CacheFirstTests {
         let failingCloudKit = FailingCloudKitService(zoneID: zoneID)
         let coordinator = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: failingCloudKit).coordinator
 
+        let scope = appState.activeDatabaseScope
         let result: [LedgerEntry] = try await CacheFirst.cacheFirst(
             type: .ledgerEntry,
             family: family,
             cacheService: cache,
-            appState: appState,
-            fetchCache: { familyName in
-                cache.fetchLedgerEntries(family: familyName)
-            },
-            map: { cache in
-                cache.toLedgerEntry(zoneID: zoneID)
-            },
-            query: {
-                throw CloudKitServiceError.networkUnavailable
-            },
-            hydrate: { _ in
-                await coordinator.delegateHandler.hydrateFromQuery(models: [LedgerEntry](), databaseScope: appState.activeDatabaseScope, zoneID: zoneID)
-            }
+            scope: scope,
+            operations: .init(
+                fetchCache: { familyName in
+                    cache.fetchLedgerEntries(family: familyName)
+                },
+                map: { cache in
+                    cache.toLedgerEntry(zoneID: zoneID)
+                },
+                query: {
+                    throw CloudKitServiceError.networkUnavailable
+                },
+                hydrate: { _ in
+                    await coordinator.delegateHandler.hydrateFromQuery(models: [LedgerEntry](), databaseScope: scope, zoneID: zoneID)
+                }
+            )
         )
         #expect(result.count == 1)
         #expect(result.first?.amount == 10)
