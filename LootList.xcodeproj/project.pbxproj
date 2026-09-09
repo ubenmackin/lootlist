@@ -131,6 +131,7 @@
 		48E727264C32D159F773884F /* PixelCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976D7D6008F9585BF84BDCB5 /* PixelCanvasView.swift */; };
 		494F40E5B823BACACE01441D /* QuestCompletionHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE034F3C9A2772273ABDC48 /* QuestCompletionHelper.swift */; };
 		49EAFC2C0033E54A6F284C8D /* TreasuryServiceRealTimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713F91483330CBE92F807137 /* TreasuryServiceRealTimeTests.swift */; };
+		4A69FFD3765E5863D9DA1752 /* AchievementServiceTests+Goals.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB98570C77359F6BAF4540B9 /* AchievementServiceTests+Goals.swift */; };
 		4B213D30ED50D6CA9210DCEC /* InvitationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42F8185F742CF57EAA7F0C98 /* InvitationResolver.swift */; };
 		4B2DDC650ED6CBC2A211C075 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281093A949AEF87A830FFA15 /* SceneDelegate.swift */; };
 		4CC5D4ED266E92EAA7F9160B /* HeroAvatarSprites+PixelGear.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD11458A253C5DEE2C9F031 /* HeroAvatarSprites+PixelGear.swift */; };
@@ -234,6 +235,7 @@
 		843998266FDE8735965AEE0C /* QuestServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE146AF998123F6F9E4FB25B /* QuestServiceTests.swift */; };
 		844538A0A6D57FA5A48D67FE /* CheckmarkMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1963A5C399D6D7074A33D08 /* CheckmarkMenu.swift */; };
 		85EE0061654226630C57FAED /* HeroBoardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB08B142874811D229211E3 /* HeroBoardService.swift */; };
+		86C0B688DE10CF8B806D83B1 /* QuestCompletionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD00836017AA5D2310228F5F /* QuestCompletionServiceTests.swift */; };
 		86CE9BB719CC99B722ADC19C /* QuestService+QuestLogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D997850B328758B3EDCDEF /* QuestService+QuestLogs.swift */; };
 		87064DE51AA5BB8AC4ABF959 /* ChildHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B022BA457D619771F61673 /* ChildHubView.swift */; };
 		870E9E6EFB7529B1DCFD8EF4 /* DailyLoginServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB377F4B753419F65732040 /* DailyLoginServiceTests.swift */; };
@@ -413,6 +415,7 @@
 		DF2FE889C970BE09DE142988 /* LogSpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEED66C9830A57FFB23082CE /* LogSpendingView.swift */; };
 		DFEAD6B1C37337AF65451C96 /* ManualSpendingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */; };
 		E0A47CEA58D68C881E835BE6 /* TrophyRoomUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A4358651CDDB644ED05D11 /* TrophyRoomUITests.swift */; };
+		E0CBE1E7D2591B9BAEB17353 /* AchievementServiceTests+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E88ED28F98FD533F8F45D3C /* AchievementServiceTests+Helpers.swift */; };
 		E20E04569DFB597642DEBCDC /* QuestServiceTests+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFEA73D94DB7183AB2335A52 /* QuestServiceTests+Helpers.swift */; };
 		E2979429EEE53BD454417A79 /* QuestTemplateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4520C1F2E64D0FB7B95774F /* QuestTemplateService.swift */; };
 		E2EC7FEA3E0A4FFDE13AAD57 /* LedgerExportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0BE2B48DF381704B2D323C /* LedgerExportServiceTests.swift */; };
@@ -678,6 +681,7 @@
 		5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardViewModel.swift; sourceTree = "<group>"; };
 		5E333212CD54B711A588DF82 /* LedgerEntryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerEntryCache.swift; sourceTree = "<group>"; };
 		5E53B49580742C8AB849A744 /* CKSyncEngineCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKSyncEngineCoordinatorTests.swift; sourceTree = "<group>"; };
+		5E88ED28F98FD533F8F45D3C /* AchievementServiceTests+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AchievementServiceTests+Helpers.swift"; sourceTree = "<group>"; };
 		5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		5FA9B09747690FC971766551 /* QuestCompletionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestCompletionCache.swift; sourceTree = "<group>"; };
 		6030F1A54F52EBA1F3AB0AF2 /* FamilyJoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyJoinView.swift; sourceTree = "<group>"; };
@@ -870,6 +874,7 @@
 		CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardBranchViews.swift; sourceTree = "<group>"; };
 		CC9C5B09945933E0C31DA59A /* CKSyncEngineTests+ConflictResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKSyncEngineTests+ConflictResolver.swift"; sourceTree = "<group>"; };
 		CCB97BF352BC5ED47F52E775 /* GemLedgerCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemLedgerCache.swift; sourceTree = "<group>"; };
+		CD00836017AA5D2310228F5F /* QuestCompletionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestCompletionServiceTests.swift; sourceTree = "<group>"; };
 		CD7309A7921898E5B1910AA9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutPolicy.swift; sourceTree = "<group>"; };
 		CEED66C9830A57FFB23082CE /* LogSpendingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogSpendingView.swift; sourceTree = "<group>"; };
@@ -953,6 +958,7 @@
 		FA6395742E36605DA45EA269 /* SpecificDaysHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecificDaysHelper.swift; sourceTree = "<group>"; };
 		FA88E0D7A71024989CEC405C /* CKSyncEngineDelegateHandler+Hydration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKSyncEngineDelegateHandler+Hydration.swift"; sourceTree = "<group>"; };
 		FB33F9A9BD38103395FBA22F /* GoalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalService.swift; sourceTree = "<group>"; };
+		FB98570C77359F6BAF4540B9 /* AchievementServiceTests+Goals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AchievementServiceTests+Goals.swift"; sourceTree = "<group>"; };
 		FBBB7F2C5ECA4C8F03E9F422 /* DeterministicRecordID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicRecordID.swift; sourceTree = "<group>"; };
 		FBD501FFB54C16F2EA10C1DE /* MockCloudKitServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockCloudKitServiceTests.swift; sourceTree = "<group>"; };
 		FC4F63E61875E6DDD28AEE9E /* TreasuryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryView.swift; sourceTree = "<group>"; };
@@ -1331,6 +1337,8 @@
 			isa = PBXGroup;
 			children = (
 				F0FBEC41B0AE56DCBA885072 /* AchievementServiceTests.swift */,
+				FB98570C77359F6BAF4540B9 /* AchievementServiceTests+Goals.swift */,
+				5E88ED28F98FD533F8F45D3C /* AchievementServiceTests+Helpers.swift */,
 				2B80D9E2A60A733F696ADC70 /* ActiveFamilyScopeGuardTests.swift */,
 				18B19086FC12C1DB0BE04913 /* AutoPayoutCoordinatorTests.swift */,
 				545576473F44072E1C3C7301 /* AvatarServiceTests.swift */,
@@ -1367,6 +1375,7 @@
 				F56074526FD4DE3AADA0F3DA /* NotificationServiceTests.swift */,
 				D4E8DAC47F670D122621488B /* OfflineAndSyncMatrixTests.swift */,
 				56D827C1B1BDCCD1F2D6AA52 /* OptimisticRollbackTests.swift */,
+				CD00836017AA5D2310228F5F /* QuestCompletionServiceTests.swift */,
 				FE146AF998123F6F9E4FB25B /* QuestServiceTests.swift */,
 				24F3F8CC0DD0E4E540306D55 /* QuestServiceTests+ActiveQuests.swift */,
 				6D3ABA527CBF69A8599AED80 /* QuestServiceTests+Concurrency.swift */,
@@ -2294,6 +2303,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4A69FFD3765E5863D9DA1752 /* AchievementServiceTests+Goals.swift in Sources */,
+				E0CBE1E7D2591B9BAEB17353 /* AchievementServiceTests+Helpers.swift in Sources */,
 				C9D797F2CCCC2985649768DB /* AchievementServiceTests.swift in Sources */,
 				0F875494740B30818381D710 /* ActiveFamilyScopeGuardTests.swift in Sources */,
 				D65F8D6482395A57D6289666 /* AppDelegateBackgroundTaskTests.swift in Sources */,
@@ -2355,6 +2366,7 @@
 				063C8490BC2528CA7FFBB5D8 /* OfflineAndSyncMatrixTests.swift in Sources */,
 				2EF69CF462F9C95DAC72D6B3 /* OptimisticRollbackTests.swift in Sources */,
 				CDF3B66C97E4BE042AB09CB4 /* ProfileViewModelTests.swift in Sources */,
+				86C0B688DE10CF8B806D83B1 /* QuestCompletionServiceTests.swift in Sources */,
 				CFEF25C925DFF69068BC8BD4 /* QuestLogViewModelTests.swift in Sources */,
 				ABA21AD6F50F102108FBB1A6 /* QuestManagerViewModelTests.swift in Sources */,
 				76C1348393E43ECA4CEAE7F1 /* QuestServiceTests+ActiveQuests.swift in Sources */,

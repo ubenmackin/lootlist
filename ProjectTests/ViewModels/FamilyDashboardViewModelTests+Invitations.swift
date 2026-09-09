@@ -14,7 +14,7 @@ import Testing
 
 @MainActor
 final class StubFamilyProfileFetcher: FamilyProfileFetching {
-    private let profiles: [Profile]
+    let profiles: [Profile]
     let cloudKit: MockCloudKitService
     var refreshProfilesCallCount = 0
 
@@ -28,6 +28,10 @@ final class StubFamilyProfileFetcher: FamilyProfileFetching {
     }
 
     func refreshProfilesFromCloudKit(for _: Family) async {
+        refreshProfilesCallCount += 1
+    }
+
+    func requestProfileSync(for _: Family) async {
         refreshProfilesCallCount += 1
     }
 
@@ -76,6 +80,10 @@ final class MutableStubFamilyProfileFetcher: FamilyProfileFetching {
     }
 
     func refreshProfilesFromCloudKit(for _: Family) async {
+        refreshProfilesCallCount += 1
+    }
+
+    func requestProfileSync(for _: Family) async {
         refreshProfilesCallCount += 1
     }
 
@@ -156,6 +164,21 @@ extension FamilyDashboardViewModelTests {
             iCloudRecordName: MockCloudKitService.mockUserRecordName,
             familyRecordName: anchoredFamily.id.recordName
         )
+        // WHY cache-only: invitation panel reflects hydrated roster; seed in-memory cache so tests observe the same seam production syncs through.
+        if let cache = try? CacheService(inMemory: true) {
+            let domainProfiles: [Profile] = if let stub = fetcher as? StubFamilyProfileFetcher {
+                stub.profiles
+            } else if let mutable = fetcher as? MutableStubFamilyProfileFetcher {
+                mutable.profiles
+            } else {
+                []
+            }
+            for profile in domainProfiles {
+                cache.context?.insert(ProfileCache(from: profile))
+            }
+            _ = cache.saveContext()
+            appState.cacheService = cache
+        }
         let vm = FamilyDashboardViewModel(
             questService: questService,
             treasury: treasury,
@@ -490,9 +513,9 @@ extension FamilyDashboardViewModelTests {
 
         await vm.refreshInvitations()
 
-        // Verify that refreshProfilesFromCloudKit was invoked to fetch the missing member
-        #expect(fetcher.refreshProfilesCallCount > 0)
-        // Because the profile was fetched, it is excluded from invitations (not displayed as a pending invite)
+        // WHY lifecycle-only: missing members reconcile via hydrated cache, never via ViewModel-owned CloudKit fetches.
+        #expect(fetcher.refreshProfilesCallCount == 0)
+        // Because the profile was hydrated, it is excluded from invitations (not displayed as a pending invite)
         #expect(!vm.invitations.contains { $0.identityRecordName == "child_user_1" })
         #expect(vm.invitations.isEmpty)
     }

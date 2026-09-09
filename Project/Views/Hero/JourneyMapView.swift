@@ -67,7 +67,7 @@ struct JourneyMapView: View {
             }
         }
         .ignoresSafeArea()
-        .background(Color.black)
+        .background(Color(DesignSystemConstants.Colors.background))
     }
 
     // MARK: - Scrollable World

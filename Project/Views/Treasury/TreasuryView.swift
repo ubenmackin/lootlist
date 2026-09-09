@@ -291,7 +291,7 @@ struct TreasuryView: View {
         } else {
             BalanceCardView(balance: viewModel.balance,
                             weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
-                            status: viewModel.allowancePeriod?.status,
+                            status: viewModel.allowancePeriod?.statusEnum,
                             pendingPayoutAmount: viewModel.pendingQuestGold)
                 .padding(.horizontal, 0)
 

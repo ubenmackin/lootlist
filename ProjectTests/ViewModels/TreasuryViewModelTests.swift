@@ -105,7 +105,7 @@ struct TreasuryViewModelTests {
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .payoutPending)
         #expect(viewModel.weeklyBreakdown?.paidAmount == nil)
-        #expect(viewModel.allowancePeriod?.status == .payoutPending)
+        #expect(viewModel.allowancePeriod?.statusEnum == .payoutPending)
 
         let paidPeriod = AllowancePeriodCache(
             recordName: "per_1",
@@ -129,7 +129,7 @@ struct TreasuryViewModelTests {
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)
         #expect(viewModel.weeklyBreakdown?.paidAmount == 2500)
-        #expect(viewModel.allowancePeriod?.status == .paid)
+        #expect(viewModel.allowancePeriod?.statusEnum == .paid)
         #expect(viewModel.allowancePeriod?.paidAmount == 2500)
     }
 
@@ -169,7 +169,7 @@ struct TreasuryViewModelTests {
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .active)
         #expect(viewModel.weeklyBreakdown?.paidAmount == nil)
-        #expect(viewModel.allowancePeriod?.status == .active)
+        #expect(viewModel.allowancePeriod?.statusEnum == .active)
     }
 
     @Test
@@ -547,7 +547,7 @@ struct TreasuryViewModelTests {
 
         viewModel.rebuildLists(logs: [], ledgers: [], quests: [], allowancePeriods: [allowance], scope: .thisWeek, templates: [])
 
-        #expect(viewModel.allowancePeriod?.status == .paid)
+        #expect(viewModel.allowancePeriod?.statusEnum == .paid)
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)
         #expect(viewModel.weeklyBreakdown?.paidAmount == 5000)
         #expect(viewModel.pendingQuestGold == 0)

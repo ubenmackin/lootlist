@@ -150,8 +150,20 @@ final class TreasuryService {
 
     // MARK: - Balance & Weekly Breakdown
 
+    /// WHY derivation-only: payout verification reconciles against CloudKit; UI balances use bucketBalances/totalBalance so tiles render instantly offline.
     func currentBalance(for profile: Profile) async throws -> Int64 {
         try await resolvedLedgerService.currentBalance(for: profile)
+    }
+
+    /// WHY cache-only: tiles and rings render from SwiftData with zero CloudKit wait.
+    func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Int64] {
+        let entries = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyRecordName)
+        return BucketService.bucketBalances(for: entries, profileRecordName: profileRecordName)
+    }
+
+    /// WHY cache-only: labels sum cached buckets with zero CloudKit wait.
+    func totalBalance(profileRecordName: String, familyRecordName: String) -> Int64 {
+        BucketService.totalBalance(bucketBalances: bucketBalances(profileRecordName: profileRecordName, familyRecordName: familyRecordName))
     }
 
     struct WeeklyBreakdown: Equatable, Sendable {
@@ -171,6 +183,7 @@ final class TreasuryService {
         var paidAmount: Int64?
     }
 
+    /// WHY derivation-only: payout math reconciles against CloudKit; UI tiles use cache rebuilds so balances render instantly offline.
     func weeklyBreakdown(profile: Profile,
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown

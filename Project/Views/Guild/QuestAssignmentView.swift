@@ -32,7 +32,11 @@ struct QuestAssignmentView: View {
 
         let targetFamily = familyRecordName ?? ""
         let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
-        _cachedCompletions = Query(filter: completionFilter)
+        // WHY stable sorts: secondary recordName keeps ordering deterministic across CloudKit merge reorders.
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+        )
     }
 
     enum Mode: Equatable, Identifiable {
@@ -187,6 +191,9 @@ struct QuestAssignmentView: View {
             .onAppear {
                 performOnAppear()
             }
+            .onChange(of: cachedCompletions) { _, _ in
+                refreshEditLock()
+            }
             .alert("Override Lock?", isPresented: $showOverrideAlert) {
                 Button("Cancel", role: .cancel) {}
                 Button("Override", role: .destructive) {
@@ -198,6 +205,8 @@ struct QuestAssignmentView: View {
             .toastOverlay()
             .decimalPadDoneToolbar(isFocused: $isEditAmountFocused)
         }
+        // WHY: view identity tracks family so @Query predicate (init-captured) is recreated on scope switch.
+        .id(familyRecordName ?? "")
     }
 
     // MARK: - Display mode (what the form actually shows)
@@ -505,6 +514,12 @@ struct QuestAssignmentView: View {
 
         // Check if quest has logs (determines locked fields) synchronously from cache
         editHasLogs = cachedCompletions.contains { $0.questRecordName == quest.recordName }
+    }
+
+    private func refreshEditLock() {
+        guard case let .edit(questRecordName) = mode else { return }
+        // WHY: completions hydrate after the sheet appears; re-evaluate the lock so reward fields don't stay editable.
+        editHasLogs = cachedCompletions.contains { $0.questRecordName == questRecordName }
     }
 
     // MARK: - Submit

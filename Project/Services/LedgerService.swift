@@ -67,6 +67,7 @@ final class LedgerService {
 
     // MARK: - Fetches
 
+    /// WHY derivation-only: payout and migration reconcile against CloudKit; UI balances use bucketBalances/totalBalance so tiles render instantly offline.
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         // WHY single zone: family zone owns scope so profile and family zones must agree.
         let targetZoneID = profile.family.recordID.zoneID
@@ -116,6 +117,7 @@ final class LedgerService {
         )
     }
 
+    /// WHY derivation-only: payout math needs CloudKit reconciliation; UI balances use bucketBalances/totalBalance so tiles render instantly offline.
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         // WHY single zone: family zone owns scope so profile and family zones must agree.
         let targetZoneID = profile.family.recordID.zoneID
@@ -185,6 +187,7 @@ final class LedgerService {
         return (scope, scope == .private)
     }
 
+    /// WHY derivation-only: history export reconciles against CloudKit; UI lists use cachedLedgerEntries so rows render instantly offline.
     func fetchTransactions(for profile: Profile,
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
     {
@@ -245,12 +248,14 @@ final class LedgerService {
 
     // MARK: - Balances
 
+    /// WHY derivation-only: payout verification reconciles against CloudKit; UI balances use bucketBalances/totalBalance so tiles render instantly offline.
     func currentBalance(for profile: Profile) async throws -> Int64 {
         let ledgerEntries = try await fetchAllLedgerEntries(profile: profile)
         // WHY single-count: goal entries reuse counted funds and transfers net to zero across buckets.
         return ledgerEntries.filter { BucketService.isCounted($0) }.reduce(0) { $0 + $1.amount }
     }
 
+    /// WHY cache-only: tiles and rings render from SwiftData with zero CloudKit wait.
     func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Int64] {
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
@@ -259,6 +264,7 @@ final class LedgerService {
         return BucketService.bucketBalances(for: entries, profileRecordName: profileRecordName)
     }
 
+    /// WHY cache-only: labels sum cached buckets with zero CloudKit wait.
     func totalBalance(profileRecordName: String, familyRecordName: String) -> Int64 {
         BucketService.totalBalance(bucketBalances: bucketBalances(profileRecordName: profileRecordName, familyRecordName: familyRecordName))
     }
