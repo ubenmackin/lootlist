@@ -549,15 +549,21 @@ actor BackgroundCacheActor {
         success = await commitCoreEntitiesDeferred(batch) && success
         success = await commitSecondaryEntitiesDeferred(batch) && success
         guard success else {
+            // WHY fail-closed: partial reconciliation must not commit or @Query observes half-ingested state.
+            modelContext.rollback()
             logger.error("Participant reconciliation upsert failed", family: familyRecordName, zone: zoneID.zoneName)
             return false
         }
         // WHY: Unacked rows are missing server-side until re-enqueue uploads them; purging would drop them first.
         let pending = collectPendingNames(familyRecordName: familyRecordName)
         for (type, validRecordNames) in validRecordNamesByType {
+            // WHY root exception: family is the partition so reconciliation never purges other families' roots.
+            guard type != .family else { continue }
             await purgeMissingOfType(type, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: pending[type] ?? [])
         }
         guard saveContext() else {
+            // WHY fail-closed: save failure must discard dirty rows so next pass never observes half-reconciled state.
+            modelContext.rollback()
             logger.error("Participant reconciliation save failed", family: familyRecordName, zone: zoneID.zoneName)
             return false
         }
@@ -570,8 +576,18 @@ actor BackgroundCacheActor {
         var success = true
         success = await commitCoreEntitiesDeferred(batch) && success
         success = await commitSecondaryEntitiesDeferred(batch) && success
-        let saved = saveContext()
-        return saved && success
+        guard success else {
+            // WHY fail-closed: partial batch must not commit or @Query observes half-ingested state.
+            modelContext.rollback()
+            return false
+        }
+        guard saveContext() else {
+            // WHY fail-closed: save failure must discard dirty rows so next pass never observes half-ingested state.
+            modelContext.rollback()
+            logger.error("Parsed batch save failed")
+            return false
+        }
+        return true
     }
 
     private func commitCoreEntitiesDeferred(_ batch: ParsedBatch) async -> Bool {
