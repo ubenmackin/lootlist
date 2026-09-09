@@ -24,8 +24,6 @@ struct ProfileView: View {
 
     @Environment(FamilyService.self) private var familyService
 
-    @Environment(AchievementService.self) private var achievementService
-
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -173,12 +171,6 @@ struct ProfileView: View {
             .task {
                 recomputeCharacterFromCache()
                 viewModel.recordSavingsStreakMilestone()
-                await viewModel.refreshFreshness(
-                    profile: appState.currentProfile,
-                    family: appState.family,
-                    achievementService: achievementService,
-                    appState: appState
-                )
             }
             .onChange(of: cachedProfileAchievements) { _, _ in recomputeCharacterFromCache() }
             .onChange(of: cachedCompletions) { _, _ in recomputeCharacterFromCache() }
@@ -773,56 +765,5 @@ final class ProfileViewModel {
     func recordSavingsStreakMilestone() {
         guard let streak = savingsStreak else { return }
         AppIconEligibilityStore.recordSavingsStreak(streak, defaults: eligibilityDefaults)
-    }
-
-    /// WHY async: .task awaits directly so cancellation follows view lifecycle with no fire-and-forget.
-    func refreshFreshness(
-        profile: Profile?,
-        family: Family?,
-        achievementService: AchievementService,
-        appState: AppState? = nil
-    ) async {
-        guard let profile else { return }
-        var needsEarned = true
-        var needsDefinitions = true
-        if let cache = achievementService.cacheService {
-            guard let authority = CacheFreshness.profileAuthority(
-                profile: profile,
-                family: family,
-                cache: cache,
-                appState: appState ?? achievementService.appState
-            ) else {
-                Logger(category: "ProfileView").debug("Profile freshness staying cache-only: unknown database scope")
-                return
-            }
-            applyAuthoritySnapshot(profileAuthoritative: authority.earned, achievementAuthoritative: authority.definitions)
-            if isProfileAuthoritative {
-                return
-            }
-            // WHY per-type gate: skip the fetch that is already hydrated so one stale scope never refetches both.
-            needsEarned = !authority.earned
-            needsDefinitions = !authority.definitions
-        }
-        if needsEarned {
-            do {
-                _ = try await achievementService.fetchEarned(profile: profile)
-            } catch is CancellationError {
-                return
-            } catch {
-                let logger = Logger(category: "ProfileView")
-                logger.debug("ProfileView: failed to fetch earned achievements for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)")
-            }
-        }
-        guard let family else { return }
-        if needsDefinitions {
-            do {
-                _ = try await achievementService.fetchAllDefinitions(family: family)
-            } catch is CancellationError {
-                return
-            } catch {
-                let logger = Logger(category: "ProfileView")
-                logger.debug("ProfileView: failed to fetch achievement definitions for family '\(family.id.recordName, privacy: .private)': \(error, privacy: .private)")
-            }
-        }
     }
 }

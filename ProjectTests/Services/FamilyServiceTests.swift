@@ -120,7 +120,7 @@ struct FamilyServiceTests {
     }
 
     @Test
-    func `fetchHeroes falls back to CloudKit when cache is stale`() async throws {
+    func `fetchHeroes serves stale cache without CloudKit fallback`() async throws {
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
@@ -143,7 +143,8 @@ struct FamilyServiceTests {
         )
         await cache.upsertProfile(cachedHero)
 
-        // CloudKit truth: a DIFFERENT hero in the same family.
+        // CloudKit holds a DIFFERENT hero — cache-only roster must ignore it;
+        // lifecycle sync owns re-hydration, not the read path.
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
@@ -155,9 +156,16 @@ struct FamilyServiceTests {
 
         let heroes = try await familyService.fetchHeroes(for: family)
 
-        // A stale (unstamped) partial cache must NOT be served — CloudKit wins.
+        // WHY cache is UI truth: stale rows render until lifecycle re-hydrates, no wall-clock TTL.
         #expect(heroes.count == 1)
-        #expect(heroes.first?.displayName == "CK Hero")
+        #expect(heroes.first?.displayName == "Cached Hero")
+
+        // The stale cache hit must not fire a CloudKit read-through —
+        // CloudKit truth must NOT be written into the cache.
+        #expect(
+            !cache.fetchProfiles(family: "fam1").contains { $0.recordName == "hero-ck" },
+            "A stale cache hit must not write through CloudKit records"
+        )
     }
 
     @Test

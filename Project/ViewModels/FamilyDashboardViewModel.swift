@@ -56,6 +56,8 @@ final class FamilyDashboardViewModel {
     /// Invitation orchestration is owned by `FamilyInvitationCoordinator` behind
     /// `FamilyInviting` so this ViewModel stays pure `rebuildLists` + bindings.
     private let invitationCoordinator: any FamilyInviting
+    private let syncCoordinator: (any SyncEnqueuing)?
+    private let lifecycleCoordinator: AppLifecycleCoordinator?
 
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
@@ -73,7 +75,9 @@ final class FamilyDashboardViewModel {
          achievementService: AchievementService,
          familyService: any FamilyProfileFetching,
          appState: AppState,
-         invitationCoordinator: (any FamilyInviting)? = nil)
+         invitationCoordinator: (any FamilyInviting)? = nil,
+         syncCoordinator: (any SyncEnqueuing)? = nil,
+         lifecycleCoordinator: AppLifecycleCoordinator? = nil)
     {
         self.questService = questService
         self.treasury = treasury
@@ -82,6 +86,9 @@ final class FamilyDashboardViewModel {
         self.appState = appState
         self.invitationCoordinator = invitationCoordinator
             ?? FamilyInvitationCoordinator(familyService: familyService, appState: appState)
+        let resolvedSync: (any SyncEnqueuing)? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
+        self.syncCoordinator = resolvedSync
+        self.lifecycleCoordinator = lifecycleCoordinator
     }
 
     /// Observes roster changes to refresh invitations when members join or leave.
@@ -121,13 +128,20 @@ final class FamilyDashboardViewModel {
         defer { isLoading = false }
 
         if let family = appState.family {
-            await familyService.refreshProfilesFromCloudKit(for: family)
+            await requestProfileSync(for: family)
             do {
                 try await achievements.seedDefaultAchievements(family: family)
             } catch {
                 logger.warning("Default achievements seed skipped: \(error, privacy: .private)")
             }
         }
+    }
+
+    private func requestProfileSync(for family: Family) async {
+        // WHY lifecycle-only: dashboard refresh rides the single-flight gate so reconciliation never bypasses ingest.
+        guard !family.id.recordName.isEmpty else { return }
+        guard let lifecycleCoordinator else { return }
+        await lifecycleCoordinator.performManualSync()
     }
 
     /// Resolves role-specific share presentation via the invitation coordinator (zone owner only).

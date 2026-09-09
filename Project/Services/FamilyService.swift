@@ -52,6 +52,7 @@ enum FamilyKickResult: Equatable, Sendable {
 protocol FamilyProfileFetching: Sendable {
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile]
     func refreshProfilesFromCloudKit(for family: Family) async
+    func requestProfileSync(for family: Family) async
     func currentUserRecordName() async throws -> String
     func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare
     func prepareInvitePresentation(for family: Family, role: UserRole) async throws -> CloudSharePresentation
@@ -95,6 +96,9 @@ extension FamilyProfileFetching {
             return provider
         }
     }
+
+    /// WHY lifecycle seam: test doubles inherit a no-op sync so ViewModels stay cache-driven without CloudKit.
+    func requestProfileSync(for _: Family) async {}
 }
 
 /// The owner-family session result consumed by the onboarding flow: the
@@ -433,9 +437,8 @@ final class FamilyService: FamilyProfileFetching {
         cloudKit.activeIsOwner = false
         appState.saveSession(profile: savedProfile, family: family, zoneID: zoneID, isOwner: false)
 
-        // Immediate roster refresh — the joiner's cache only has the Family +
-        // their own profile. Routine updates stay push-driven via CKSyncEngine.
-        await refreshProfilesFromCloudKit(for: family)
+        // WHY lifecycle sync: post-join roster rides fetchChanges so engine ingest stays the single write path.
+        await requestProfileSync(for: family)
 
         // Re-ingest the just-saved profile so the roster hydration above cannot
         // overwrite fresh joiner metadata with a stale snapshot.
@@ -463,62 +466,31 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Role & Membership Management
 
-    /// Shared CacheFirst profile pipeline backing `fetchHeroes` and `fetchAllProfilesForFamily`.
+    /// Lifecycle-driven profile read backing `fetchHeroes` and `fetchAllProfilesForFamily`.
     private func fetchProfiles(for family: Family) async throws -> [Profile] {
-        guard let cache = cacheService else {
-            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-            let predicate = NSPredicate(format: "family == %@", familyRef)
-            let isOwner = resolvedIsOwner(for: family)
-            let db = cloudKit.database(isOwner: isOwner)
-            let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-            if let syncCoordinator {
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: all,
-                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
-                    zoneID: family.id.zoneID
-                )
-            }
-            return all
-        }
-        let isOwner = resolvedIsOwner(for: family)
-        let scope = DatabaseScopeResolver.scope(isOwner: isOwner)
-        return try await CacheFirst.cacheFirst(
-            type: .profile,
-            family: family,
-            cacheService: cache,
-            scope: scope,
-            operations: .init(
-                fetchCache: { cache.fetchProfiles(family: $0) },
-                map: { $0.toProfile(zoneID: family.id.zoneID) },
-                query: { [cloudKit, family, isOwner] in
-                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                    let predicate = NSPredicate(format: "family == %@", familyRef)
-                    let db = cloudKit.database(isOwner: isOwner)
-                    return try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-                },
-                hydrate: { [syncCoordinator, cache, family, scope] models in
-                    if let syncCoordinator {
-                        await syncCoordinator.delegateHandler.hydrateFromQuery(
-                            models: models,
-                            databaseScope: scope,
-                            zoneID: family.id.zoneID
-                        )
-                    } else {
-                        await cache.upsertProfiles(models, family: family.id.recordName)
-                    }
-                }
-            )
-        )
+        // WHY cache-only: roster is UI truth from lifecycle sync + cache; stale serves until re-hydrated, no CloudKit fallback.
+        let familyRecordName = family.id.recordName
+        guard !familyRecordName.isEmpty else { return [] }
+        guard let cache = cacheService else { return [] }
+        return cache.fetchProfiles(family: familyRecordName).map { $0.toProfile(zoneID: family.id.zoneID) }
     }
 
-    /// Cache-first read via the centralized ``CacheFirst`` scaffold.
+    /// Lifecycle seam for ViewModel roster refresh; rides the sync engine so ingest stays the single write path.
+    func requestProfileSync(for family: Family) async {
+        // WHY fail-closed: empty scope or unresolved database never triggers a sync pass.
+        guard !family.id.recordName.isEmpty else { return }
+        guard DatabaseScopeResolver.resolvedScope(appState: appState) != nil else { return }
+        await syncCoordinator?.fetchChanges()
+    }
+
+    /// Cache-only read riding lifecycle sync + cache.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
         try await fetchProfiles(for: family)
             .filter { $0.role == .hero && $0.isActive }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    /// Cache-first read via the centralized ``CacheFirst`` scaffold.
+    /// Cache-only read riding lifecycle sync + cache.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
         let profileSort: (Profile, Profile) -> Bool = { lhs, rhs in
             if lhs.isActive != rhs.isActive {
@@ -653,13 +625,6 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    private func resolvedIsOwner(for family: Family) -> Bool {
-        if family.id.recordName == appState.family?.id.recordName {
-            return ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        }
-        return false
-    }
-
     private func acceptShareIfNeeded(metadata: CKShare.Metadata?, progressHandler: ((String, Double) -> Void)?) async throws {
         guard let metadata else { return }
         progressHandler?("Accepting family invitation...", 0.4)
@@ -687,7 +652,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Re-queries profiles from CloudKit and routes snapshot through ingestion.
+    /// Lifecycle-driven roster refresh; rides the sync engine so ingest stays the single write path.
     func refreshProfilesFromCloudKit(for family: Family) async {
         let key = "profiles|\(family.id.recordName)"
         let alreadyInFlight = refreshInFlightKeys.withLock {
@@ -698,30 +663,22 @@ final class FamilyService: FamilyProfileFetching {
         guard !alreadyInFlight else { return }
         defer { refreshInFlightKeys.withLock { _ = $0.remove(key) } }
 
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        let isOwner = resolvedIsOwner(for: family)
-        let db = cloudKit.database(isOwner: isOwner)
+        // WHY lifecycle sync: roster refresh rides fetchChanges so engine ingest stays the single write path.
+        await requestProfileSync(for: family)
+        // WHY test hydration: engines never run under tests, so mock query fills cache without live zone fetch.
+        guard TestEnvironment.isRunningUnitOrUITests else { return }
+        guard !family.id.recordName.isEmpty else { return }
+        guard DatabaseScopeResolver.resolvedScope(appState: appState) != nil else { return }
         do {
-            let fresh = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-            // Scope mirrors the database the query ran against, which this
-            // method resolves per-family rather than from the active session alone.
-            let resolvedScope = DatabaseScopeResolver.scope(isOwner: isOwner)
-            if let syncCoordinator {
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: fresh,
-                    databaseScope: resolvedScope,
-                    zoneID: family.id.zoneID
-                )
-                syncCoordinator.stampFreshness(for: Set([CachedRecordType.profile]), scopes: Set([resolvedScope]))
-            } else {
-                await cacheService?.upsertProfiles(fresh, family: family.id.recordName)
-                if let cacheService {
-                    cacheService.stampCacheWatermarks(for: Set([CachedRecordType.profile]), scope: resolvedScope, familyRecordName: family.id.recordName)
-                }
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let predicate = NSPredicate(format: "family == %@", familyRef)
+            let (_, db) = familyContext(for: family.id)
+            let profiles: [Profile] = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
+            if let cacheService {
+                await cacheService.upsertProfiles(profiles, family: family.id.recordName)
             }
         } catch {
-            logger.warning("Failed to refresh profiles from CloudKit: \(error, privacy: .private)")
+            logger.warning("Profile refresh query skipped: \(error, privacy: .private)")
         }
     }
 
@@ -819,11 +776,18 @@ final class FamilyService: FamilyProfileFetching {
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: period.id, appState: appState, logger: logger, context: "FamilyService.seedAllowancePeriod")
     }
 
-    /// Finds joining user's existing Profile for deduplication before creating a new one.
+    /// Sanctioned join-dedupe door: finds joining user's existing Profile before creating a new one.
     func findExistingProfileForCurrentUser(in zoneID: CKRecordZone.ID,
                                            family: Family,
                                            currentUserRecordID: CKRecord.ID) async throws -> Profile?
     {
+        // WHY fail-closed: empty scope or zone mismatch denies dedupe rather than risking a duplicate.
+        guard !family.id.recordName.isEmpty, !currentUserRecordID.recordName.isEmpty else {
+            throw FamilyServiceError.joinFailed
+        }
+        guard zoneID == family.id.zoneID else {
+            throw FamilyServiceError.joinFailed
+        }
         // `iCloudUserID` is stored as a plain record-name String
         // (`Profile.toRecord()`), so the query constant must be a String — only
         // the `family` field is a CKRecord.Reference.

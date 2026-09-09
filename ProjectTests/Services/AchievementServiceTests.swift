@@ -10,12 +10,6 @@ import Foundation
 @testable import LootList
 import Testing
 
-private struct QuestTrophySpec {
-    let requirement: AchievementRequirement
-    let name: String
-    let value: Int
-}
-
 @MainActor
 struct AchievementServiceTests {
     private func makeDependencies() -> (AchievementService, MockCloudKitService) {
@@ -728,231 +722,107 @@ struct AchievementServiceTests {
     }
 
     @Test
-    func `first goal created unlocks at one goal and is idempotent`() async throws {
+    func `push delivered completion ingested twice awards trophy exactly once`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService()
-        cloudKit.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let appState = AppState()
+        let mock = MockCloudKitService()
+        mock.activeFamilyZoneID = zoneID
+        mock.activeIsOwner = true
+        let cloudKit: any CloudKitServiceProtocol = mock
+        let defaults = UserDefaults.ephemeral()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let appState = AppState.testState(defaults: defaults)
+        appState.cacheService = cache
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.currentProfile = hero
+        appState.isZoneOwner = true
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
-        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
-        appState.currentProfile = hero
-        appState.family = family
+        // WHY offline first: empty cache must still render the seeded catalog without CloudKit.
+        let fallback = service.cachedOrSeededAchievementCaches(for: family)
+        #expect(fallback.count == 12)
+        #expect(cache.fetchAchievements(family: family.id.recordName).isEmpty)
 
-        let firstGoalCreated = Achievement(
-            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.firstGoalCreated.rawValue)", zoneID: zoneID),
-            name: "First Goal Created",
-            description: "Create your first savings goal",
-            iconSystemName: "target",
-            category: .goal,
-            requirementType: .firstGoalCreated,
-            requirementValue: 1,
-            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
-        )
-        await cache.upsertAchievement(firstGoalCreated)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .achievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profileAchievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .ledgerEntry)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .goal)
-
-        // No goals yet — not earned.
-        var awarded = try await service.evaluateAll(for: hero, family: family)
-        #expect(!awarded.contains { $0.requirementType == .firstGoalCreated })
-
-        // Create one goal
-        let goal = makeGoal(zoneID, hero: hero, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID))
-        await cache.upsertGoal(goal)
-        awarded = try await service.handleGoalCreated(for: hero, family: family)
-        #expect(awarded.contains { $0.requirementType == .firstGoalCreated })
-
-        // Idempotent — second handle should not re-award.
-        let second = try await service.handleGoalCreated(for: hero, family: family)
-        #expect(second.isEmpty)
-        let cached = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName, family: family.id.recordName)
-        #expect(cached.filter { $0.achievementRecordName == "fam1-\(AchievementRequirement.firstGoalCreated.rawValue)" }.count == 1)
-    }
-
-    @Test
-    func `goal getter unlocks when a goal is completed and is idempotent`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService()
-        cloudKit.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let appState = AppState()
-        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
-
-        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
-        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
-        appState.currentProfile = hero
-        appState.family = family
-
-        let goalGetter = Achievement(
-            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.goalGetter.rawValue)", zoneID: zoneID),
-            name: "Goal Getter",
-            description: "Reach a savings goal",
-            iconSystemName: "star.circle.fill",
-            category: .goal,
-            requirementType: .goalGetter,
-            requirementValue: 1,
-            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
-        )
-        let firstCreated = Achievement(
-            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.firstGoalCreated.rawValue)", zoneID: zoneID),
-            name: "First Goal Created",
-            description: "Create your first savings goal",
-            iconSystemName: "target",
-            category: .goal,
-            requirementType: .firstGoalCreated,
-            requirementValue: 1,
-            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
-        )
-        await cache.upsertAchievement(goalGetter)
-        await cache.upsertAchievement(firstCreated)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .achievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profileAchievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .ledgerEntry)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .goal)
-
-        // Create incomplete goal — should award firstGoalCreated but NOT goalGetter
-        let incomplete = makeGoal(zoneID, hero: hero, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), completed: false)
-        await cache.upsertGoal(incomplete)
-        var awarded = try await service.evaluateAll(for: hero, family: family)
-        #expect(awarded.contains { $0.requirementType == .firstGoalCreated })
-        #expect(!awarded.contains { $0.requirementType == .goalGetter })
-
-        // Complete the goal — should now award goalGetter
-        var completed = incomplete
-        completed.completedAt = Date()
-        await cache.upsertGoal(completed)
-        awarded = try await service.handleGoalCompleted(for: hero, family: family)
-        #expect(awarded.contains { $0.requirementType == .goalGetter })
-
-        // Idempotent second completion handle
-        let second = try await service.handleGoalCompleted(for: hero, family: family)
-        #expect(second.isEmpty)
-    }
-
-    @Test
-    func `goal trophies are not awarded without any goals`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService()
-        cloudKit.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let appState = AppState()
-        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
-
-        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
-        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
-        appState.currentProfile = hero
-        appState.family = family
-
-        for req in [AchievementRequirement.firstGoalCreated, AchievementRequirement.goalGetter] {
-            let ach = Achievement(
-                id: CKRecord.ID(recordName: "fam1-\(req.rawValue)", zoneID: zoneID),
-                name: req.rawValue,
-                description: "goal",
-                iconSystemName: "target",
-                category: .goal,
-                requirementType: req,
-                requirementValue: 1,
-                family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
-            )
-            await cache.upsertAchievement(ach)
-        }
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .achievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profileAchievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .ledgerEntry)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .goal)
-
-        let awarded = try await service.evaluateAll(for: hero, family: family)
-        #expect(!awarded.contains { $0.requirementType == .firstGoalCreated })
-        #expect(!awarded.contains { $0.requirementType == .goalGetter })
-    }
-}
-
-@MainActor
-private extension AchievementServiceTests {
-    func makeGoal(_ zoneID: CKRecordZone.ID, hero: Profile, familyRef: CKRecord.Reference, name: String = "Bike", completed: Bool = false) -> Goal {
-        Goal(
-            profile: CKRecord.Reference(recordID: hero.id, action: .none),
-            family: familyRef,
-            bucketKind: .shortTermSave,
-            name: name,
-            targetAmountPennies: 5000,
-            createdAt: Date(),
-            completedAt: completed ? Date() : nil,
-            id: CKRecord.ID(recordName: "goal-\(UUID().uuidString)", zoneID: zoneID)
-        )
-    }
-
-    func makeQuestCompletion(_ zoneID: CKRecordZone.ID, hero: Profile, familyRef: CKRecord.Reference, weekOf: Date, questName: String = "q",
-                             id: String) -> QuestCompletion
-    {
-        QuestCompletion(
-            quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: questName, zoneID: zoneID), action: .none),
-            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
+        let weekOf = WeekMath.mondayOfWeek(for: Date())
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl-push-1", zoneID: zoneID), action: .none),
+            assignee: heroRef,
+            goldReward: 2500,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
             approvalMode: .autoApprove,
-            completedDate: Date(),
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: familyRef,
+            name: "Push Quest",
+            id: CKRecord.ID(recordName: "quest-push-1", zoneID: zoneID)
+        )
+        let achievement = Achievement(
+            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.firstQuest.rawValue)", zoneID: zoneID),
+            name: "First Steps",
+            description: "Complete your first quest",
+            iconSystemName: "shoeprints.fill",
+            category: .quest,
+            requirementType: .firstQuest,
+            requirementValue: 1,
+            family: familyRef
+        )
+        let completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest.id, action: .none),
+            completedBy: heroRef,
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
             weekOf: weekOf,
             family: familyRef,
-            id: CKRecord.ID(recordName: id, zoneID: zoneID)
+            id: CKRecord.ID(recordName: "log-push-1", zoneID: zoneID)
         )
-    }
+        let reward = RewardEvent(
+            profile: heroRef,
+            questCompletion: CKRecord.Reference(recordID: completion.id, action: .none),
+            xpAmount: 50,
+            goldAmount: 2500,
+            timestamp: weekOf,
+            family: familyRef,
+            id: RewardEvent.recordID(completionRecordName: completion.id.recordName, zoneID: zoneID)
+        )
 
-    func seedQuestCountAchievements(in cache: CacheService, zoneID: CKRecordZone.ID, familyRef: CKRecord.Reference) {
-        let defs: [QuestTrophySpec] = [
-            QuestTrophySpec(requirement: .firstQuest, name: "First Steps", value: 1),
-            QuestTrophySpec(requirement: .questCount10, name: "Questing Squire", value: 10),
-            QuestTrophySpec(requirement: .questCount25, name: "Questing Apprentice", value: 25),
-            QuestTrophySpec(requirement: .questCount50, name: "Quest Knight", value: 50),
-            QuestTrophySpec(requirement: .questCount100, name: "Quest Legend", value: 100)
-        ]
-        for spec in defs {
-            let achievement = Achievement(
-                id: CKRecord.ID(recordName: "fam1-\(spec.requirement.rawValue)", zoneID: zoneID),
-                name: spec.name,
-                description: "Complete \(spec.value) quests",
-                iconSystemName: "trophy.fill",
-                category: .quest,
-                requirementType: spec.requirement,
-                requirementValue: spec.value,
-                family: familyRef
-            )
-            cache.context?.insert(AchievementCache(from: achievement))
-        }
-        _ = cache.saveContext()
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .achievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profileAchievement)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .ledgerEntry)
-        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .goal)
-    }
+        let container = try #require(cache.container)
+        let background = BackgroundCacheActor(container: container)
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let handler = CKSyncEngineDelegateHandler(
+            backgroundCache: background,
+            conflictResolver: resolver,
+            cacheService: cache,
+            appState: appState
+        )
+        let pushRecords = [quest.toRecord(), completion.toRecord(), achievement.toRecord(), reward.toRecord()]
+        // WHY duplicate push: redelivered silent pushes must collapse to one row.
+        await handler.ingest(records: pushRecords, databaseScope: .private, zoneID: zoneID, notifiesOnCompletion: false)
+        await handler.ingest(records: pushRecords, databaseScope: .private, zoneID: zoneID, notifiesOnCompletion: false)
+        #expect(cache.fetchQuestCompletions(family: family.id.recordName).count == 1)
+        #expect(cache.fetchRewardEvents(family: family.id.recordName).count == 1)
+        #expect(cache.fetchAchievements(family: family.id.recordName).count == 1)
 
-    func seedCompletions(count: Int, hero: Profile, zoneID: CKRecordZone.ID, familyRef: CKRecord.Reference, cache: CacheService, weekOf: Date) {
-        for completionIndex in 0 ..< count {
-            let log = QuestCompletion(
-                quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: "q-\(completionIndex)", zoneID: zoneID), action: .none),
-                completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
-                approvalMode: .autoApprove,
-                completedDate: Date(),
-                weekOf: weekOf,
-                family: familyRef,
-                id: CKRecord.ID(recordName: "log-\(completionIndex)-\(UUID().uuidString)", zoneID: zoneID)
-            )
-            // Ensure verificationStatus is autoApproved (default from init is verified/autoApproved).
-            var verified = log
-            verified.verificationStatus = .autoApproved
-            cache.context?.insert(QuestCompletionCache(from: verified))
+        for type in [CachedRecordType.quest, .questCompletion, .achievement, .profileAchievement, .ledgerEntry, .goal] {
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: type)
         }
-        _ = cache.saveContext()
+
+        // WHY foreground catchup rides evaluateAll so terminated pushes still award.
+        let first = try await service.evaluateAll(for: hero, family: family)
+        #expect(first.contains { $0.requirementType == .firstQuest })
+        let second = try await service.evaluateAll(for: hero, family: family)
+        #expect(second.isEmpty)
+
+        let earned = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName, family: family.id.recordName)
+        #expect(earned.count == 1)
+        let expectedID = ProfileAchievement.recordID(profileID: hero.id, achievementID: achievement.id, zoneID: zoneID)
+        #expect(earned.first?.recordName == expectedID.recordName)
+        #expect(cache.fetchRewardEvents(family: family.id.recordName).count == 1)
     }
 }

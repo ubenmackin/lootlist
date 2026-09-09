@@ -98,11 +98,15 @@ struct QuestManagerView: View {
     }
 
     var body: some View {
-        if horizontalSizeClass == .regular {
-            regularLayout
-        } else {
-            compactLayout
+        Group {
+            if horizontalSizeClass == .regular {
+                regularLayout
+            } else {
+                compactLayout
+            }
         }
+        // WHY: view identity tracks family so @Query predicates (init-captured) are recreated on scope switch.
+        .id(familyRecordName ?? "")
     }
 
     // MARK: - Regular (iPad) Layout: 3-column NavigationSplitView

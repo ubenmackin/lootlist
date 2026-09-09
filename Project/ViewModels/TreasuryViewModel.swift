@@ -68,7 +68,7 @@ final class TreasuryViewModel {
 
     private(set) var weeklyBreakdown: TreasuryService.WeeklyBreakdown?
 
-    private(set) var allowancePeriod: AllowancePeriod?
+    private(set) var allowancePeriod: AllowancePeriodCache?
 
     private(set) var spendingLog: [SpendingLogRow] = []
 
@@ -118,38 +118,7 @@ final class TreasuryViewModel {
         pendingUploadCount > 0
     }
 
-    // MARK: - Weekly Breakdown (CloudKit-backed)
-
-    func refreshWeeklyBreakdown(viewerRow: ProfileCache? = nil, familyRow: FamilyCache? = nil) async {
-        let zoneID = appState.resolvedFamilyZoneID()
-        // WHY row-first: week math must mirror @Query rows so payout-day edits never disagree with gating.
-        let profile: Profile?
-        let family: Family?
-        if viewerRow != nil || familyRow != nil {
-            profile = viewerRow?.toProfile(zoneID: zoneID) ?? appState.currentProfile
-            family = familyRow?.toFamily(zoneID: zoneID) ?? appState.family
-        } else {
-            profile = appState.currentProfile
-            family = appState.family
-        }
-        guard let profile, let family else { return }
-        let payoutDay = PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
-        let effectivePayoutDay: PayoutDay = (viewerRow != nil || familyRow != nil) ? payoutDay : (profile.payoutDay ?? family.payoutDay)
-        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: effectivePayoutDay)
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: weekOf)
-            weeklyBreakdown = breakdown
-            errorMessage = nil
-        } catch {
-            logger.warning("Failed to load weekly breakdown: \(error, privacy: .private)")
-            errorMessage = "Could not load wallet totals. Pull to retry."
-            if let toast = treasury.toastManager {
-                toast.show(message: errorMessage ?? "Could not load wallet totals. Pull to retry.", type: .warning)
-            }
-        }
-    }
+    // MARK: - Weekly Breakdown (cache-only)
 
     func rebuildLists(
         logs: [QuestCompletionCache],
@@ -182,13 +151,10 @@ final class TreasuryViewModel {
             $0.profileRecordName == profileName &&
                 WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
         }
+        // WHY cache-only: treasury renders the queried row so domain conversion stays at the service boundary.
+        allowancePeriod = currentAllowance
         let payoutStatus = currentAllowance?.statusEnum
         let paidAmount = currentAllowance?.paidAmount
-        if let zoneID = appState.familyZoneID {
-            allowancePeriod = currentAllowance?.toAllowancePeriod(zoneID: zoneID)
-        } else {
-            allowancePeriod = nil
-        }
 
         let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
         // WHY bucket-only: nil-bucket rows are wiped residue, never paid quest gold.

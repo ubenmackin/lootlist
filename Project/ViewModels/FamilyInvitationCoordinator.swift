@@ -29,16 +29,23 @@ final class FamilyInvitationCoordinator: FamilyInviting {
     private let familyService: any FamilyProfileFetching
     private let appState: AppState
     private let invitationResolver: InvitationResolver
+    private let syncCoordinator: (any SyncEnqueuing)?
+    private let lifecycleCoordinator: AppLifecycleCoordinator?
     private let logger = Logger(category: "FamilyInvitationCoordinator")
 
     init(
         familyService: any FamilyProfileFetching,
         appState: AppState,
-        invitationResolver: InvitationResolver = InvitationResolver()
+        invitationResolver: InvitationResolver = InvitationResolver(),
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        lifecycleCoordinator: AppLifecycleCoordinator? = nil
     ) {
         self.familyService = familyService
         self.appState = appState
         self.invitationResolver = invitationResolver
+        let resolvedSync: (any SyncEnqueuing)? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
+        self.syncCoordinator = resolvedSync
+        self.lifecycleCoordinator = lifecycleCoordinator
     }
 
     /// Resolves role-specific share presentation via FamilyService (zone owner only).
@@ -173,6 +180,13 @@ final class FamilyInvitationCoordinator: FamilyInviting {
 
     // MARK: - Private helpers
 
+    private func requestProfileSync(for family: Family) async {
+        // WHY lifecycle-only: roster refresh rides the single-flight gate so reconciliation never bypasses ingest.
+        guard !family.id.recordName.isEmpty else { return }
+        guard let lifecycleCoordinator else { return }
+        await lifecycleCoordinator.performManualSync()
+    }
+
     private func reconcileMissingAcceptedMembers(
         for family: Family,
         statuses: [ShareParticipantStatus],
@@ -188,28 +202,26 @@ final class FamilyInvitationCoordinator: FamilyInviting {
 
         guard missingAcceptedMembers else { return }
 
-        await familyService.refreshProfilesFromCloudKit(for: family)
-        do {
-            let fresh = try await familyService.fetchAllProfilesForFamily(family)
-            let freshActive = fresh.filter(\.isActive)
-            activeRecordNames.formUnion(Set(freshActive.map(\.iCloudUserID.recordName)))
-        } catch {
-            logger.warning("FamilyDashboard roster reconciliation skipped: \(error, privacy: .private)")
+        await requestProfileSync(for: family)
+        // WHY cache-first: reconciled roster reads hydrated cache so engine ingest stays the single write path.
+        let familyRecordName = family.id.recordName
+        guard !familyRecordName.isEmpty else { return }
+        if let cache = appState.cacheService {
+            let freshActive = cache.fetchProfiles(family: familyRecordName).filter(\.isActive)
+            activeRecordNames.formUnion(Set(freshActive.map(\.iCloudUserRecordName).filter { !$0.isEmpty }))
         }
     }
 
     /// Maps deactivated member identity record names to display names (best-effort).
     private func departedMemberIdentities(for family: Family) async -> [String: String] {
-        let profiles: [Profile]
-        do {
-            profiles = try await familyService.fetchAllProfilesForFamily(family)
-        } catch {
-            logger.warning("Failed to fetch all profiles for family: \(error, privacy: .private)")
-            return [:]
-        }
+        // WHY cache-first: invitation panel reflects hydrated roster; misses reconcile on the next lifecycle pass.
+        let familyRecordName = family.id.recordName
+        guard !familyRecordName.isEmpty else { return [:] }
         var identities: [String: String] = [:]
-        for profile in profiles where !profile.isActive && !profile.iCloudUserID.recordName.isEmpty {
-            identities[profile.iCloudUserID.recordName] = profile.displayName
+        if let cache = appState.cacheService {
+            for row in cache.fetchProfiles(family: familyRecordName) where !row.isActive && !row.iCloudUserRecordName.isEmpty {
+                identities[row.iCloudUserRecordName] = row.displayName
+            }
         }
         return identities
     }

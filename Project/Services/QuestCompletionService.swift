@@ -114,6 +114,7 @@ final class QuestCompletionService {
             }
             return activeZone
         }()
+        // WHY random UUID: each tap is a distinct event; repeats collapse via inFlight + target validation while rewards stay idempotent on reward-{completionID}.
         var log = QuestCompletion(
             quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.id.recordName, zoneID: resolvedZoneID), action: .none),
             completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: profile.id.recordName, zoneID: resolvedZoneID), action: .none),

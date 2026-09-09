@@ -120,7 +120,7 @@ extension AppLifecycleCoordinator {
         }
     }
 
-    /// Handles incoming remote push notification sync triggers.
+    /// Push-triggered sync stays fetch + send + reconcile only.
     func handleRemoteNotification() async {
         guard tryEnterSync() else {
             let completed = syncGate.hasCompletedInitialBootstrap
@@ -130,6 +130,8 @@ extension AppLifecycleCoordinator {
         }
         defer { exitPhase(.syncing) }
 
+        // WHY: silent pushes run under a tight background budget — trophy catchup and
+        // payouts defer to foreground/weekly refresh so push latency buys cache freshness, not jetsam risk.
         await executeCoreSyncSequence()
     }
 

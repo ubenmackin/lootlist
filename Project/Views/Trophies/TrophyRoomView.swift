@@ -74,13 +74,6 @@ struct TrophyRoomView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
-                if let profile = appState.currentProfile, let family = appState.family {
-                    do {
-                        _ = try await achievementService.evaluateAll(for: profile, family: family)
-                    } catch {
-                        Self.logger.warning("Failed to evaluate trophies during refresh: \(error, privacy: .private)")
-                    }
-                }
                 rebuild()
             }
         }
@@ -93,9 +86,6 @@ struct TrophyRoomView: View {
                 )
             }
             rebuild()
-            if let family = appState.family {
-                await hydrateDefinitionsIfNeeded(family: family)
-            }
             if familyRecordName == nil, appState.family != nil {
                 Self.logger.warning("TrophyRoomView initialized with nil familyRecordName while authenticated — queries scoped to empty string will return zero rows")
             }
@@ -129,33 +119,10 @@ struct TrophyRoomView: View {
             }
             if achievements.isEmpty {
                 achievements = achievementService.cachedOrSeededAchievementCaches(for: family)
-                let capturedEarned = earned
-                let capturedProfiles = currentProfileRows
-                Task {
-                    let seeded = await achievementService.ensureDefaultAchievements(for: family)
-                    // If @Query still empty after ingest, push seeded to grid; otherwise @Query drives refresh.
-                    if cachedAchievements.isEmpty {
-                        viewModel?.rebuildLists(earned: capturedEarned, allAchievements: seeded, profileCaches: capturedProfiles)
-                    }
-                }
             }
         }
 
         viewModel?.rebuildLists(earned: earned, allAchievements: achievements, profileCaches: currentProfileRows)
-    }
-
-    private func hydrateDefinitionsIfNeeded(family: Family) async {
-        guard viewModel?.allAchievements.isEmpty ?? false else { return }
-        // WHY authoritative gate: lifecycle sync owns trophy evaluation; views stay reactive via @Query.
-        if achievementService.isAchievementCacheAuthoritative(familyRecordName: family.id.recordName) {
-            return
-        }
-        do {
-            _ = try await achievementService.fetchAllDefinitions(family: family)
-        } catch {
-            Self.logger.warning("Failed to hydrate trophy definitions on entry: \(error, privacy: .private)")
-        }
-        rebuild()
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {

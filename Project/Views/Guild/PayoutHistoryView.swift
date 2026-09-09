@@ -379,8 +379,8 @@ struct PayoutHistoryView: View {
                     Capsule()
                         .fill(isSelected ? Color(DesignSystemConstants.Colors.accentBlue) : Color(DesignSystemConstants.Colors.cardSurface))
                 )
-                // WHY white on selected chip: accentBlue fill needs white text for contrast in both modes.
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                // WHY card surface on selected chip: accentBlue fill needs token text for contrast in both modes.
+                .foregroundStyle(isSelected ? Color(DesignSystemConstants.Colors.cardSurface) : Color.primary)
                 .overlay(
                     Capsule()
                         .strokeBorder(isSelected ? Color(DesignSystemConstants.Colors.cardSurface).opacity(0) : Color.secondary.opacity(0.2), lineWidth: 1)
