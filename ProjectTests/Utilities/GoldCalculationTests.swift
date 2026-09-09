@@ -215,7 +215,7 @@ struct GoldCalculationTests {
         #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 3, effectiveTarget: effective) == true)
         #expect(GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: 1, effectiveTarget: effective) == false)
         #expect(GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: 3, effectiveTarget: effective) == true)
-        #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 1, effectiveTarget: effective) == 3.0)
-        #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 3, effectiveTarget: effective) == 9.0)
+        #expect(GoldCalculation.creditPennies(for: quest, approvedCount: 1, effectiveTarget: effective) == 300)
+        #expect(GoldCalculation.creditPennies(for: quest, approvedCount: 3, effectiveTarget: effective) == 900)
     }
 }

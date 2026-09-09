@@ -268,24 +268,6 @@ final class CacheService: CacheServicing {
         }
     }
 
-    // WHY: AnyContainer overload preserves legacy call sites that resolve ModelContainer dynamically;
-    // normalizing family via the single helper keeps key derivation identical across overloads.
-    func stampCacheWatermarkAnyContainer(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, containers: [ModelContainer]) {
-        let family = normalizedFamily(familyRecordName)
-        guard !family.isEmpty else { return }
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled")
-            #endif
-            return
-        }
-        // WHY: Deterministic resolution prefers the service's own container when present so
-        // repeated calls are stable regardless of container ordering.
-        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
-        _ = resolved
-        markCacheFresh(familyRecordName: family, type: type, scope: scope)
-    }
-
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         freshnessVersion &+= 1

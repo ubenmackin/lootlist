@@ -49,7 +49,6 @@
 		17EB2FEBB3135A1603CD5A14 /* CacheService+Fetches.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */; };
 		193DD1F3105070BD564FE956 /* PayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */; };
 		1B035F1680C203314E23E5CC /* CloudKitService+Save.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9CF39F2B42C3919B826C64 /* CloudKitService+Save.swift */; };
-		1BAB6BB273531D9A32B9D782 /* HeroDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA7E242F81BDF3C77F2C96D /* HeroDetail.swift */; };
 		1C98B95CAFED50E01141BE79 /* HeroAvatarSprites+Healer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC44179BDF55FEEF8AE9EEA /* HeroAvatarSprites+Healer.swift */; };
 		1DC307CF87B504DE7E29F317 /* HeroAvatarSpritesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA56F1C78EF704793A4CC8BA /* HeroAvatarSpritesTests.swift */; };
 		1E3DD8985B7CA2268C1323B1 /* FamilyService+Invitations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07EB2A1B1FF54F24EA4D541 /* FamilyService+Invitations.swift */; };
@@ -325,7 +324,6 @@
 		B2A0F10F777979852C1DF41B /* LedgerRevertMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 698B352A3292041E2518DC2D /* LedgerRevertMessage.swift */; };
 		B3125FAF2C74B619FF353428 /* RoleSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2070A5A9F8D00A4EC005F1E5 /* RoleSelectionView.swift */; };
 		B332C3390E94185975D736AF /* SpriteSnapshotRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E6DF9A305C00115C614D6E /* SpriteSnapshotRenderingTests.swift */; };
-		B3C460C1F40B1D699A6605DE /* CelebrationOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */; };
 		B3FE31C161106ADF8225D5D9 /* MockCloudKitServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD501FFB54C16F2EA10C1DE /* MockCloudKitServiceTests.swift */; };
 		B4118D8C058C40562D9D19AA /* GoalCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59180B52F014BA90F04EF411 /* GoalCache.swift */; };
 		B452E5A9F490DC081947921A /* ExhaustiveCacheFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5897870542A4306A86CFD0AE /* ExhaustiveCacheFixtures.swift */; };
@@ -729,7 +727,6 @@
 		79DDEB46A227911AA2752C76 /* HeroAvatarSprites+Mage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Mage.swift"; sourceTree = "<group>"; };
 		7A0BE2B48DF381704B2D323C /* LedgerExportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerExportServiceTests.swift; sourceTree = "<group>"; };
 		7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastManager.swift; sourceTree = "<group>"; };
-		7AA7E242F81BDF3C77F2C96D /* HeroDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDetail.swift; sourceTree = "<group>"; };
 		7B3C3019E643E8C293E764E6 /* AllowancePeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllowancePeriod.swift; sourceTree = "<group>"; };
 		7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenarioMatrixTests.swift; sourceTree = "<group>"; };
 		7C1648367E274E2959762725 /* CacheFirst.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheFirst.swift; sourceTree = "<group>"; };
@@ -904,7 +901,6 @@
 		E2116AC4A8D9A7A6EEAE90FD /* FamilyShareReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyShareReconciler.swift; sourceTree = "<group>"; };
 		E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormatter.swift; sourceTree = "<group>"; };
 		E2F5A4EAC2699405B24BCCE8 /* InterestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestService.swift; sourceTree = "<group>"; };
-		E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationOverlayView.swift; sourceTree = "<group>"; };
 		E3751E7F14A08F2974B39920 /* LootListShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListShortcuts.swift; sourceTree = "<group>"; };
 		E383ED2504BB041639150DB9 /* ReconciliationFreshnessGatingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconciliationFreshnessGatingTests.swift; sourceTree = "<group>"; };
 		E4406CCE98B5B2FC14D72ACB /* FetchTransfersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FetchTransfersTests.swift; sourceTree = "<group>"; };
@@ -1073,7 +1069,6 @@
 				B038A722AE55C6658ACBD6B3 /* GuildPayoutDefaultsSectionView.swift */,
 				B52249FE484BE42702A41E09 /* GuildRosterSectionView.swift */,
 				94FB9A652DA4D837BED9282F /* GuildSettingsView.swift */,
-				7AA7E242F81BDF3C77F2C96D /* HeroDetail.swift */,
 				B9CB1B3F830D3D9B05BD16F8 /* HeroDetailInlineView.swift */,
 				8809BA2CCE4B470D8B8554F7 /* HeroDetailView.swift */,
 				0EC244B5D8CE50F6598C27D6 /* HeroInterestMatchView.swift */,
@@ -1524,7 +1519,6 @@
 				D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */,
 				EC02F032B488C7539AE674DD /* AvatarView.swift */,
 				69AEBEE98C0679819CAC1446 /* CalendarScopeFilterView.swift */,
-				E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */,
 				A1963A5C399D6D7074A33D08 /* CheckmarkMenu.swift */,
 				7D3BE16829C22EFEF849814C /* CloudSharingControllerWrapper.swift */,
 				465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */,
@@ -1995,7 +1989,6 @@
 				4CF83C1694812542CB24D8BF /* CalendarScopeFilterView.swift in Sources */,
 				46584BEAD23C267A9DCABF46 /* CelebrationManager.swift in Sources */,
 				ECBE50449BDEE41B363ADCBC /* CelebrationOverlay.swift in Sources */,
-				B3C460C1F40B1D699A6605DE /* CelebrationOverlayView.swift in Sources */,
 				37AC4EA530872C7044E2AF0E /* CharacterSheetView.swift in Sources */,
 				844538A0A6D57FA5A48D67FE /* CheckmarkMenu.swift in Sources */,
 				F64ECE47CB871C09A7D9F315 /* ChildHubBalanceSection.swift in Sources */,
@@ -2088,7 +2081,6 @@
 				A6CC4F0896A3EFBBE8FF6653 /* HeroBoardViewModel.swift in Sources */,
 				767034E37BC056F9F5B7C507 /* HeroChecklistCardView.swift in Sources */,
 				E85CC461F3D68C44ED3B3599 /* HeroDashboardViewModel.swift in Sources */,
-				1BAB6BB273531D9A32B9D782 /* HeroDetail.swift in Sources */,
 				8CF0F691C4BA65D9E7E41B30 /* HeroDetailInlineView.swift in Sources */,
 				4F8EE68B268993280FAEC986 /* HeroDetailView.swift in Sources */,
 				588BABB0F61F00C411ED1C4E /* HeroHeaderCardView.swift in Sources */,

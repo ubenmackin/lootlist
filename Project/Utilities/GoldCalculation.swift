@@ -195,22 +195,4 @@ enum GoldCalculation: Sendable {
         }
         return total
     }
-
-    // MARK: - Legacy Double shims (pennies-backed)
-
-    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Double {
-        Double(creditPennies(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)) / 100.0
-    }
-
-    static func netWeeklyGold(
-        quests: [QuestCache],
-        logs: [QuestCompletionCache],
-        profileRecordName: String,
-        payoutPolicy: PayoutPolicy?,
-        weekRange: Range<Date>,
-        templatesByID: [String: QuestTemplateCache] = [:]
-    ) -> Double {
-        Double(netWeeklyPennies(quests: quests, logs: logs, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy, weekRange: weekRange, templatesByID: templatesByID)) /
-            100.0
-    }
 }
