@@ -38,15 +38,6 @@ enum StreakCalculator {
             case .week26: "AppIcon-Week26"
             }
         }
-
-        static func unlockedMilestones(forWeeks weeks: Int) -> [StreakMilestone] {
-            allCases.filter { $0.rawValue <= weeks }
-        }
-
-        /// WHY alias: legacy callers pass streak weeks positionally so milestone checks never drift.
-        static func unlockedMilestones(for streak: Int) -> [StreakMilestone] {
-            unlockedMilestones(forWeeks: streak)
-        }
     }
 
     /// Daily quest-completion streak (verified or auto-approved completions only).

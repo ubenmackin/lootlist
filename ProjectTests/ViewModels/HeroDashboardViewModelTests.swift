@@ -378,17 +378,17 @@ struct HeroDashboardViewModelTests {
             verifiedDate: nil
         )
 
-        let included = GoldCalculation.netWeeklyGold(
+        let included = GoldCalculation.netWeeklyPennies(
             quests: [quest],
             logs: [logSunday],
             profileRecordName: profileName,
             payoutPolicy: .perQuest,
             weekRange: weekRange
         )
-        #expect(included == 10.0)
+        #expect(included == 1000)
         #expect(weekRange.contains(sundayNight))
 
-        let excluded = GoldCalculation.netWeeklyGold(
+        let excluded = GoldCalculation.netWeeklyPennies(
             quests: [quest],
             logs: [logMonday],
             profileRecordName: profileName,
@@ -398,14 +398,14 @@ struct HeroDashboardViewModelTests {
         #expect(excluded == 0)
         #expect(!weekRange.contains(nextMonday))
 
-        let mixed = GoldCalculation.netWeeklyGold(
+        let mixed = GoldCalculation.netWeeklyPennies(
             quests: [quest],
             logs: [logSunday, logMonday],
             profileRecordName: profileName,
             payoutPolicy: .perQuest,
             weekRange: weekRange
         )
-        #expect(mixed == 10.0)
+        #expect(mixed == 1000)
     }
 
     @Test

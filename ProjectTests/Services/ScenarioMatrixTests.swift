@@ -320,24 +320,24 @@ struct ScenarioMatrixTests {
         ]
 
         // WHY perQuest: one completion pays its quest amount.
-        let goldHero1 = GoldCalculation.netWeeklyGold(
+        let penniesHero1 = GoldCalculation.netWeeklyPennies(
             quests: questsHero1,
             logs: logs,
             profileRecordName: "hero1",
             payoutPolicy: .perQuest,
             weekRange: weekRange
         )
-        #expect(goldHero1 == 10.0)
+        #expect(penniesHero1 == 1000)
 
         // WHY forfeit: partial completion pays nothing under allOrNothing.
-        let goldHero2 = GoldCalculation.netWeeklyGold(
+        let penniesHero2 = GoldCalculation.netWeeklyPennies(
             quests: questsHero2,
             logs: logs,
             profileRecordName: "hero2",
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldHero2 == 0)
+        #expect(penniesHero2 == 0)
     }
 
     @Test
@@ -385,24 +385,24 @@ struct ScenarioMatrixTests {
         ]
 
         // WHY override forfeits: 1-of-2 pays nothing under allOrNothing.
-        let overrideGold = GoldCalculation.netWeeklyGold(
+        let overridePennies = GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: oneOfTwoLogs,
             profileRecordName: "hero1",
             payoutPolicy: heroProfile.payoutPolicy,
             weekRange: weekRange
         )
-        #expect(overrideGold == 0)
+        #expect(overridePennies == 0)
 
         // WHY family would pay: perQuest rewards the completed quest.
-        let familyPolicyGold = GoldCalculation.netWeeklyGold(
+        let familyPolicyPennies = GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: oneOfTwoLogs,
             profileRecordName: "hero1",
             payoutPolicy: family.payoutPolicy,
             weekRange: weekRange
         )
-        #expect(familyPolicyGold == 10.0)
+        #expect(familyPolicyPennies == 1000)
     }
 
     // MARK: - 3. Quest Approval & Rejection Matrix
@@ -496,14 +496,14 @@ struct ScenarioMatrixTests {
         ]
 
         // WHY partial forfeits: below targetCount pays nothing.
-        let goldPartial = GoldCalculation.netWeeklyGold(
+        let penniesPartial = GoldCalculation.netWeeklyPennies(
             quests: [quest],
             logs: twoLogs,
             profileRecordName: "hero1",
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldPartial == 0)
+        #expect(penniesPartial == 0)
 
         let threeLogs = twoLogs + [
             makeLog(
@@ -515,14 +515,14 @@ struct ScenarioMatrixTests {
         ]
 
         // WHY full earns: matching targetCount pays the whole amount.
-        let goldFull = GoldCalculation.netWeeklyGold(
+        let penniesFull = GoldCalculation.netWeeklyPennies(
             quests: [quest],
             logs: threeLogs,
             profileRecordName: "hero1",
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldFull == 30.0)
+        #expect(penniesFull == 3000)
     }
 
     // MARK: - 4. Treasury & Settlement Matrix
@@ -716,24 +716,24 @@ struct ScenarioMatrixTests {
             makeLog(recordName: "aon_log_2", questRecordName: "aon_q2", completedDate: today, weekOf: today),
             makeLog(recordName: "aon_log_3", questRecordName: "aon_q3", completedDate: today, weekOf: today)
         ]
-        let goldPartial = GoldCalculation.netWeeklyGold(
+        let penniesPartial = GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: threeLogs,
             profileRecordName: "hero1",
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldPartial == 0)
+        #expect(penniesPartial == 0)
 
         // WHY full payout: 4 of 4 earns the whole amount.
         let fourLogs = threeLogs + [makeLog(recordName: "aon_log_4", questRecordName: "aon_q4", completedDate: today, weekOf: today)]
-        let goldFull = GoldCalculation.netWeeklyGold(
+        let penniesFull = GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: fourLogs,
             profileRecordName: "hero1",
             payoutPolicy: .allOrNothing,
             weekRange: weekRange
         )
-        #expect(goldFull == 40.0)
+        #expect(penniesFull == 4000)
     }
 }

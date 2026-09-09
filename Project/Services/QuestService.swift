@@ -305,12 +305,6 @@ final class QuestService {
         assignmentService.effectivePayoutDay(for: profile)
     }
 
-    /// WHY facade: legacy approval entry forwards to the completion service without behavior change.
-    @discardableResult
-    func approve(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        try await completionService.verify(questLog: questLog, by: parent)
-    }
-
     // MARK: - Quest Assignment
 
     @discardableResult
