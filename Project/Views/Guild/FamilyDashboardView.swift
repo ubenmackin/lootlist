@@ -515,7 +515,7 @@ struct FamilyDashboardView: View {
             return
         }
         let targetVM = viewModel
-        rebuildTask = Task { @MainActor @Sendable [targetVM] in
+        rebuildTask = Task { [targetVM] in
             guard !Task.isCancelled else { return }
             await targetVM?.refreshInvitations()
         }
@@ -673,7 +673,7 @@ private extension FamilyDashboardView {
                 let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
                 // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-                Task { @MainActor @Sendable [domainLog] in
+                Task { [domainLog] in
                     await approveCompletion(domainLog)
                 }
             },
@@ -681,7 +681,7 @@ private extension FamilyDashboardView {
                 let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
                 // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-                Task { @MainActor @Sendable [domainLog] in
+                Task { [domainLog] in
                     await rejectCompletion(domainLog)
                 }
             }

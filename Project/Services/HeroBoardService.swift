@@ -53,7 +53,7 @@ final class HeroBoardService {
 
     private let questService: QuestService
     let cacheService: CacheService
-    let syncCoordinator: CKSyncEngineCoordinator
+    let syncCoordinator: any SyncEnqueuing
     let appState: AppState
 
     private var cloudKit: any CloudKitServiceProtocol {
@@ -72,7 +72,7 @@ final class HeroBoardService {
     init(
         questService: QuestService,
         cacheService: CacheService,
-        syncCoordinator: CKSyncEngineCoordinator,
+        syncCoordinator: any SyncEnqueuing,
         appState: AppState
     ) {
         self.questService = questService

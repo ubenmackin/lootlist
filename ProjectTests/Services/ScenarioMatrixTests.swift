@@ -58,40 +58,7 @@ struct ScenarioMatrixTests {
         CKRecordZone.ID(zoneName: "ScenarioZone", ownerName: "ScenarioOwner")
     }
 
-    private func makeFamilyRef(_ zoneID: CKRecordZone.ID) -> CKRecord.Reference {
-        CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-            action: .none
-        )
-    }
-
-    private func makeHero(idName: String, displayName: String, zoneID: CKRecordZone.ID, payoutPolicy: PayoutPolicy? = nil) -> Profile {
-        let userID = CKRecord.ID(recordName: idName, zoneID: zoneID)
-        return Profile(
-            displayName: displayName,
-            avatarClass: .knight,
-            avatarPresetID: "warrior_01",
-            role: .hero,
-            iCloudUserID: userID,
-            family: makeFamilyRef(zoneID),
-            payoutPolicy: payoutPolicy,
-            id: userID
-        )
-    }
-
-    private func makeFamily(zoneID: CKRecordZone.ID, payoutPolicy: PayoutPolicy = .perQuest) -> Family {
-        // WHY explicit owner anchor: fixtures resolve against the mock's server-authenticated user.
-        Family(
-            name: "Guild Matrix Family",
-            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
-            payoutPolicy: payoutPolicy,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-    }
-
-    /// Builds a `ProfileCache` hero row for the shared "fam1" guild with the
-    /// boilerplate fields every scenario shares (role "hero", active, no avatar
-    /// artwork, perQuest payout) filled in.
+    /// WHY shared cache rows: one source keeps hero/quest/log boilerplate aligned.
     private func makeHeroCache(
         recordName: String,
         displayName: String,
@@ -115,9 +82,7 @@ struct ScenarioMatrixTests {
         )
     }
 
-    /// Builds a `QuestCache` row for the shared "fam1" guild with boilerplate
-    /// fields every scenario shares (active, no description, autoApprove, gm1
-    /// creator) filled in.
+    /// WHY shared cache rows: one source keeps quest boilerplate aligned.
     private func makeQuestCache(
         recordName: String,
         templateRecordName: String,
@@ -154,9 +119,7 @@ struct ScenarioMatrixTests {
         )
     }
 
-    /// Builds a `QuestCompletionCache` row for the shared "fam1" guild with the
-    /// boilerplate fields every scenario shares (auto-approved, no verification
-    /// stamps) filled in.
+    /// WHY shared cache rows: one source keeps completion boilerplate aligned.
     private func makeLog(
         recordName: String,
         questRecordName: String,
@@ -185,7 +148,7 @@ struct ScenarioMatrixTests {
     func `empty guild master has zero hero summaries and safe defaults`() throws {
         let sut = try makeSUT()
         let zoneID = makeZoneID()
-        let family = makeFamily(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Guild Matrix Family")
         sut.cache.context?.insert(FamilyCache(from: family))
         _ = sut.cache.saveContext()
 
@@ -356,7 +319,7 @@ struct ScenarioMatrixTests {
             )
         ]
 
-        // Hero 1 has perQuest policy: earns 10.0 for completed q1_h1
+        // WHY perQuest: one completion pays its quest amount.
         let goldHero1 = GoldCalculation.netWeeklyGold(
             quests: questsHero1,
             logs: logs,
@@ -366,7 +329,7 @@ struct ScenarioMatrixTests {
         )
         #expect(goldHero1 == 10.0)
 
-        // Hero 2 has allOrNothing policy: completed 1 of 2 assigned quests -> forfeits all gold
+        // WHY forfeit: partial completion pays nothing under allOrNothing.
         let goldHero2 = GoldCalculation.netWeeklyGold(
             quests: questsHero2,
             logs: logs,
@@ -385,11 +348,11 @@ struct ScenarioMatrixTests {
         let today = calendar.startOfDay(for: Date())
         let weekRange = WeekMath.weekRange(starting: today)
 
-        // Family defaults to perQuest; the hero overrides with allOrNothing.
-        let family = makeFamily(zoneID: zoneID, payoutPolicy: .perQuest)
+        // WHY override: hero policy wins over family default.
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Guild Matrix Family", payoutPolicy: .perQuest)
         sut.cache.context?.insert(FamilyCache(from: family))
 
-        let heroProfile = makeHero(idName: "hero1", displayName: "Override Hero", zoneID: zoneID, payoutPolicy: .allOrNothing)
+        let heroProfile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Override Hero", iCloudRecordName: "hero1", payoutPolicy: .allOrNothing)
         sut.cache.context?.insert(ProfileCache(from: heroProfile))
         _ = sut.cache.saveContext()
 
@@ -421,7 +384,7 @@ struct ScenarioMatrixTests {
             )
         ]
 
-        // The hero's allOrNothing override forfeits gold at 1-of-2 completions...
+        // WHY override forfeits: 1-of-2 pays nothing under allOrNothing.
         let overrideGold = GoldCalculation.netWeeklyGold(
             quests: quests,
             logs: oneOfTwoLogs,
@@ -431,7 +394,7 @@ struct ScenarioMatrixTests {
         )
         #expect(overrideGold == 0)
 
-        // ...where the family's perQuest policy would have paid the completed quest.
+        // WHY family would pay: perQuest rewards the completed quest.
         let familyPolicyGold = GoldCalculation.netWeeklyGold(
             quests: quests,
             logs: oneOfTwoLogs,
@@ -449,8 +412,8 @@ struct ScenarioMatrixTests {
         let sut = try makeSUT()
         let zoneID = makeZoneID()
 
-        let family = makeFamily(zoneID: zoneID)
-        let hero = makeHero(idName: "hero1", displayName: "Child Hero", zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Guild Matrix Family")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         sut.appState.family = family
         sut.appState.familyZoneID = zoneID
         sut.cloudKit.activeFamilyZoneID = zoneID
@@ -469,30 +432,28 @@ struct ScenarioMatrixTests {
             approvalMode: .parentVerify,
             weekOf: Date(),
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Sweep Floor",
             id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
         _ = try await sut.cloudKit.save(quest)
 
-        // markComplete is a hero self-action — the acting session must match
-        // the completer's identity.
+        // WHY self-action: session must match the completer.
         sut.appState.currentProfile = hero
         let completion = try await sut.questService.markComplete(quest: quest, by: hero)
         #expect(completion.verificationStatus == .pending)
 
-        // Rejection is parent-only at the service layer, so the acting profile
-        // passed as the verifier must be a parent (Guild Master / Ranger).
+        // WHY parent-only: verifier must hold a parent role.
         let parent = Profile(
             displayName: "Guild Master",
             avatarClass: .knight,
             avatarPresetID: "warrior_01",
             role: .guildMaster,
             iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
-        // The authenticated session is the guild master performing the reject.
+        // WHY session is the rejecting guild master.
         sut.appState.currentProfile = parent
         let rejected = try await sut.questService.reject(questLog: completion, by: parent)
         #expect(rejected.verificationStatus == .rejected)
@@ -534,7 +495,7 @@ struct ScenarioMatrixTests {
             )
         ]
 
-        // Under allOrNothing with targetCount=3, 2 completions is not fully completed -> 0 gold
+        // WHY partial forfeits: below targetCount pays nothing.
         let goldPartial = GoldCalculation.netWeeklyGold(
             quests: [quest],
             logs: twoLogs,
@@ -553,7 +514,7 @@ struct ScenarioMatrixTests {
             )
         ]
 
-        // With 3 completions matching targetCount=3 -> full 30.0 gold earned
+        // WHY full earns: matching targetCount pays the whole amount.
         let goldFull = GoldCalculation.netWeeklyGold(
             quests: [quest],
             logs: threeLogs,
@@ -571,8 +532,8 @@ struct ScenarioMatrixTests {
         let sut = try makeSUT()
         let zoneID = makeZoneID()
 
-        let family = makeFamily(zoneID: zoneID)
-        let hero = makeHero(idName: "hero1", displayName: "Overdraft Hero", zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Guild Matrix Family")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Overdraft Hero", iCloudRecordName: "hero1")
         await sut.cache.upsertFamily(family)
         await sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
@@ -601,15 +562,14 @@ struct ScenarioMatrixTests {
         let weekOf = WeekMath.mondayOfWeek(for: Date())
         let goldReward: Int64 = 2500
 
-        let family = makeFamily(zoneID: zoneID, payoutPolicy: .realTime)
-        let hero = makeHero(idName: "hero1", displayName: "RealTime Hero", zoneID: zoneID, payoutPolicy: .realTime)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Guild Matrix Family", payoutPolicy: .realTime)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "RealTime Hero", iCloudRecordName: "hero1", payoutPolicy: .realTime)
         await sut.cache.upsertFamily(family)
         await sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
-        // Seed an earned quest + approved completion (cache-first pattern from
-        // SettlementScaffold.seedEarned).
+        // WHY cache-first: seed earned quest plus approved completion.
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
@@ -641,21 +601,25 @@ struct ScenarioMatrixTests {
         sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .allowancePeriod)
         sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
 
-        // Real-time settlement: here the hero settles their own reward, so
-        // the acting profile is the hero themself.
+        // WHY self-settlement: hero settles their own reward.
+        sut.appState.family = family
+        sut.appState.familyZoneID = zoneID
+        sut.appState.isZoneOwner = true
+        sut.cloudKit.activeFamilyZoneID = zoneID
+        sut.cloudKit.activeIsOwner = true
         sut.appState.currentProfile = hero
 
-        // First settlement pays out the earned gold...
+        // WHY first settlement pays the earned gold.
         let firstResult = try await sut.treasuryService.processRealTimeSettlement(profile: hero, family: family)
         let first = try #require(firstResult)
         #expect(first.paidAmount == goldReward)
 
-        // ...and a second settlement must not double it.
+        // WHY idempotency: second settlement must not double pay.
         let secondResult = try await sut.treasuryService.processRealTimeSettlement(profile: hero, family: family)
         let second = try #require(secondResult)
         #expect(second.paidAmount == goldReward)
 
-        // Exactly one allowance period exists for the hero's week.
+        // WHY single period: one allowance period per hero week.
         let periods = await sut.treasuryService.fetchAllowancePeriods(family: family)
         #expect(periods.count == 1)
     }
@@ -669,16 +633,15 @@ struct ScenarioMatrixTests {
         sut.cloudKit.activeFamilyZoneID = zoneID
         let weekOf = WeekMath.weekOf(date: Date())
 
-        let family = makeFamily(zoneID: zoneID)
-        let hero = makeHero(idName: "hero1", displayName: "Removed Hero", zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Guild Matrix Family")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Removed Hero", iCloudRecordName: "hero1")
         await sut.cache.upsertFamily(family)
         await sut.cache.upsertProfile(hero)
         sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
-        // An active quest assigned to the hero, persisted to the CloudKit mock
-        // so unassignActiveQuests can find and purge it.
+        // WHY purge check: mock must hold the quest for unassign to find it.
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: hero.id, action: .none),
@@ -697,36 +660,35 @@ struct ScenarioMatrixTests {
         await sut.cache.upsertQuest(quest)
         _ = try await sut.cloudKit.save(quest)
 
-        // unassignActiveQuests guards on appState.family being set.
+        // WHY unassign guards on the active family being set.
         sut.appState.family = family
 
-        // The acting profile must be a parent for the service-layer
-        // authorization guard to let the kick proceed.
+        // WHY parent-only: kick requires a parent acting profile.
         sut.appState.currentProfile = Profile(
             displayName: "Guild Master",
             avatarClass: .knight,
             avatarPresetID: "warrior_01",
             role: .guildMaster,
             iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
 
-        // Sanity: the hero is an active roster member before the kick.
+        // WHY precondition: hero is an active member before the kick.
         let heroesBefore = try await sut.familyService.fetchHeroes(for: family)
         #expect(heroesBefore.contains { $0.id == hero.id })
 
         try await sut.familyService.kickMember(profile: hero)
 
-        // (a) The hero's profile is deactivated in local cache.
+        // WHY deactivation: kick must deactivate the cached profile.
         let cachedHero = sut.cache.fetchProfiles(family: family.id.recordName).first { $0.recordName == hero.id.recordName }
         #expect(cachedHero?.isActive == false)
 
-        // (b) The family roster no longer includes the hero as an active member.
+        // WHY roster: kicked hero must leave the active roster.
         let heroesAfter = try await sut.familyService.fetchHeroes(for: family)
         #expect(!heroesAfter.contains { $0.id == hero.id })
 
-        // (c) The active quest assigned to the hero was purged from local cache.
+        // WHY purge: assigned active quest must leave local cache.
         #expect(sut.cache.fetchQuest(recordName: quest.id.recordName, family: family.id.recordName) == nil)
     }
 
@@ -748,7 +710,7 @@ struct ScenarioMatrixTests {
             )
         }
 
-        // 3 of 4 completed quests under allOrNothing -> full forfeit.
+        // WHY forfeit: 3 of 4 under allOrNothing pays nothing.
         let threeLogs = [
             makeLog(recordName: "aon_log_1", questRecordName: "aon_q1", completedDate: today, weekOf: today),
             makeLog(recordName: "aon_log_2", questRecordName: "aon_q2", completedDate: today, weekOf: today),
@@ -763,7 +725,7 @@ struct ScenarioMatrixTests {
         )
         #expect(goldPartial == 0)
 
-        // 4 of 4 completed quests -> full 40.0 payout.
+        // WHY full payout: 4 of 4 earns the whole amount.
         let fourLogs = threeLogs + [makeLog(recordName: "aon_log_4", questRecordName: "aon_q4", completedDate: today, weekOf: today)]
         let goldFull = GoldCalculation.netWeeklyGold(
             quests: quests,

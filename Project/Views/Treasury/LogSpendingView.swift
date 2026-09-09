@@ -257,7 +257,7 @@ struct LogSpendingView: View {
         let amountSnapshot = amount
         let locationSnapshot = location
         let dateSnapshot = date
-        Task { @MainActor @Sendable [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot] in
+        Task { [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot] in
             let success = await viewModel.logSpending(
                 description: descriptionSnapshot,
                 amount: amountSnapshot,

@@ -77,7 +77,7 @@ final class QuestService {
         didSet { rewardService.lootDropService = lootDropService }
     }
 
-    var syncCoordinator: CKSyncEngineCoordinator {
+    var syncCoordinator: any SyncEnqueuing {
         didSet {
             templateService.syncCoordinator = syncCoordinator
             assignmentService.syncCoordinator = syncCoordinator
@@ -133,7 +133,7 @@ final class QuestService {
          treasuryService: TreasuryService? = nil,
          toastManager: ToastManager? = nil,
          appState: AppState,
-         syncCoordinator: CKSyncEngineCoordinator)
+         syncCoordinator: any SyncEnqueuing)
     {
         self.cloudKit = cloudKit
         self.xpService = xpService
@@ -199,7 +199,7 @@ final class QuestService {
         treasuryService: TreasuryService? = nil,
         toastManager: ToastManager? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         let cache: CacheService
         if let cacheService {
@@ -209,24 +209,41 @@ final class QuestService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: toastManager, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
-        self.init(
-            cloudKit: cloudKit,
-            xpService: xpService,
-            notificationService: notificationService,
-            cacheService: cache,
-            treasuryService: treasuryService,
-            toastManager: toastManager,
-            appState: state,
-            syncCoordinator: coord
-        )
+        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
+        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
+        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
+            self.init(
+                cloudKit: cloudKit,
+                xpService: xpService,
+                notificationService: notificationService,
+                cacheService: cache,
+                treasuryService: treasuryService,
+                toastManager: toastManager,
+                appState: state,
+                syncCoordinator: coord
+            )
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("QuestService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("QuestService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(
+                    cloudKit: cloudKit,
+                    xpService: xpService,
+                    notificationService: notificationService,
+                    cacheService: cache,
+                    treasuryService: treasuryService,
+                    toastManager: toastManager,
+                    appState: state,
+                    syncCoordinator: NoopSyncEnqueuing()
+                )
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("QuestService requires a sync coordinator in production")
+            #endif
+        }
     }
 
     // MARK: - Quest Templates

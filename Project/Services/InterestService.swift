@@ -58,7 +58,22 @@ final class InterestService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
+        let coord: any SyncEnqueuing
+        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            coord = resolvedCoord
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("InterestService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("InterestService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                coord = NoopSyncEnqueuing()
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("InterestService requires a sync coordinator in production")
+            #endif
+        }
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 

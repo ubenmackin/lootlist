@@ -190,7 +190,7 @@ struct QuestManagerView: View {
                 selection: $sidebarSelection,
                 searchText: searchText,
                 onAssign: { template, hero in
-                    Task { @MainActor @Sendable [template, hero] in
+                    Task { [template, hero] in
                         await assignTemplate(template, to: hero)
                     }
                 }
@@ -439,7 +439,7 @@ extension QuestManagerView {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
                 isSubmitting = true
-                Task { @MainActor @Sendable [questSnapshot] in
+                Task { [questSnapshot] in
                     defer { isSubmitting = false }
                     do {
                         try await vm.unassignQuest(questSnapshot)
@@ -455,7 +455,7 @@ extension QuestManagerView {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
                 isSubmitting = true
-                Task { @MainActor @Sendable [questSnapshot] in
+                Task { [questSnapshot] in
                     defer { isSubmitting = false }
                     do {
                         try await vm.unassignQuest(questSnapshot)
@@ -546,7 +546,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor @Sendable [templateSnapshot] in
+                    Task { [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
                             try await vm.deactivateTemplate(templateSnapshot)
@@ -561,7 +561,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor @Sendable [templateSnapshot] in
+                    Task { [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
                             try await vm.reactivateTemplate(templateSnapshot)
@@ -579,7 +579,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor @Sendable [templateSnapshot] in
+                    Task { [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
                             try await vm.deactivateTemplate(templateSnapshot)
@@ -596,7 +596,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor @Sendable [templateSnapshot] in
+                    Task { [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
                             try await vm.reactivateTemplate(templateSnapshot)
@@ -765,7 +765,7 @@ extension QuestManagerView {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
         // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
         let snapshot = template.toQuestTemplate(zoneID: zoneID)
-        Task { @MainActor @Sendable [snapshot] in
+        Task { [snapshot] in
             defer { isSubmitting = false }
             do {
                 try await vm.deactivateTemplate(snapshot)
@@ -782,7 +782,7 @@ extension QuestManagerView {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
         // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
         let snapshot = template.toQuestTemplate(zoneID: zoneID)
-        Task { @MainActor @Sendable [snapshot] in
+        Task { [snapshot] in
             defer { isSubmitting = false }
             do {
                 try await vm.reactivateTemplate(snapshot)
@@ -799,7 +799,7 @@ extension QuestManagerView {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: quest)
         // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
         let snapshot = quest.toQuest(zoneID: zoneID)
-        Task { @MainActor @Sendable [snapshot] in
+        Task { [snapshot] in
             defer { isSubmitting = false }
             do {
                 try await vm.unassignQuest(snapshot)

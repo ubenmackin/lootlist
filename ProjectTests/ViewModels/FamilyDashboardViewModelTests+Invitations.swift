@@ -126,13 +126,36 @@ extension FamilyDashboardViewModelTests {
             MockCloudKitService()
         }
         cloudKit.activeFamilyZoneID = family.id.zoneID
+        cloudKit.activeIsOwner = true
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let achievementService = AchievementService(cloudKit: cloudKit)
         let appState = AppState()
-        appState.family = family
+        // WHY owner anchor: invitation gates resolve creator against the active profile, so tests bind the mock owner.
+        let anchoredFamily: Family = if family.creatorUserRecordName == MockCloudKitService.mockUserRecordName {
+            family
+        } else {
+            Family(
+                name: family.name,
+                creatorUserRecordName: MockCloudKitService.mockUserRecordName,
+                createdAt: family.createdAt,
+                payoutPolicy: family.payoutPolicy,
+                payoutDay: family.payoutDay,
+                id: family.id
+            )
+        }
+        appState.family = anchoredFamily
+        appState.familyZoneID = anchoredFamily.id.zoneID
         appState.isZoneOwner = true
+        // WHY creator match: current identity must equal the anchor or scope stays unresolved.
+        appState.currentProfile = ExhaustiveCacheFixtures.sharedParent(
+            zoneID: anchoredFamily.id.zoneID,
+            displayName: "Guild Master",
+            recordName: "parent1",
+            iCloudRecordName: MockCloudKitService.mockUserRecordName,
+            familyRecordName: anchoredFamily.id.recordName
+        )
         let vm = FamilyDashboardViewModel(
             questService: questService,
             treasury: treasury,
@@ -170,7 +193,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -212,7 +235,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let fetcher = StubFamilyProfileFetcher()
@@ -239,7 +262,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -275,7 +298,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -310,7 +333,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -350,7 +373,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -411,7 +434,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         // Empty cache: no profiles, no roster — the panel's worst-case window.
@@ -435,7 +458,7 @@ extension FamilyDashboardViewModelTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let family = Family(
             name: "Test Family",
-            creatorUserRecordName: "owner1",
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)

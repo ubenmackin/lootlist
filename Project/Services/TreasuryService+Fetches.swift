@@ -17,36 +17,44 @@ extension TreasuryService {
     }
 
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchAllowancePeriods(family: family.id.recordName)
+                .map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+                .sorted { $0.weekOf > $1.weekOf }
+        }
         do {
             return try await CacheFirst.cacheFirst(
                 type: .allowancePeriod,
                 family: family,
                 cacheService: cacheService,
-                appState: appState,
-                fetchCache: { [cacheService] familyName in
-                    cacheService.fetchAllowancePeriods(family: familyName)
-                },
-                map: { [family] cache in
-                    cache.toAllowancePeriod(zoneID: family.id.zoneID)
-                },
-                query: { [cloudKit, family] in
-                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                    let predicate = NSPredicate(format: "family == %@", familyRef)
-                    return try await cloudKit.query(
-                        AllowancePeriod.self,
-                        predicate: predicate,
-                        in: family.id.zoneID,
-                        sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
-                    )
-                },
-                hydrate: { [syncCoordinator, appState, family] models in
-                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                        models: models,
-                        databaseScope: appState.activeDatabaseScope,
-                        zoneID: family.id.zoneID
-                    )
-                },
-                sortedBy: { $0.weekOf > $1.weekOf }
+                scope: scope,
+                operations: .init(
+                    fetchCache: { [cacheService] familyName in
+                        cacheService.fetchAllowancePeriods(family: familyName)
+                    },
+                    map: { [family] cache in
+                        cache.toAllowancePeriod(zoneID: family.id.zoneID)
+                    },
+                    query: { [cloudKit, family] in
+                        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                        let predicate = NSPredicate(format: "family == %@", familyRef)
+                        return try await cloudKit.query(
+                            AllowancePeriod.self,
+                            predicate: predicate,
+                            in: family.id.zoneID,
+                            sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
+                        )
+                    },
+                    hydrate: { [syncCoordinator, scope, family] models in
+                        await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                            models: models,
+                            databaseScope: scope,
+                            zoneID: family.id.zoneID
+                        )
+                    },
+                    sortedBy: { $0.weekOf > $1.weekOf }
+                )
             )
         } catch {
             logger.warning("fetchAllowancePeriods fallback to cache: \(error, privacy: .private)")
@@ -70,29 +78,38 @@ extension TreasuryService {
             creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuestCompletions(family: family.id.recordName)
+                .map { [profile] cache in cache.toQuestCompletion(zoneID: profile.id.zoneID) }
+                .filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
+                .filter { $0.completedBy.recordID.recordName == profile.id.recordName }
+        }
         let all = try await CacheFirst.cacheFirst(
             type: .questCompletion,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService] familyName in
-                cacheService.fetchQuestCompletions(family: familyName)
-            },
-            map: { [profile] cache in
-                cache.toQuestCompletion(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-                return try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            }
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService] familyName in
+                    cacheService.fetchQuestCompletions(family: familyName)
+                },
+                map: { [profile] cache in
+                    cache.toQuestCompletion(zoneID: profile.id.zoneID)
+                },
+                query: { [cloudKit, profile] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
+                    return try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
+                },
+                hydrate: { [syncCoordinator, scope, profile] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: profile.id.zoneID
+                    )
+                }
+            )
         )
         // WeekMath filtering after mapping — half-open [weekStarting, weekEnding).
         return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
@@ -105,29 +122,41 @@ extension TreasuryService {
     {
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let range = TreasuryService.weekRange(starting: WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay))
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuests(family: family.id.recordName)
+                .map { [family] cache in cache.toQuest(zoneID: family.id.zoneID) }
+                .filter {
+                    $0.assignee.recordID.recordName == profile.id.recordName &&
+                        $0.active &&
+                        range.contains($0.weekOf)
+                }
+        }
         let all = try await CacheFirst.cacheFirst(
             type: .quest,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService] familyName in
-                cacheService.fetchQuests(family: familyName)
-            },
-            map: { [family] cache in
-                cache.toQuest(zoneID: family.id.zoneID)
-            },
-            query: { [cloudKit, family] in
-                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                let predicate = NSPredicate(format: "family == %@ AND active == 1", familyRef as CVarArg)
-                return try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, family] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: family.id.zoneID
-                )
-            }
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService] familyName in
+                    cacheService.fetchQuests(family: familyName)
+                },
+                map: { [family] cache in
+                    cache.toQuest(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, family] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@ AND active == 1", familyRef as CVarArg)
+                    return try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
+                },
+                hydrate: { [syncCoordinator, scope, family] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                }
+            )
         )
         // WeekMath filtering after mapping — half-open range derived from payout-day-aware week start.
         return all.filter {
@@ -144,11 +173,14 @@ extension TreasuryService {
         let familyName = profile.family.recordID.recordName
         // Strict equality on normalized UTC week start matches stored AllowancePeriod.weekOf exactly.
         let normalizedWeekStart = WeekMath.startOfDay(for: weekOf)
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let profileName = profile.id.recordName
         let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
             .first { $0.weekOf == normalizedWeekStart }
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
+        }
         if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope) {
             return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
         }
@@ -202,7 +234,10 @@ extension TreasuryService {
         if let scanned = cacheService.fetchProfiles(family: familyRecordName).first(where: { $0.recordName == recordID.recordName }) {
             return scanned.toProfile(zoneID: recordID.zoneID)
         }
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
+        // WHY fail-closed: unknown scope never queries with a guessed database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            throw FamilyServiceError.unauthorized
+        }
         let fetched = try await cloudKit.fetch(Profile.self, id: recordID)
         guard fetched.family.recordID.recordName == familyRecordName else {
             throw FamilyServiceError.unauthorized
@@ -228,9 +263,14 @@ extension TreasuryService {
         guard !logs.isEmpty else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
         let familyName = family.id.recordName
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let isAuthoritative = cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope)
         let zoneID = family.id.zoneID
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuests(family: familyName)
+                .map { $0.toQuest(zoneID: zoneID) }
+                .filter { needed.contains($0.id.recordName) }
+        }
+        let isAuthoritative = cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope)
         let cache = cacheService
         // WHY shared stitch: missing-key patch rides CacheFirst so payout
         // and log paths cannot drift; misses hydrate via ingest.

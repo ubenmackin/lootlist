@@ -155,26 +155,31 @@ struct TransferNonceRegressionTests {
         appState.isZoneOwner = true
         let family = Family(name: "Guild", creatorUserRecordName: "owner", id: id("fam1"))
         appState.family = family
+        let scope = appState.activeDatabaseScope
         let transient: [LedgerEntry] = try await CacheFirst.cacheFirst(
             type: .ledgerEntry,
             family: family,
             cacheService: cache,
-            appState: appState,
-            fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
-            map: { $0.toLedgerEntry(zoneID: zoneID) },
-            query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.networkUnavailable },
-            hydrate: { (_: [LedgerEntry]) async in }
+            scope: scope,
+            operations: .init(
+                fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
+                map: { $0.toLedgerEntry(zoneID: zoneID) },
+                query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.networkUnavailable },
+                hydrate: { (_: [LedgerEntry]) async in }
+            )
         )
         #expect(transient.isEmpty)
         let retryable: [LedgerEntry] = try await CacheFirst.cacheFirst(
             type: .ledgerEntry,
             family: family,
             cacheService: cache,
-            appState: appState,
-            fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
-            map: { $0.toLedgerEntry(zoneID: zoneID) },
-            query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.retryable(attempt: 1, code: nil) },
-            hydrate: { (_: [LedgerEntry]) async in }
+            scope: scope,
+            operations: .init(
+                fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
+                map: { $0.toLedgerEntry(zoneID: zoneID) },
+                query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.retryable(attempt: 1, code: nil) },
+                hydrate: { (_: [LedgerEntry]) async in }
+            )
         )
         #expect(retryable.isEmpty)
         // WHY: exhausted budget is transient retry fallout, so it falls back like other network errors.
@@ -182,11 +187,13 @@ struct TransferNonceRegressionTests {
             type: .ledgerEntry,
             family: family,
             cacheService: cache,
-            appState: appState,
-            fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
-            map: { $0.toLedgerEntry(zoneID: zoneID) },
-            query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.exhaustedBudget(attempt: 3) },
-            hydrate: { (_: [LedgerEntry]) async in }
+            scope: scope,
+            operations: .init(
+                fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
+                map: { $0.toLedgerEntry(zoneID: zoneID) },
+                query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.exhaustedBudget(attempt: 3) },
+                hydrate: { (_: [LedgerEntry]) async in }
+            )
         )
         #expect(exhausted.isEmpty)
         await #expect(throws: CloudKitServiceError.notFound("x")) {
@@ -194,11 +201,13 @@ struct TransferNonceRegressionTests {
                 type: .ledgerEntry,
                 family: family,
                 cacheService: cache,
-                appState: appState,
-                fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
-                map: { $0.toLedgerEntry(zoneID: zoneID) },
-                query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.notFound("x") },
-                hydrate: { (_: [LedgerEntry]) async in }
+                scope: scope,
+                operations: .init(
+                    fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
+                    map: { $0.toLedgerEntry(zoneID: zoneID) },
+                    query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.notFound("x") },
+                    hydrate: { (_: [LedgerEntry]) async in }
+                )
             ) as [LedgerEntry]
         }
         await #expect(throws: CloudKitServiceError.serverRecordChanged) {
@@ -206,11 +215,13 @@ struct TransferNonceRegressionTests {
                 type: .ledgerEntry,
                 family: family,
                 cacheService: cache,
-                appState: appState,
-                fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
-                map: { $0.toLedgerEntry(zoneID: zoneID) },
-                query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.serverRecordChanged },
-                hydrate: { (_: [LedgerEntry]) async in }
+                scope: scope,
+                operations: .init(
+                    fetchCache: { (_: String) -> [LedgerEntryCache] in [] },
+                    map: { $0.toLedgerEntry(zoneID: zoneID) },
+                    query: { () async throws -> [LedgerEntry] in throw CloudKitServiceError.serverRecordChanged },
+                    hydrate: { (_: [LedgerEntry]) async in }
+                )
             ) as [LedgerEntry]
         }
     }

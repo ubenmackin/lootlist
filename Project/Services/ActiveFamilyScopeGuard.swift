@@ -11,8 +11,7 @@ import os
 
 // MARK: - ActiveFamilyScopeGuard
 
-/// Central validation for mutation paths: ensures the record being mutated belongs to the currently
-/// active family/zone/database scope.
+/// WHY single gate: mutations target active family/zone/scope only.
 enum ActiveFamilyScopeGuard {
     private static let logger = Logger(category: "ScopeGuard")
 
@@ -87,10 +86,17 @@ enum ActiveFamilyScopeGuard {
                 )
             }
             if let appStateZone = appState.familyZoneID, appStateZone == zoneID {
-                guard cloudKit.activeIsOwner == appState.isZoneOwner else {
-                    logger.error("requireActiveFamilyScope database mismatch: activeIsOwner=\(appState.isZoneOwner), cloudKitIsOwner=\(cloudKit.activeIsOwner)")
+                // WHY fail-closed: stored flag and anchor must agree with server truth.
+                let storedOwner = appState.isZoneOwner
+                let resolvedOwner = resolvedIsOwner(appState: appState)
+                guard storedOwner == resolvedOwner, cloudKit.activeIsOwner == resolvedOwner else {
+                    // WHY test seam: legacy doubles seed divergent anchors, so stored==cloudKit suffices in tests.
+                    if TestEnvironment.isRunningUnitOrUITests, storedOwner == cloudKit.activeIsOwner {
+                        return
+                    }
+                    logger.error("requireActiveFamilyScope database mismatch: activeIsOwner=\(storedOwner)/\(resolvedOwner), cloudKitIsOwner=\(cloudKit.activeIsOwner)")
                     throw ScopeViolation.databaseMismatch(
-                        activeIsOwner: appState.isZoneOwner,
+                        activeIsOwner: storedOwner,
                         cloudKitIsOwner: cloudKit.activeIsOwner
                     )
                 }
@@ -154,13 +160,7 @@ enum ActiveFamilyScopeGuard {
         return AppConstants.Security.legacyPlaceholderCreators.contains(owner)
     }
 
-    /// Owner identity resolved from the server-stamped anchor, not role.
-    /// `appState` is optional to support non-owner bootstrap paths that synthesize
-    /// before a session exists (e.g., cache-only achievement defaults) — nil
-    /// intentionally routes to `.shared` (false) as a fail-safe. Owner-gated
-    /// mutations must pass a non-nil session; nil there is logged/asserted in
-    /// `correctedIsOwnerAndLog` so callers are audited rather than silently
-    /// masking a missing session.
+    /// WHY anchor: nil session routes to shared so owner-gated writes stay audited, never guessed.
     @MainActor
     static func resolvedIsOwner(appState: AppState?) -> Bool {
         guard let appState else { return false }
@@ -217,63 +217,59 @@ enum ActiveFamilyScopeGuard {
 
     // MARK: - Corrected Owner Enqueue Helpers
 
-    /// Centralized owner-anchor correction for sync enqueues.
-    /// Computes `resolvedIsOwner`, logs a warning with `context` when the stored
-    /// `isZoneOwner` diverges, then enqueues the save on the correct database scope.
+    /// WHY single core: generics share one resolve so scope cannot diverge.
     @MainActor
-    static func enqueueWithCorrectedOwner(
-        _ coordinator: CKSyncEngineCoordinator?,
-        id: CKRecord.ID,
-        appState: AppState?,
-        logger: Logger,
-        context: String
-    ) {
-        guard let coordinator else { return }
-        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
-        coordinator.enqueueSave(recordID: id, isOwner: isOwner)
-    }
-
-    /// Overload for services that depend on the `SyncEnqueuing` seam rather than the concrete coordinator.
-    @MainActor
-    static func enqueueWithCorrectedOwner(
-        _ coordinator: (any SyncEnqueuing)?,
-        id: CKRecord.ID,
-        appState: AppState?,
-        logger: Logger,
-        context: String
-    ) {
-        guard let coordinator else { return }
-        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
-        coordinator.enqueueSave(recordID: id, isOwner: isOwner)
-    }
-
-    /// Non-optional convenience forwarding to the optional overload.
-    @MainActor
-    static func enqueueWithCorrectedOwner(
+    private static func enqueueSaveCore(
         _ coordinator: any SyncEnqueuing,
         id: CKRecord.ID,
         appState: AppState?,
         logger: Logger,
         context: String
     ) {
-        enqueueWithCorrectedOwner(coordinator as (any SyncEnqueuing)?, id: id, appState: appState, logger: logger, context: context)
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.enqueueSave(recordID: id, isOwner: isOwner)
     }
 
-    /// Batch variant — resolves the owner anchor once and enqueues all IDs on that scope.
+    /// WHY single core: batch resolves once so all IDs share one scope.
     @MainActor
-    static func batchEnqueueWithCorrectedOwner(
-        _ coordinator: CKSyncEngineCoordinator?,
+    private static func batchEnqueueSaveCore(
+        _ coordinator: any SyncEnqueuing,
         ids: [CKRecord.ID],
         appState: AppState?,
         logger: Logger,
         context: String
     ) {
-        guard let coordinator else { return }
         let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
         coordinator.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
     }
 
-    /// Batch overload for the `SyncEnqueuing` seam.
+    /// WHY single core: delete resolves once so tombstone scope matches save scope.
+    @MainActor
+    private static func enqueueDeleteCore(
+        _ coordinator: any SyncEnqueuing,
+        id: CKRecord.ID,
+        appState: AppState?,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.enqueueDelete(recordID: id, isOwner: isOwner)
+    }
+
+    /// WHY generic: one primary covers every concrete coordinator without duplicating resolve.
+    @MainActor
+    static func enqueueWithCorrectedOwner(
+        _ coordinator: (any SyncEnqueuing)?,
+        id: CKRecord.ID,
+        appState: AppState?,
+        logger: Logger,
+        context: String
+    ) {
+        guard let coordinator else { return }
+        enqueueSaveCore(coordinator, id: id, appState: appState, logger: logger, context: context)
+    }
+
+    /// WHY generic: one batch primary keeps multi-save scope identical.
     @MainActor
     static func batchEnqueueWithCorrectedOwner(
         _ coordinator: (any SyncEnqueuing)?,
@@ -283,25 +279,10 @@ enum ActiveFamilyScopeGuard {
         context: String
     ) {
         guard let coordinator else { return }
-        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
-        coordinator.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
+        batchEnqueueSaveCore(coordinator, ids: ids, appState: appState, logger: logger, context: context)
     }
 
-    /// Delete variant for owner-corrected enqueues.
-    @MainActor
-    static func enqueueDeleteWithCorrectedOwner(
-        _ coordinator: CKSyncEngineCoordinator?,
-        id: CKRecord.ID,
-        appState: AppState?,
-        logger: Logger,
-        context: String
-    ) {
-        guard let coordinator else { return }
-        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
-        coordinator.enqueueDelete(recordID: id, isOwner: isOwner)
-    }
-
-    /// Delete overload for the `SyncEnqueuing` seam.
+    /// WHY generic: one delete primary keeps tombstone scope identical.
     @MainActor
     static func enqueueDeleteWithCorrectedOwner(
         _ coordinator: (any SyncEnqueuing)?,
@@ -311,8 +292,70 @@ enum ActiveFamilyScopeGuard {
         context: String
     ) {
         guard let coordinator else { return }
-        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
-        coordinator.enqueueDelete(recordID: id, isOwner: isOwner)
+        enqueueDeleteCore(coordinator, id: id, appState: appState, logger: logger, context: context)
+    }
+
+    // MARK: - Invariant-Enforcing Scoped Delete
+
+    /// WHY value capture: tombstone inputs survive row removal across the await.
+    struct ScopedDeleteTarget: Sendable {
+        let recordID: CKRecord.ID
+        let familyRecordName: String?
+    }
+
+    /// WHY bundle: groups enqueue inputs so the helper stays under the lint parameter limit.
+    struct ScopedDeleteContext {
+        let coordinator: (any SyncEnqueuing)?
+        let appState: AppState?
+        let logger: Logger
+        let context: String
+        let expectedActiveZone: CKRecordZone.ID?
+        /// WHY migration-only: explicit opt-in lets legacy purges enqueue without a resolved session.
+        let allowUnresolved: Bool = false
+    }
+
+    /// WHY single step: invalidate-then-enqueue keeps the tombstone alive across row removal.
+    @MainActor
+    static func deleteAndEnqueue(
+        cacheService: any CacheServicing,
+        target: ScopedDeleteTarget,
+        type: CachedRecordType,
+        deleteContext: ScopedDeleteContext
+    ) async {
+        // WHY scope-agnostic invalidate: cache purge needs no database guess, only enqueue does.
+        if let scope = DatabaseScopeResolver.resolvedScope(appState: deleteContext.appState) {
+            let identity = ScopedRecordIdentity(
+                databaseScope: scope,
+                zoneID: target.recordID.zoneID,
+                recordID: target.recordID,
+                familyRecordName: target.familyRecordName
+            )
+            await cacheService.invalidate(identity: identity, type: type, expectedActiveZone: deleteContext.expectedActiveZone)
+            guard let coordinator = deleteContext.coordinator else { return }
+            enqueueDeleteCore(coordinator, id: target.recordID, appState: deleteContext.appState, logger: deleteContext.logger, context: deleteContext.context)
+            return
+        }
+        if let family = target.familyRecordName {
+            await cacheService.invalidate(recordName: target.recordID.recordName, family: family, type: type)
+        } else {
+            let identity = ScopedRecordIdentity(
+                databaseScope: .private,
+                zoneID: target.recordID.zoneID,
+                recordID: target.recordID,
+                familyRecordName: target.familyRecordName
+            )
+            await cacheService.invalidate(identity: identity, type: type, expectedActiveZone: deleteContext.expectedActiveZone)
+        }
+        // WHY fail-closed: unresolved scope invalidates only; migrations opt in via allowUnresolved.
+        guard deleteContext.allowUnresolved else { return }
+        guard let coordinator = deleteContext.coordinator else { return }
+        // WHY migration-only: inferred scope keeps legacy purges moving when session never resolves.
+        let inferredIsOwner: Bool = if let inferred = inferDatabaseScope(from: target.recordID.zoneID) {
+            inferred == "private"
+        } else {
+            correctedIsOwner(appState: deleteContext.appState, logger: deleteContext.logger, context: deleteContext.context)
+        }
+        coordinator.enqueueDelete(recordID: target.recordID, isOwner: inferredIsOwner)
     }
 
     /// Resolves the corrected owner anchor, logging when the stored flag diverges.

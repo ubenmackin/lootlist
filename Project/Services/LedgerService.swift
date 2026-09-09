@@ -55,8 +55,22 @@ final class LedgerService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
-        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
+        // WHY single stack: shared coordinator owns hydration; ephemeral engines fork freshness.
+        if let coord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("LedgerService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("LedgerService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("LedgerService requires a sync coordinator in production")
+            #endif
+        }
     }
 
     // MARK: - Cached Reads
@@ -72,80 +86,9 @@ final class LedgerService {
     // MARK: - Fetches
 
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
-        let family = Family(
-            name: "",
-            creatorUserRecordName: nil,
-            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
-        )
-        return try await CacheFirst.cacheFirst(
-            type: .ledgerEntry,
-            family: family,
-            cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profile] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
-            },
-            map: { [profile] cache in
-                cache.toLedgerEntry(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            },
-            sortedBy: { $0.date > $1.date }
-        )
-    }
-
-    func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
-        let family = Family(
-            name: "",
-            creatorUserRecordName: nil,
-            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
-        )
-        return try await CacheFirst.cacheFirst(
-            type: .ledgerEntry,
-            family: family,
-            cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profile, dateRange] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, familyRecordName: familyName, start: dateRange.lowerBound, end: dateRange.upperBound)
-            },
-            map: { [profile] cache in
-                cache.toLedgerEntry(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile, dateRange] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(
-                    format: "profile == %@ AND date >= %@ AND date < %@",
-                    profileRef as CVarArg,
-                    dateRange.lowerBound as CVarArg,
-                    dateRange.upperBound as CVarArg
-                )
-                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            },
-            sortedBy: { $0.date > $1.date }
-        )
-    }
-
-    func fetchTransactions(for profile: Profile,
-                           in dateRange: DateInterval) async throws -> [LedgerEntry]
-    {
+        // WHY single zone: family zone owns scope so profile and family zones must agree.
         let targetZoneID = profile.family.recordID.zoneID
+        assert(profile.id.zoneID == profile.family.recordID.zoneID)
         let profileName = profile.id.recordName
         let familyName = profile.family.recordID.recordName
         let family = Family(
@@ -153,40 +96,168 @@ final class LedgerService {
             creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: familyName, zoneID: targetZoneID)
         )
-        let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState.familyZoneID == targetZoneID)
-        let scopeForHydrate: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: isOwner)
+        guard let resolved = resolveLedgerScope(targetZoneID: targetZoneID, familyRecordName: familyName) else {
+            // WHY cached-only: unknown scope never queries, but serves local cache.
+            return cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+                .map { [targetZoneID] cache in cache.toLedgerEntry(zoneID: targetZoneID) }
+                .sorted { $0.date > $1.date }
+        }
+        let resolvedScope = resolved.scope
+        let resolvedIsOwner = resolved.isOwner
+        return try await CacheFirst.cacheFirst(
+            type: .ledgerEntry,
+            family: family,
+            cacheService: cacheService,
+            scope: resolvedScope,
+            operations: .init(
+                fetchCache: { [cacheService, profileName] familyName in
+                    cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+                },
+                map: { [targetZoneID] cache in
+                    cache.toLedgerEntry(zoneID: targetZoneID)
+                },
+                query: { [cloudKit, profile, targetZoneID, resolvedIsOwner] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+                    let db = cloudKit.database(isOwner: resolvedIsOwner)
+                    return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: targetZoneID, using: db)
+                },
+                hydrate: { [syncCoordinator, resolvedScope, targetZoneID] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: resolvedScope,
+                        zoneID: targetZoneID
+                    )
+                },
+                sortedBy: { $0.date > $1.date }
+            )
+        )
+    }
+
+    func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
+        // WHY single zone: family zone owns scope so profile and family zones must agree.
+        let targetZoneID = profile.family.recordID.zoneID
+        assert(profile.id.zoneID == profile.family.recordID.zoneID)
+        let profileName = profile.id.recordName
+        let familyName = profile.family.recordID.recordName
+        let family = Family(
+            name: "",
+            creatorUserRecordName: nil,
+            id: CKRecord.ID(recordName: familyName, zoneID: targetZoneID)
+        )
+        guard let resolved = resolveLedgerScope(targetZoneID: targetZoneID, familyRecordName: familyName) else {
+            // WHY cached-only: unknown scope never queries, but serves local cache.
+            return cacheService.fetchLedgerEntries(profileRecordName: profileName, familyRecordName: familyName, start: dateRange.lowerBound, end: dateRange.upperBound)
+                .map { [targetZoneID] cache in cache.toLedgerEntry(zoneID: targetZoneID) }
+                .sorted { $0.date > $1.date }
+        }
+        let resolvedScope = resolved.scope
+        let resolvedIsOwner = resolved.isOwner
+        return try await CacheFirst.cacheFirst(
+            type: .ledgerEntry,
+            family: family,
+            cacheService: cacheService,
+            scope: resolvedScope,
+            operations: .init(
+                fetchCache: { [cacheService, profileName, dateRange] familyName in
+                    cacheService.fetchLedgerEntries(profileRecordName: profileName, familyRecordName: familyName, start: dateRange.lowerBound, end: dateRange.upperBound)
+                },
+                map: { [targetZoneID] cache in
+                    cache.toLedgerEntry(zoneID: targetZoneID)
+                },
+                query: { [cloudKit, profile, targetZoneID, dateRange, resolvedIsOwner] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(
+                        format: "profile == %@ AND date >= %@ AND date < %@",
+                        profileRef as CVarArg,
+                        dateRange.lowerBound as CVarArg,
+                        dateRange.upperBound as CVarArg
+                    )
+                    let db = cloudKit.database(isOwner: resolvedIsOwner)
+                    return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: targetZoneID, using: db)
+                },
+                hydrate: { [syncCoordinator, resolvedScope, targetZoneID] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: resolvedScope,
+                        zoneID: targetZoneID
+                    )
+                },
+                sortedBy: { $0.date > $1.date }
+            )
+        )
+    }
+
+    /// WHY single scope: gate and hydrate share one resolved value; unknown rejects to cached-only instead of guessing.
+    /// WHY zone match: caller zone must equal active zone so cross-zone reads cannot ride active scope.
+    private func resolveLedgerScope(targetZoneID: CKRecordZone.ID, familyRecordName: String) -> (scope: CKDatabase.Scope, isOwner: Bool)? {
+        do {
+            try ActiveFamilyScopeGuard.requireActiveFamily(familyRecordName: familyRecordName, appState: appState)
+        } catch {
+            return nil
+        }
+        guard let activeZone = appState.familyZoneID ?? appState.family?.id.zoneID ?? appState.currentProfile?.id.zoneID else { return nil }
+        guard activeZone == targetZoneID else { return nil }
+        // WHY single resolver: scope proves owner so gate, query, and hydrate cannot diverge on stored flag.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return nil }
+        return (scope, scope == .private)
+    }
+
+    func fetchTransactions(for profile: Profile,
+                           in dateRange: DateInterval) async throws -> [LedgerEntry]
+    {
+        // WHY single zone: family zone owns scope so profile and family zones must agree.
+        let targetZoneID = profile.family.recordID.zoneID
+        assert(profile.id.zoneID == profile.family.recordID.zoneID)
+        let profileName = profile.id.recordName
+        let familyName = profile.family.recordID.recordName
+        let family = Family(
+            name: "",
+            creatorUserRecordName: nil,
+            id: CKRecord.ID(recordName: familyName, zoneID: targetZoneID)
+        )
+        guard let resolved = resolveLedgerScope(targetZoneID: targetZoneID, familyRecordName: familyName) else {
+            // WHY cached-only: unknown scope never queries, but serves local cache.
+            return cacheService.fetchLedgerEntries(profileRecordName: profileName, familyRecordName: familyName, start: dateRange.start, end: dateRange.end)
+                .map { [targetZoneID] cache in cache.toLedgerEntry(zoneID: targetZoneID) }
+                .sorted { $0.date > $1.date }
+        }
+        let resolvedScope = resolved.scope
+        let resolvedIsOwner = resolved.isOwner
         // WHY indexed window: family+profile+date narrows via V10 composite index so history never scans.
         return try await CacheFirst.cacheFirst(
             type: .ledgerEntry,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profileName, dateRange] familyName in
-                cacheService.fetchLedgerEntries(profileRecordName: profileName, familyRecordName: familyName, start: dateRange.start, end: dateRange.end)
-            },
-            map: { [targetZoneID] cache in
-                cache.toLedgerEntry(zoneID: targetZoneID)
-            },
-            query: { [cloudKit, profile, targetZoneID, isOwner] in
-                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-                let db = cloudKit.database(isOwner: isOwner)
-                return try await cloudKit.query(
-                    LedgerEntry.self,
-                    predicate: predicate,
-                    in: targetZoneID,
-                    sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
-                    using: db
-                )
-            },
-            hydrate: { [syncCoordinator, scopeForHydrate, targetZoneID] models in
-                await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: scopeForHydrate,
-                    zoneID: targetZoneID
-                )
-            },
-            sortedBy: { $0.date > $1.date }
+            scope: resolvedScope,
+            operations: .init(
+                fetchCache: { [cacheService, profileName, dateRange] familyName in
+                    cacheService.fetchLedgerEntries(profileRecordName: profileName, familyRecordName: familyName, start: dateRange.start, end: dateRange.end)
+                },
+                map: { [targetZoneID] cache in
+                    cache.toLedgerEntry(zoneID: targetZoneID)
+                },
+                query: { [cloudKit, profile, targetZoneID, resolvedIsOwner] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+                    let db = cloudKit.database(isOwner: resolvedIsOwner)
+                    return try await cloudKit.query(
+                        LedgerEntry.self,
+                        predicate: predicate,
+                        in: targetZoneID,
+                        sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
+                        using: db
+                    )
+                },
+                hydrate: { [syncCoordinator, resolvedScope, targetZoneID] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: resolvedScope,
+                        zoneID: targetZoneID
+                    )
+                },
+                sortedBy: { $0.date > $1.date }
+            )
         )
     }
 
@@ -215,11 +286,13 @@ final class LedgerService {
     // WHY: deterministicRecordName must produce the same CKRecord.ID on every
     // device for identical payloads so CloudKit dedupes money movements.
     // All discriminating fields must be folded into the hash — never a random UUID.
-    private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Int64, description: String, date: Date) -> String {
+    private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Int64, description: String, location _: String?, date: Date) -> String {
         let ms = Int(date.timeIntervalSince1970 * 1000)
-        let cents = Int(abs(amount))
+        let cents = Int(clamping: amount.magnitude)
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let digest = SHA256.hash(data: Data(trimmed.utf8))
+        // WHY legacy base: trimmed-only hash keeps historic rows matching so re-mints dedupe.
+        let hashInput = trimmed
+        let digest = SHA256.hash(data: Data(hashInput.utf8))
         let value = digest.prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         let descHash = value % 10000
         return "\(source)-\(profile.id.recordName)-\(family.id.recordName)-\(ms)-\(cents)-\(descHash)"
@@ -236,12 +309,8 @@ final class LedgerService {
     }
 
     private func validateScopeAllowingNewHero(family: Family) throws {
-        do {
-            try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
-        } catch {
-            logger.warning("Strict scope check failed, falling back to family-only check: \(error, privacy: .private)")
-            try ActiveFamilyScopeGuard.requireActiveFamily(familyRecordName: family.id.recordName, appState: appState)
-        }
+        // WHY fail-closed: scope mismatch denies rather than downgrading to family-only.
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
     }
 
     // WHY: CloudKit dedupe requires deterministic IDs. A random UUID escape hatch
@@ -250,14 +319,14 @@ final class LedgerService {
     // name, extend deterministically so every device converges on the same
     // alternate name instead of forking.
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Int64, description: String, location: String?, date: Date) -> CKRecord.ID {
-        let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
+        let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, location: location, date: date)
         var recordName = base
         if let existing = cacheService.fetchLedgerEntry(recordName: base, family: family.id.recordName),
            existing.source != source
            || existing.entryDescription != description
            || !DeterministicRecordID.isSameMillisecond(existing.date, date)
            || existing.location != location
-           || abs(existing.amount) != abs(amount)
+           || existing.amount != amount
         {
             // WHY: Extend deterministically — hash all discriminating fields so
             // same divergent payload yields same recordName on any device.
@@ -265,7 +334,7 @@ final class LedgerService {
             // collisions (description + ms) so hash-colliding descriptions cannot
             // still collide after the suffix.
             let ms = Int(date.timeIntervalSince1970 * 1000)
-            let cents = Int(abs(amount))
+            let cents = Int(clamping: amount.magnitude)
             let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let trimmedLower = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let payload = "\(trimmedLower)|\(ms)|\(cents)|\(normalizedLocation)|\(source)"
@@ -303,9 +372,10 @@ final class LedgerService {
 
         // WHY: manual spends debit the spend bucket so BucketService.applyBucketAttribution
         // keeps bucket balances consistent with the ledger total.
+        let signedAmount = -abs(amount)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: -abs(amount),
+            amount: signedAmount,
             description: trimmedDesc,
             location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
@@ -316,7 +386,7 @@ final class LedgerService {
                 source: LedgerSource.manual.rawValue,
                 profile: profile,
                 family: family,
-                amount: amount,
+                amount: signedAmount,
                 description: trimmedDesc,
                 location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
                 date: date
@@ -356,7 +426,7 @@ final class LedgerService {
 
         // WHY: whole-penny math keeps bucket shares summing to the exact deposit
         // total regardless of how percentages round.
-        let totalPennies = Int(abs(amount))
+        let totalPennies = Int(clamping: amount.magnitude)
         guard totalPennies > 0 else {
             throw SpendingServiceError.invalidAmount
         }
@@ -374,6 +444,7 @@ final class LedgerService {
             family: family,
             amount: amount,
             description: trimmedDesc,
+            location: normalizedLocation,
             date: date
         )
 
@@ -477,9 +548,10 @@ final class LedgerService {
             throw SpendingServiceError.invalidAmount
         }
 
+        let signedAmount = -abs(amount)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: -abs(amount),
+            amount: signedAmount,
             description: trimmedDesc,
             location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
@@ -490,7 +562,7 @@ final class LedgerService {
                 source: LedgerSource.withdrawal.rawValue,
                 profile: profile,
                 family: family,
-                amount: amount,
+                amount: signedAmount,
                 description: trimmedDesc,
                 location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
                 date: date
@@ -515,16 +587,19 @@ final class LedgerService {
 
         try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
 
-        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let identity = ScopedRecordIdentity(
-            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
-            zoneID: entry.id.zoneID,
-            recordID: entry.id,
-            familyRecordName: entry.family.recordID.recordName
+        // WHY single step: tombstone is captured inside the helper so the delete survives row removal.
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: entry.id, familyRecordName: entry.family.recordID.recordName),
+            type: .ledgerEntry,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "LedgerService.delete",
+                expectedActiveZone: appState.familyZoneID
+            )
         )
-        // WHY: tombstone ID is captured before invalidate so the delete survives local row removal.
-        await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.delete")
     }
 
     // MARK: - Generic Persistence

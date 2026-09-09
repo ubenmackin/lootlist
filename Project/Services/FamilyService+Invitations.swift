@@ -235,7 +235,7 @@ extension FamilyService {
 
     /// Removes a share participant object from the family's `CKShare`. Only
     /// the zone owner (Guild Master) may revoke — callers must enforce
-    /// `appState.isZoneOwner` before calling.
+    /// `ActiveFamilyScopeGuard.resolvedIsOwner` / `DatabaseScopeResolver.resolvedScope` fail-closed check before calling.
     func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws {
         try await cloudKit.removeParticipant(participant, from: family.id)
     }

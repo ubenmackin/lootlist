@@ -250,8 +250,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         zoneID: CKRecordZone.ID? = nil
     ) async -> IngestOutcome? {
         guard !records.isEmpty else { return nil }
-        // Dual-scope is derived via databaseScope ?? activeDatabaseScope.
-        let scope: CKDatabase.Scope = databaseScope ?? (appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false))
+        // WHY fail-closed scope: unknown scope drops so caller zone re-delivers via tokens.
+        guard let scope = databaseScope ?? DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.warning("Ingestion dropped: unknown database scope — \(records.count, privacy: .public) record(s) deferred")
+            return nil
+        }
         guard let resolvedZoneID = zoneID ?? records.first?.recordID.zoneID else { return nil }
         return await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
     }
@@ -286,7 +289,15 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             return nil
         }
 
-        let expectedDbScope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+        // WHY unknown scope fails closed: defaulting to .shared risks cross-scope pollution.
+        guard let expectedDbScope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            logger.warning(
+                "Ingestion dropped: unknown database scope — \(records.count) record(s) deferred",
+                family: activeFamily,
+                zone: activeZone.zoneName
+            )
+            return nil
+        }
         let processed = processIngestRecords(
             records,
             databaseScope: databaseScope,
@@ -574,7 +585,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         if let activeFamily = appState?.family?.id.recordName,
            let activeZone = appState?.familyZoneID
         {
-            let dbScope = databaseScope ?? (appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false))
+            // WHY fail-closed scope: unknown scope drops deletes so wrong-scope purge cannot run.
+            guard let dbScope = databaseScope ?? DatabaseScopeResolver.resolvedScope(appState: appState) else {
+                logger.warning("Deletions dropped: unknown database scope — \(changes.deletions.count, privacy: .public) deletion(s) deferred")
+                return
+            }
             for deletion in changes.deletions {
                 await conflictResolver.handleDeletedRecord(
                     recordID: deletion.recordID,

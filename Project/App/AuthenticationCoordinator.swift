@@ -280,7 +280,7 @@ final class AuthenticationCoordinator {
         appState.familyZoneID = zoneID
         appState.authStatus = .authenticated
         logger.info("Session restored from local cache (offline mode)")
-        let freshnessScope: CKDatabase.Scope = resolvedOwner ? .private : .shared
+        let freshnessScope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: resolvedOwner)
         cache.markCacheFresh(familyRecordName: familyRecordName, type: .family, scope: freshnessScope)
         cache.markCacheFresh(familyRecordName: familyRecordName, type: .profile, scope: freshnessScope)
         return true

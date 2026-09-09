@@ -283,6 +283,9 @@ extension TreasuryServiceTests {
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         // Parent-verified quests settle on the hero's behalf with parent acting profile.
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
         let result = try await treasury.processRealTimeSettlement(
             profile: targetHero,
             family: family,
@@ -442,6 +445,9 @@ extension TreasuryServiceTests {
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         // Hero self-settlement: the acting profile matches the target.
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
         appState.currentProfile = hero
 
         let settled = try await treasury.processRealTimeSettlement(profile: hero,
@@ -493,6 +499,9 @@ extension TreasuryServiceTests {
         cloudKit.seedMockRecords([hero, family])
 
         // Parent operates on the hero's allowance period.
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
         appState.currentProfile = guildMaster
 
         let period = try await treasury.getOrCreateAllowancePeriod(
@@ -666,7 +675,12 @@ extension TreasuryServiceTests {
 
         // Parent operating on the hero's allowance period (mirrors the
         // existing `updateAllowance allows parent override` guard).
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
         appState.currentProfile = guildMaster
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
 
         // Pass nil for the breakdown-derived totals so the result MUST come
         // from weeklyBreakdown — which only runs when resolveProfile /
@@ -770,6 +784,13 @@ extension TreasuryServiceTests {
         cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .quest)
         cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .questCompletion)
         cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .ledgerEntry)
+        // WHY session: fail-closed reads require active scope, so bind it before breakdown.
+        treasury.appState.family = family
+        treasury.appState.familyZoneID = zoneID
+        treasury.appState.isZoneOwner = true
+        treasury.appState.currentProfile = hero
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
 
         let breakdown = try await treasury.weeklyBreakdown(profile: hero,
                                                            family: family,

@@ -16,10 +16,7 @@ import UserNotifications
 struct NotificationServiceTests {
     // MARK: - iCloud Guard
 
-    /// The simulator periodically loses its iCloud login. Tests that spin up
-    /// the real sync engine hang forever without an authenticated account,
-    /// so callers skip instead.
-    /// Returns `false` (skip) when no iCloud account is available.
+    /// WHY skip without iCloud: engine init hangs with no account.
     private static func iCloudAccountAvailable() async -> Bool {
         // Race accountStatus against a timeout so even this call can't hang.
         let status: CKAccountStatus? = await withTaskGroup(of: CKAccountStatus?.self) { group in
@@ -37,32 +34,6 @@ struct NotificationServiceTests {
 
     // MARK: - Fixtures
 
-    private func makeProfile(zoneID: CKRecordZone.ID) -> Profile {
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-            action: .none
-        )
-        let userID = CKRecord.ID(recordName: "u1", zoneID: zoneID)
-        return Profile(
-            displayName: "Test Hero",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .hero,
-            iCloudUserID: userID,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        )
-    }
-
-    private func makeFamily(zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Test Guild",
-            creatorUserRecordName: "owner1",
-            payoutPolicy: .perQuest,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-    }
-
     private struct StubWeeklySummaryProvider: WeeklySummaryProviding, Sendable {
         let text: String?
         func summary(profile _: Profile, family _: Family, weekOf _: Date) async -> String? {
@@ -78,13 +49,13 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        app.currentProfile = makeProfile(zoneID: zoneID)
-        app.family = makeFamily(zoneID: zoneID)
+        app.currentProfile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        app.family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
@@ -104,8 +75,7 @@ struct NotificationServiceTests {
         #expect(cachedRows.first?.enabled == true)
         #expect(cachedRows.first?.eventType == NotificationEventType.questAssigned.rawValue)
 
-        // A completed sync pass stamped this family's preference cache fresh,
-        // so the canonical read trusts the cached row (not just the mirror).
+        // WHY fresh stamp lets the canonical read trust the cached row.
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
 
         // The canonical read path now reflects the cached value.
@@ -123,13 +93,13 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        app.currentProfile = makeProfile(zoneID: zoneID)
-        app.family = makeFamily(zoneID: zoneID)
+        app.currentProfile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        app.family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
@@ -139,25 +109,17 @@ struct NotificationServiceTests {
         // Another device writes a `NotificationPreference` (enabled=true) and
         let backgroundCache = try BackgroundCacheActor(container: #require(cache.container))
         let remote = NotificationPreference(
-            profile: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID),
-                action: .none
-            ),
+            profile: ExhaustiveCacheFixtures.ref("hero1", zoneID: zoneID),
             eventType: .levelUp,
             enabled: true,
-            family: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-                action: .none
-            ),
-            id: CKRecord.ID(recordName: "remote-pref-1", zoneID: zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
+            id: ExhaustiveCacheFixtures.id("remote-pref-1", zoneID: zoneID)
         )
         await backgroundCache.batchUpsertNotificationPreferences([remote])
-        // SyncEngine stamps freshness after a successful sync pass — model that
-        // here so the read-first gate trusts the remotely-written row.
+        // WHY stamp models the sync pass so the gate trusts the remote row.
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
 
-        // Next read picks up the remotely-written value — proving the cache
-        // (not UserDefaults) is the read source for a populated, fresh row.
+        // WHY cache is the read source for a populated fresh row.
         #expect(service.isNotificationEnabled(for: .levelUp) == true,
                 "isNotificationEnabled must reflect the cached remote mutation, not the stale default")
     }
@@ -165,13 +127,13 @@ struct NotificationServiceTests {
     @Test
     func `isNotificationEnabled falls back to userDefaults when cache is empty`() throws {
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        app.currentProfile = makeProfile(zoneID: zoneID)
-        app.family = makeFamily(zoneID: zoneID)
+        app.currentProfile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        app.family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
@@ -203,22 +165,22 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         // Inject save conflict error for verification.
         ck.saveError = CloudKitServiceError.serverRecordChanged
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let profile = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let profile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = profile
         app.family = family
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // Seed existing cached preference record name for in-place update.
-        let existingID = CKRecord.ID(recordName: "pref-hero1-fam1-questAssigned", zoneID: zoneID)
+        let existingID = ExhaustiveCacheFixtures.id("pref-hero1-fam1-questAssigned", zoneID: zoneID)
         let snapshotPref = NotificationPreference(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             eventType: .questAssigned,
@@ -228,10 +190,7 @@ struct NotificationServiceTests {
         )
         await cache.upsertNotificationPreference(snapshotPref)
 
-        // Another device's authoritative version of the SAME record won the
-        // race and shipped to the server before our save landed. The mock
-        // store holds this record (the post-conflict server state a follow-up
-        // `fetch` returns).
+        // WHY seed the post-conflict server state the follow-up fetch returns.
         let authoritative = NotificationPreference(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             eventType: .questAssigned,
@@ -295,12 +254,12 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let profile = makeProfile(zoneID: zoneID)
+        let profile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
         app.currentProfile = profile
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
@@ -323,13 +282,13 @@ struct NotificationServiceTests {
             return
         }
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        // The viewer is the receiver of the notification on this device.
-        let viewer = makeProfile(zoneID: zoneID)
+        // WHY viewer is the local receiver for the self-skip check.
+        let viewer = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
         app.currentProfile = viewer
 
         defaults.set(true, forKey: "masterNotificationsEnabled")
@@ -337,11 +296,10 @@ struct NotificationServiceTests {
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
-        // The authoring peer is the family member whose action triggered the
-        // sync event (creator/completer/spender/verifier recordName).
+        // WHY payload must carry the authoring peer for deep-link routing.
         let authoringPeerID = "authorPeer"
 
-        // Clean slate so the only pending request after delivery is ours.
+        // WHY clean slate isolates the delivered request under test.
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
 
@@ -382,12 +340,12 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let hero = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = hero
         app.family = family
 
@@ -401,7 +359,7 @@ struct NotificationServiceTests {
 
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
 
-        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let questRef = ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID)
         let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let log = QuestCompletion(
@@ -410,7 +368,7 @@ struct NotificationServiceTests {
             approvalMode: .parentVerify,
             weekOf: Date(),
             family: familyRef,
-            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("log1", zoneID: zoneID)
         )
 
         try await service.sendQuestRejected(questLog: log, to: hero)
@@ -432,12 +390,12 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let hero = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = hero
         app.family = family
 
@@ -446,18 +404,18 @@ struct NotificationServiceTests {
             avatarClass: .mage,
             avatarPresetID: "mage_01",
             role: .ranger,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("parent1", zoneID: zoneID)
         )
 
-        // Store disabled preference for parent
+        // WHY disabled recipient preference must suppress delivery.
         let pref = NotificationPreference(
             profile: CKRecord.Reference(recordID: parent.id, action: .none),
             eventType: .questNeedsReview,
             enabled: false,
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
         )
         await cache.upsertNotificationPreference(pref)
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
@@ -467,7 +425,7 @@ struct NotificationServiceTests {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
 
-        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let questRef = ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID)
         let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let log = QuestCompletion(
@@ -476,7 +434,7 @@ struct NotificationServiceTests {
             approvalMode: .parentVerify,
             weekOf: Date(),
             family: familyRef,
-            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("log1", zoneID: zoneID)
         )
 
         try await service.sendQuestNeedsReview(questLog: log, to: parent)
@@ -494,12 +452,12 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let hero = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = hero
         app.family = family
 
@@ -511,7 +469,7 @@ struct NotificationServiceTests {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
 
-        // 1. Self notification should be skipped
+        // WHY self-events never notify the authoring device.
         try await service.deliverSyncNotification(
             eventType: .questAssigned,
             title: "Self Quest",
@@ -521,7 +479,7 @@ struct NotificationServiceTests {
         var pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
         #expect(pending.isEmpty, "Self notifications should be skipped")
 
-        // 2. Peer event notification should be scheduled
+        // WHY peer events still schedule on the viewing device.
         try await service.deliverSyncNotification(
             eventType: .questAssigned,
             title: "Peer Quest",
@@ -533,30 +491,17 @@ struct NotificationServiceTests {
     }
 
     private func makeParentProfile(zoneID: CKRecordZone.ID) -> Profile {
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-            action: .none
-        )
-        let userID = CKRecord.ID(recordName: "uParent", zoneID: zoneID)
-        return Profile(
-            displayName: "Test Parent",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .guildMaster,
-            iCloudUserID: userID,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
-        )
+        ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID)
     }
 
     @Test
     func `updateAppBadgeCount clears badge for non-parent profile`() async throws {
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let hero = makeProfile(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
         app.currentProfile = hero
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
@@ -568,7 +513,7 @@ struct NotificationServiceTests {
     @Test
     func `updateAppBadgeCount sets count for parent when clear on launch is disabled`() async throws {
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
@@ -586,7 +531,7 @@ struct NotificationServiceTests {
     @Test
     func `updateAppBadgeCount clears count for parent when clear on launch is enabled`() async throws {
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
@@ -609,13 +554,13 @@ struct NotificationServiceTests {
         }
 
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let hero = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = hero
         app.family = family
 
@@ -624,9 +569,9 @@ struct NotificationServiceTests {
             avatarClass: .mage,
             avatarPresetID: "mage_01",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            iCloudUserID: ExhaustiveCacheFixtures.id("u2", zoneID: zoneID),
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("parent1", zoneID: zoneID)
         )
 
         let pref = NotificationPreference(
@@ -634,7 +579,7 @@ struct NotificationServiceTests {
             eventType: .questNeedsReview,
             enabled: true,
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
         )
         await cache.upsertNotificationPreference(pref)
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
@@ -646,7 +591,7 @@ struct NotificationServiceTests {
 
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
 
-        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let questRef = ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID)
         let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let log = QuestCompletion(
@@ -655,7 +600,7 @@ struct NotificationServiceTests {
             approvalMode: .parentVerify,
             weekOf: Date(),
             family: familyRef,
-            id: CKRecord.ID(recordName: "log-coalesce-1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("log-coalesce-1", zoneID: zoneID)
         )
 
         try await service.sendQuestNeedsReview(questLog: log, to: parent)
@@ -680,13 +625,13 @@ struct NotificationServiceTests {
             return
         }
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let profile = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let profile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = profile
         app.family = family
 
@@ -724,13 +669,13 @@ struct NotificationServiceTests {
             return
         }
         let defaults = UserDefaults.ephemeral()
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let profile = makeProfile(zoneID: zoneID)
-        let family = makeFamily(zoneID: zoneID)
+        let profile = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
         app.currentProfile = profile
         app.family = family
 

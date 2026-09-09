@@ -17,32 +17,24 @@ struct SpendDigestServiceTests {
         CKRecordZone.ID(zoneName: "digest-zone", ownerName: "TestOwner")
     }
 
-    private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Digest Guild",
-            creatorUserRecordName: "parent1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-    }
-
     private func makeParent(_ zoneID: CKRecordZone.ID, family: Family) -> Profile {
-        Profile(
+        // WHY shared shape: single parent source keeps anchor aligned.
+        ExhaustiveCacheFixtures.sharedParent(
+            zoneID: zoneID,
             displayName: "Digest Parent",
-            role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
-            family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+            iCloudRecordName: "parent1",
+            familyRecordName: family.id.recordName
         )
     }
 
     private func makeHero(_ zoneID: CKRecordZone.ID, family: Family, name: String, record: String) -> Profile {
-        let userID = CKRecord.ID(recordName: record, zoneID: zoneID)
-        return Profile(
+        // WHY shared shape: single hero source avoids zone/family ref drift.
+        ExhaustiveCacheFixtures.sharedHero(
+            zoneID: zoneID,
             displayName: name,
-            role: .hero,
-            iCloudUserID: userID,
-            family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: userID
+            iCloudRecordName: record,
+            recordName: record,
+            familyRecordName: family.id.recordName
         )
     }
 
@@ -84,7 +76,7 @@ struct SpendDigestServiceTests {
         let zoneID = makeZoneID()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let family = makeFamily(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Digest Guild", creatorUserRecordName: "parent1")
         let parent = makeParent(zoneID, family: family)
         let maya = makeHero(zoneID, family: family, name: "Maya", record: "maya")
         let leo = makeHero(zoneID, family: family, name: "Leo", record: "leo")
@@ -100,7 +92,7 @@ struct SpendDigestServiceTests {
         await cache.upsertLedgerEntry(makeEntry(zoneID, hero: maya, family: family, record: "maya-spend-1", amount: -2.50, date: now.addingTimeInterval(-3600)))
         await cache.upsertLedgerEntry(makeEntry(zoneID, hero: maya, family: family, record: "maya-spend-2", amount: -2.00, date: now.addingTimeInterval(-7200)))
         await cache.upsertLedgerEntry(makeEntry(zoneID, hero: leo, family: family, record: "leo-spend-1", amount: -2.00, date: now.addingTimeInterval(-10800)))
-        // Noise excluded from the rollup: goal allocation, bucket transfer, and a stale spend outside the window.
+        // WHY rollup scope: goal/transfer/stale rows must not count.
         await cache.upsertLedgerEntry(makeEntry(
             zoneID,
             hero: maya,
@@ -151,7 +143,7 @@ struct SpendDigestServiceTests {
         #expect(digests.first?.content.body == summary)
         #expect(pending.filter { $0.identifier.hasPrefix("\(NotificationEventType.spendingLogged.rawValue):") }.isEmpty)
 
-        // Idempotent: the same family-day never sends twice.
+        // WHY idempotency: one family-day sends at most once.
         let second = await digest.maybeDeliverDailyDigest(now: now)
         #expect(second == false)
         let pendingAfter = await UNUserNotificationCenter.current().pendingNotificationRequests()
@@ -164,7 +156,7 @@ struct SpendDigestServiceTests {
         let zoneID = makeZoneID()
         let cache = try CacheService(inMemory: true, defaults: defaults)
         let app = AppState(defaults: defaults)
-        let family = makeFamily(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, name: "Digest Guild", creatorUserRecordName: "parent1")
         let parent = makeParent(zoneID, family: family)
         let maya = makeHero(zoneID, family: family, name: "Maya", record: "maya")
         app.family = family
@@ -172,7 +164,7 @@ struct SpendDigestServiceTests {
         app.isZoneOwner = true
         app.currentProfile = parent
 
-        // Per-spend prefs stay enabled so the test proves the no-op, not the gate.
+        // WHY no-op proof: prefs stay enabled so silence proves batching, not gating.
         defaults.set(true, forKey: "masterNotificationsEnabled")
         defaults.set(true, forKey: "spendingLoggedNotificationsEnabled")
         let notifications = NotificationService(cloudKit: MockCloudKitService(), appState: app, cacheService: cache, defaults: defaults)

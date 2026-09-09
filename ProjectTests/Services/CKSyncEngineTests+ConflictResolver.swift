@@ -171,6 +171,10 @@ extension CKSyncEngineTests {
         )
         appState.currentProfile = parent
         appState.isZoneOwner = true
+        // WHY session: custom-zone mutations require active family scope, so bind it before writing.
+        appState.family = family
+        appState.familyZoneID = zoneID
+        ck.activeIsOwner = true
 
         let xpService = XPService(cloudKit: ck, cacheService: cache, appState: appState)
         let questService = QuestService(cloudKit: ck, xpService: xpService, cacheService: cache, appState: appState)

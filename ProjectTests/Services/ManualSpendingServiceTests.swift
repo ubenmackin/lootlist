@@ -44,35 +44,7 @@ struct SpendingServiceTests {
     // MARK: - Shared Fixtures
 
     private func makeZoneID() -> CKRecordZone.ID {
-        CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-    }
-
-    private func makeFamilyRef(_ zoneID: CKRecordZone.ID) -> CKRecord.Reference {
-        CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-            action: .none
-        )
-    }
-
-    private func makeHero(_ zoneID: CKRecordZone.ID) -> Profile {
-        let userID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        return Profile(
-            displayName: "Child Hero",
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: userID,
-            family: makeFamilyRef(zoneID),
-            id: userID
-        )
-    }
-
-    private func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Test Guild",
-            creatorUserRecordName: "parent1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        ExhaustiveCacheFixtures.sharedZoneID
     }
 
     private func setupActiveScope(
@@ -101,8 +73,8 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         let entry = try await service.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Test Buy", amount: 1000)
@@ -121,9 +93,9 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
-        let familyRef = makeFamilyRef(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         let entry = LedgerEntry(
@@ -146,19 +118,6 @@ struct SpendingServiceTests {
 
     // MARK: - Identity guards
 
-    private func makeParent(_ zoneID: CKRecordZone.ID) -> Profile {
-        let userID = CKRecord.ID(recordName: "parent1", zoneID: zoneID)
-        return Profile(
-            displayName: "Parent GM",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .guildMaster,
-            iCloudUserID: userID,
-            family: makeFamilyRef(zoneID),
-            id: userID
-        )
-    }
-
     @Test
     func `logManual throws unauthorized when actor is not target profile`() async throws {
         let zoneID = makeZoneID()
@@ -168,7 +127,7 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let actor = makeHero(zoneID)
+        let actor = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         let victimID = CKRecord.ID(recordName: "hero2", zoneID: zoneID)
         let victim = Profile(
             displayName: "Victim Hero",
@@ -176,10 +135,10 @@ struct SpendingServiceTests {
             avatarPresetID: "mage_01",
             role: .hero,
             iCloudUserID: victimID,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: victimID
         )
-        let family = makeFamily(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: actor)
 
         do {
@@ -208,8 +167,8 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let actor = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let actor = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let otherHeroID = CKRecord.ID(recordName: "hero2", zoneID: zoneID)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: otherHeroID, action: .none),
@@ -217,7 +176,7 @@ struct SpendingServiceTests {
             description: "Another hero's entry",
             date: Date(),
             source: "manual",
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "manual-test-other-hero", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
@@ -244,15 +203,15 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
             amount: -1000,
             description: "Hero's own entry",
             date: Date(),
             source: "manual",
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "manual-test-own-entry", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
@@ -273,8 +232,8 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let parent = makeParent(zoneID)
-        let family = makeFamily(zoneID)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: heroID, action: .none),
@@ -282,7 +241,7 @@ struct SpendingServiceTests {
             description: "Hero's entry under parent oversight",
             date: Date(),
             source: "manual",
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "manual-test-parent-delete", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
@@ -303,15 +262,15 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let questEntry = LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
             amount: 5000,
             description: "Quest earnings",
             date: Date(),
             source: "quest",
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "rt-period1", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(questEntry)
@@ -405,9 +364,9 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let parent = makeParent(zoneID)
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: parent)
 
         let entries = try await service.depositEntries(
@@ -439,9 +398,9 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let parent = makeParent(zoneID)
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: parent)
 
         let entry = try await service.withdraw(
@@ -471,8 +430,8 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         let entry = try await service.logManual(
@@ -512,8 +471,7 @@ struct SpendingServiceTests {
 
     // MARK: - Bucket attribution
 
-    /// Bucket reads need a fully wired service because transfer paths guard on
-    /// every dependency; engines stay inert under the unit-test gate.
+    /// WHY wired service: transfer guards need every dependency inert under test.
     private func makeBucketService(
         cache: CacheService,
         appState: AppState,
@@ -566,20 +524,20 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         // Prior week's split payout history: 12.00 / 5.00 / 3.00.
         seedAttributedEntry(cache, recordName: "seed-spend", amount: 1200, source: "quest",
                             bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
-                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+                            familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), zoneID: zoneID)
         seedAttributedEntry(cache, recordName: "seed-short", amount: 500, source: "quest",
                             bucketKind: BucketKind.shortTermSave.rawValue, profileID: hero.id,
-                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+                            familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), zoneID: zoneID)
         seedAttributedEntry(cache, recordName: "seed-long", amount: 300, source: "quest",
                             bucketKind: BucketKind.longTermSave.rawValue, profileID: hero.id,
-                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+                            familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), zoneID: zoneID)
 
         let buckets = makeBucketService(cache: cache, appState: appState, cloudKit: cloudKit)
 
@@ -594,8 +552,7 @@ struct SpendingServiceTests {
         #expect(entry.source == "manual")
         #expect(entry.bucketKind == BucketKind.spend.rawValue)
 
-        // Savings allocations are never silently drained by a purchase; the
-        // spend-attributed purchase draws down only the spend bucket.
+        // WHY spend-only drawdown: savings buckets stay intact on purchase.
         let balances = buckets.bucketBalances(
             profileRecordName: hero.id.recordName,
             familyRecordName: family.id.recordName
@@ -617,19 +574,19 @@ struct SpendingServiceTests {
         let appState = AppState()
         let buckets = makeBucketService(cache: cache, appState: appState, cloudKit: cloudKit)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
 
         seedAttributedEntry(cache, recordName: "seed-spend", amount: 1000, source: "quest",
                             bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
-                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+                            familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), zoneID: zoneID)
         seedAttributedEntry(cache, recordName: "seed-short", amount: 400, source: "quest",
                             bucketKind: BucketKind.shortTermSave.rawValue, profileID: hero.id,
-                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
-        // A purchase recorded against the Spend bucket leaves the save buckets intact.
+                            familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), zoneID: zoneID)
+        // WHY spend-only: save buckets stay intact on spend purchase.
         seedAttributedEntry(cache, recordName: "purchase-spend", amount: -600, source: "manual",
                             bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
-                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+                            familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), zoneID: zoneID)
 
         let balances = buckets.bucketBalances(
             profileRecordName: hero.id.recordName,
@@ -646,15 +603,14 @@ struct SpendingServiceTests {
     @Test
     func `same inputs produce same recordName across two devices`() async throws {
         let zoneID = makeZoneID()
-        let family = makeFamily(zoneID)
-        let hero = makeHero(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
         let description = "Deterministic Coffee"
         let amount: Int64 = 450
         let location = "Cafe"
 
-        // WHY: CloudKit dedupes by recordName — identical payloads must converge
-        // to the same deterministic ID on every device, never a random UUID.
+        /// WHY dedupe: identical payloads must converge to one deterministic ID.
         func makeService() throws -> SpendingService {
             let ck = MockCloudKitService()
             ck.activeFamilyZoneID = zoneID
@@ -685,8 +641,8 @@ struct SpendingServiceTests {
     @Test
     func `different payloads produce different deterministic names without UUID collision`() async throws {
         let zoneID = makeZoneID()
-        let family = makeFamily(zoneID)
-        let hero = makeHero(zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
         let baseDescription = "Deterministic Lunch"
         let amount: Int64 = 999
@@ -705,17 +661,12 @@ struct SpendingServiceTests {
         )
         let baseName = baseEntry.id.recordName
 
-        /// Same deterministic base would collide, but different location must
-        /// produce a distinct deterministic extended name, not a UUID.
-        /// Manually seed a colliding base name with different payload to force
-        /// the deterministic extended path. We simulate the collision by
-        /// inserting a row whose recordName equals the base that the next
-        /// call will compute, but with differing location.
+        /// WHY deterministic extension: divergent payloads need distinct stable names.
         func divergentRecordName(location: String) async throws -> String {
             let ck2 = MockCloudKitService()
             ck2.activeFamilyZoneID = zoneID
             let cache2 = try CacheService(inMemory: true)
-            // Pre-seed cache2 with the base entry to force collision on next write.
+            // WHY collision setup: pre-seed forces the deterministic extension path.
             let baseLedger = LedgerEntry(
                 profile: CKRecord.Reference(recordID: hero.id, action: .none),
                 amount: -abs(amount),
@@ -723,7 +674,7 @@ struct SpendingServiceTests {
                 location: "Cafe A",
                 date: fixedDate,
                 source: "manual",
-                family: makeFamilyRef(zoneID),
+                family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
                 id: CKRecord.ID(recordName: baseName, zoneID: zoneID)
             )
             await cache2.upsertLedgerEntry(baseLedger)
@@ -743,7 +694,7 @@ struct SpendingServiceTests {
         #expect(name1 == name2, "Different payload divergent ID must be deterministic across devices")
         #expect(name1 != baseName, "Divergent payload must not collide with base recordName")
         #expect(!name1.lowercased().contains("uuid"), "Extended ID must not contain random UUID")
-        // Extended deterministic suffix format: base-hex(8)-msSuffix
+        // WHY extension format: base plus deterministic hex-ms suffix.
         #expect(name1.hasPrefix(baseName + "-"), "Extended ID must extend base with deterministic suffix")
         let suffix = String(name1.dropFirst(baseName.count + 1))
         let parts = suffix.split(separator: "-")
@@ -760,8 +711,8 @@ struct SpendingServiceTests {
         let appState = AppState()
         let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)

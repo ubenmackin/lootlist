@@ -58,7 +58,22 @@ final class MatchService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
+        let coord: any SyncEnqueuing
+        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            coord = resolvedCoord
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("MatchService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("MatchService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                coord = NoopSyncEnqueuing()
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("MatchService requires a sync coordinator in production")
+            #endif
+        }
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 

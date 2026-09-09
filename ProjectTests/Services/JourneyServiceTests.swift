@@ -17,18 +17,12 @@ struct JourneyServiceTests {
     private let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
 
     private func makeProfile(level: Int, xp: Int) -> Profile {
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: dummyZone),
-            action: .none
-        )
-        let userID = CKRecord.ID(recordName: "user1", zoneID: dummyZone)
-        var profile = Profile(
+        // WHY shared shape: single hero source avoids zone/family ref drift.
+        var profile = ExhaustiveCacheFixtures.sharedHero(
+            zoneID: dummyZone,
             displayName: "TestHero",
-            avatarClass: .knight,
-            role: .hero,
-            iCloudUserID: userID,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "hero1", zoneID: dummyZone)
+            iCloudRecordName: "user1",
+            recordName: "hero1"
         )
         profile.xp = xp
         profile.level = level

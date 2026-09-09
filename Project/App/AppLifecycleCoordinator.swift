@@ -251,16 +251,13 @@ final class AppLifecycleCoordinator {
         }
 
         // Observe session clear so the cached scope key does not survive a sign-out.
-        sessionClearTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "sessionClearTask must hop to MainActor")
-            #endif
+        sessionClearTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .didClearSession) {
                 guard !Task.isCancelled, let self else { break }
-                #if DEBUG
-                    assert(Thread.isMainThread)
-                #endif
-                self.invalidateScopeStateForSessionClear()
+                // WHY hop: notification sequence resumes off isolation, so re-enter MainActor before touching gate state.
+                await MainActor.run {
+                    self.invalidateScopeStateForSessionClear()
+                }
             }
         }
 
@@ -275,36 +272,30 @@ final class AppLifecycleCoordinator {
 
         // Trigger automatic catch-up sync when network connectivity returns.
         // Throttled: rapid reconnect flaps must not each fire a full snapshot pass.
-        networkReconnectTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "networkReconnectTask must hop to MainActor")
-            #endif
+        networkReconnectTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .networkDidReconnect) {
                 guard !Task.isCancelled, let self else { break }
-                #if DEBUG
-                    assert(Thread.isMainThread)
-                #endif
-                let shouldSync: Bool = self.syncGate.consumeReconnectTrigger()
+                // WHY hop: notification sequence resumes off isolation, so re-enter MainActor before touching gate state.
+                let shouldSync: Bool = await MainActor.run {
+                    self.syncGate.consumeReconnectTrigger()
+                }
                 guard shouldSync else {
-                    self.logger
-                        .debug(
-                            "Reconnect sync throttled: last pass within \(Self.reconnectSyncMinimumInterval)s window"
-                        )
+                    await MainActor.run {
+                        self.logger
+                            .debug(
+                                "Reconnect sync throttled: last pass within \(Self.reconnectSyncMinimumInterval)s window"
+                            )
+                    }
                     continue
                 }
                 await self.performManualSync()
             }
         }
 
-        accountChangeTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "accountChangeTask must hop to MainActor")
-            #endif
+        accountChangeTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .CKAccountChanged) {
                 guard !Task.isCancelled, let self, let appState = self.appState else { break }
-                #if DEBUG
-                    assert(Thread.isMainThread)
-                #endif
+                // WHY hop: notification sequence resumes off isolation, so re-enter MainActor before touching auth state.
                 await appState.authStateMachine.send(.accountChanged)
             }
         }

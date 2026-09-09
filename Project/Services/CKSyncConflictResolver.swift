@@ -80,7 +80,8 @@ final class CKSyncConflictResolver {
                 logger.warning("resolveFailedSave could not resolve family for deleted record \(record.recordID.recordName, privacy: .private)")
                 return nil
             }
-            let scope = fallbackScope(for: record, databaseScope: databaseScope)
+            // WHY drop: unknown scope re-delivers via tokens, never guessed.
+            guard let scope = fallbackScope(databaseScope: databaseScope) else { return nil }
             await handleDeletedRecord(
                 recordID: record.recordID,
                 recordType: record.recordType,
@@ -135,19 +136,22 @@ final class CKSyncConflictResolver {
         )
     }
 
-    /// WHY single source: unknownItem recovery and diagnostics share one owner fallback so scope cannot diverge.
-    private func fallbackScope(for record: CKRecord, databaseScope: CKDatabase.Scope?) -> CKDatabase.Scope {
+    /// WHY drop: unknown scope re-delivers via tokens, never guessed.
+    private func fallbackScope(databaseScope: CKDatabase.Scope?) -> CKDatabase.Scope? {
         if let databaseScope {
             return databaseScope
         }
-        if let appState {
-            return appState.activeDatabaseScope
+        if let appState, let resolved = DatabaseScopeResolver.resolvedScope(appState: appState) {
+            return resolved
         }
-        return DatabaseScopeResolver.scope(isOwner: record.recordID.zoneID.ownerName == CKCurrentUserDefaultName)
+        return nil
     }
 
-    private func resolvedScopeLabel(databaseScope: CKDatabase.Scope?, record: CKRecord) -> String {
-        String(describing: fallbackScope(for: record, databaseScope: databaseScope))
+    private func resolvedScopeLabel(databaseScope: CKDatabase.Scope?, record _: CKRecord) -> String {
+        if let scope = fallbackScope(databaseScope: databaseScope) {
+            return String(describing: scope)
+        }
+        return "unknown"
     }
 
     private func handleServerRecordChanged(

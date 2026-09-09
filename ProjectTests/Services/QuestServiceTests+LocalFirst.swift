@@ -68,7 +68,7 @@ extension QuestServiceTests {
 
     @Test
     func `markComplete enqueues completion save with sync coordinator`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService(zoneID: zoneID)
 
         let scaffold = try MarkCompleteScaffold(
@@ -117,9 +117,9 @@ extension QuestServiceTests {
         xp.appState = appState
         treasury.appState = appState
 
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-        let parentID = CKRecord.ID(recordName: "parent1", zoneID: zoneID)
-        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let parentID = ExhaustiveCacheFixtures.id("parent1", zoneID: zoneID)
+        let heroID = ExhaustiveCacheFixtures.id("hero1", zoneID: zoneID)
         let hero = Profile(
             displayName: "RealTime Hero",
             avatarClass: .mage,
@@ -134,12 +134,12 @@ extension QuestServiceTests {
             name: "RealTime Guild",
             creatorUserRecordName: parentID.recordName,
             payoutPolicy: .realTime,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
         let weekOf = WeekMath.mondayOfWeek(for: Date())
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        let questID = ExhaustiveCacheFixtures.id("quest1", zoneID: zoneID)
         let quest = Quest(
-            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            template: ExhaustiveCacheFixtures.ref("tmpl1", zoneID: zoneID),
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
             goldReward: 2500,
             xpReward: 50,
@@ -163,7 +163,7 @@ extension QuestServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             family: familyRef,
-            id: CKRecord.ID(recordName: "log_seed", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("log_seed", zoneID: zoneID)
         )
         rejectedLog.verificationStatus = .rejected
         await cache.upsertQuestCompletions([rejectedLog])
@@ -176,7 +176,13 @@ extension QuestServiceTests {
             cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: type)
         }
         cloudKit.seedMockRecords([hero])
+        // WHY session: settlement requires active family scope, so bind hero as non-owner participant.
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = false
         appState.currentProfile = hero
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = false
 
         let saved = try await questService.markComplete(quest: quest, by: hero)
         #expect(saved.verificationStatus == .autoApproved)
@@ -202,7 +208,7 @@ extension QuestServiceTests {
 
     @Test
     func `fetchTemplates returns cached templates when cache is not marked fresh`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
         let defaults = UserDefaults.ephemeral()
         let cache = try CacheService(inMemory: true, defaults: defaults)
@@ -210,7 +216,18 @@ extension QuestServiceTests {
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         questService.cacheService = cache
 
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let family = Family(
+            name: "Guild",
+            creatorUserRecordName: "parent1",
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
+        )
+        let appState = AppState(defaults: defaults)
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        appState.family = family
+        questService.appState = appState
+
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let template = QuestTemplate(
             name: "Cached Chore",
             description: "A description",
@@ -219,19 +236,15 @@ extension QuestServiceTests {
             scheduleType: .weeklyFlexible,
             specificDays: [],
             targetCount: 1,
-            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: "parent1", zoneID: zoneID), action: .none),
+            createdBy: ExhaustiveCacheFixtures.ref("parent1", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "tmpl_cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("tmpl_cached", zoneID: zoneID)
         )
         await cache.upsertQuestTemplate(template)
 
-        #expect(cache.isCacheFresh(familyRecordName: "fam1", type: .questTemplate) == false)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .questTemplate, scope: .shared) == false)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .questTemplate, scope: .private) == false)
 
-        let family = Family(
-            name: "Guild",
-            creatorUserRecordName: "parent1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
         let results = try await questService.fetchTemplates(family: family)
         #expect(results.count == 1)
         #expect(results.first?.name == "Cached Chore")
@@ -240,7 +253,7 @@ extension QuestServiceTests {
 
     @Test
     func `fetchActiveQuests returns cached quests when cache is not marked fresh`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
         let defaults = UserDefaults.ephemeral()
         let cache = try CacheService(inMemory: true, defaults: defaults)
@@ -248,8 +261,8 @@ extension QuestServiceTests {
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         questService.cacheService = cache
 
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
+        let heroID = ExhaustiveCacheFixtures.id("hero1", zoneID: zoneID)
         let hero = Profile(
             displayName: "Hero",
             avatarClass: .knight,
@@ -260,8 +273,14 @@ extension QuestServiceTests {
             id: heroID
         )
 
+        let appState = AppState(defaults: defaults)
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        appState.currentProfile = hero
+        questService.appState = appState
+
         let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
-        let templateRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none)
+        let templateRef = ExhaustiveCacheFixtures.ref("tmpl1", zoneID: zoneID)
         let cachedQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
@@ -274,11 +293,12 @@ extension QuestServiceTests {
             createdBy: familyRef,
             family: familyRef,
             name: "Cached Quest",
-            id: CKRecord.ID(recordName: "quest-cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("quest-cached", zoneID: zoneID)
         )
 
         await cache.upsertQuests([cachedQuest])
-        #expect(cache.isCacheFresh(familyRecordName: "fam1", type: .quest) == false)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .quest, scope: .shared) == false)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .quest, scope: .private) == false)
 
         let activeQuests = try await questService.fetchActiveQuests(profile: hero, weekOf: monday)
         #expect(activeQuests.count == 1)
@@ -288,7 +308,7 @@ extension QuestServiceTests {
 
     @Test
     func `fetchQuestsForFamilyWeek returns cached quests when cache is not marked fresh`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
         let defaults = UserDefaults.ephemeral()
         let cache = try CacheService(inMemory: true, defaults: defaults)
@@ -296,17 +316,23 @@ extension QuestServiceTests {
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         questService.cacheService = cache
 
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let family = Family(
             name: "Guild",
             creatorUserRecordName: "parent1",
             payoutDay: .sunday,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
 
+        let appState = AppState(defaults: defaults)
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        appState.family = family
+        questService.appState = appState
+
         let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
-        let templateRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none)
-        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let templateRef = ExhaustiveCacheFixtures.ref("tmpl1", zoneID: zoneID)
+        let heroID = ExhaustiveCacheFixtures.id("hero1", zoneID: zoneID)
         let cachedQuest = Quest(
             template: templateRef,
             assignee: CKRecord.Reference(recordID: heroID, action: .none),
@@ -319,11 +345,12 @@ extension QuestServiceTests {
             createdBy: familyRef,
             family: familyRef,
             name: "Cached Quest",
-            id: CKRecord.ID(recordName: "quest-cached", zoneID: zoneID)
+            id: ExhaustiveCacheFixtures.id("quest-cached", zoneID: zoneID)
         )
 
         await cache.upsertQuests([cachedQuest])
-        #expect(cache.isCacheFresh(familyRecordName: "fam1", type: .quest) == false)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .quest, scope: .shared) == false)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .quest, scope: .private) == false)
 
         let quests = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: monday)
         #expect(quests.count == 1)

@@ -33,6 +33,8 @@ protocol CacheServicing: AnyObject {
     func fetchAllowancePeriods(profileRecordName: String, family: String?) -> [AllowancePeriodCache]
     func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache]
     func fetchQuestCompletions(family: String?) -> [QuestCompletionCache]
+    func fetchAchievements(family: String?) -> [AchievementCache]
+    func fetchProfileAchievements(profileRecordName: String, family: String?) -> [ProfileAchievementCache]
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool
 
     // MARK: - Writes
@@ -41,6 +43,8 @@ protocol CacheServicing: AnyObject {
     func upsertAllowancePeriod(_ period: AllowancePeriod, family: String?, isServerSync: Bool) async
     func upsertGoal(_ goal: Goal, family: String?, isServerSync: Bool) async
     func upsertProfile(_ profile: Profile, family: String?, isServerSync: Bool) async
+    func upsertAchievement(_ achievement: Achievement, family: String?, isServerSync: Bool) async
+    func upsertProfileAchievement(_ pa: ProfileAchievement, family: String?, isServerSync: Bool) async
     func batchUpsertLedgerEntriesAndGoals(ledgerEntries: [LedgerEntry], goals: [Goal], familyRecordName: String?) async
     func invalidate(recordName: String, family: String, type: CachedRecordType) async
     func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async
@@ -95,5 +99,21 @@ extension CacheServicing {
 
     func batchUpsertLedgerEntriesAndGoals(ledgerEntries: [LedgerEntry], goals: [Goal]) async {
         await batchUpsertLedgerEntriesAndGoals(ledgerEntries: ledgerEntries, goals: goals, familyRecordName: nil)
+    }
+
+    func upsertAchievement(_ achievement: Achievement) async {
+        await upsertAchievement(achievement, family: nil, isServerSync: false)
+    }
+
+    func upsertAchievement(_ achievement: Achievement, family: String?) async {
+        await upsertAchievement(achievement, family: family, isServerSync: false)
+    }
+
+    func upsertProfileAchievement(_ pa: ProfileAchievement) async {
+        await upsertProfileAchievement(pa, family: nil, isServerSync: false)
+    }
+
+    func upsertProfileAchievement(_ pa: ProfileAchievement, family: String?) async {
+        await upsertProfileAchievement(pa, family: family, isServerSync: false)
     }
 }

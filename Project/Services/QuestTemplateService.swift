@@ -18,13 +18,13 @@ final class QuestTemplateService {
     let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService
     var appState: AppState
-    var syncCoordinator: CKSyncEngineCoordinator
+    var syncCoordinator: any SyncEnqueuing
 
     init(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator
+        syncCoordinator: any SyncEnqueuing
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -39,7 +39,7 @@ final class QuestTemplateService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         let cache: CacheService
         if let cacheService {
@@ -49,20 +49,32 @@ final class QuestTemplateService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
-        self.init(
-            cloudKit: cloudKit,
-            cacheService: cache,
-            appState: state,
-            syncCoordinator: coord
-        )
+        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
+        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
+        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
+            self.init(
+                cloudKit: cloudKit,
+                cacheService: cache,
+                appState: state,
+                syncCoordinator: coord
+            )
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("QuestTemplateService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("QuestTemplateService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(
+                    cloudKit: cloudKit,
+                    cacheService: cache,
+                    appState: state,
+                    syncCoordinator: NoopSyncEnqueuing()
+                )
+            #else
+                preconditionFailure("QuestTemplateService requires a sync coordinator in production")
+            #endif
+        }
     }
 
     // MARK: - Quest Templates
@@ -179,30 +191,38 @@ final class QuestTemplateService {
 
     /// Cache-first read. Background refresh handled by CKSyncEngine.
     func fetchTemplates(family: Family) async throws -> [QuestTemplate] {
-        try await CacheFirst.cacheFirst(
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuestTemplates(family: family.id.recordName)
+                .map { [family] cache in cache.toQuestTemplate(zoneID: family.id.zoneID) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+        return try await CacheFirst.cacheFirst(
             type: .questTemplate,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService] familyName in
-                cacheService.fetchQuestTemplates(family: familyName)
-            },
-            map: { [family] cache in
-                cache.toQuestTemplate(zoneID: family.id.zoneID)
-            },
-            query: { [cloudKit, family] in
-                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                let predicate = NSPredicate(format: "family == %@", familyRef)
-                return try await cloudKit.query(QuestTemplate.self, predicate: predicate, in: family.id.zoneID)
-            },
-            hydrate: { [syncCoordinator, appState, family] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: family.id.zoneID
-                )
-            },
-            sortedBy: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService] familyName in
+                    cacheService.fetchQuestTemplates(family: familyName)
+                },
+                map: { [family] cache in
+                    cache.toQuestTemplate(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, family] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    return try await cloudKit.query(QuestTemplate.self, predicate: predicate, in: family.id.zoneID)
+                },
+                hydrate: { [syncCoordinator, scope, family] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                },
+                sortedBy: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            )
         )
     }
 
@@ -217,10 +237,12 @@ final class QuestTemplateService {
             return cached.toQuestTemplate(zoneID: id.zoneID)
         }
 
+        // WHY fail-closed: unknown scope drops hydrate instead of guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return nil }
         let template = try await cloudKit.fetch(QuestTemplate.self, id: id)
-        await syncCoordinator.delegateHandler.hydrateFromQuery(
+        await syncCoordinator.hydrationHandler.hydrateFromQuery(
             models: [template],
-            databaseScope: appState.activeDatabaseScope,
+            databaseScope: scope,
             zoneID: id.zoneID
         )
         return template

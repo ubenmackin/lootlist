@@ -89,9 +89,9 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let actor = makeHero(zoneID, recordName: "hero1")
-        let victim = makeHero(zoneID, recordName: "hero2")
-        let family = makeFamily(zoneID)
+        let actor = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let victim = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero2", recordName: "hero2")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let achievement = Achievement(
             name: "First Steps",
             description: "Complete your first quest",
@@ -99,7 +99,7 @@ struct AchievementServiceTests {
             category: .quest,
             requirementType: .firstQuest,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
         appState.currentProfile = actor
 
@@ -124,8 +124,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let achievement = Achievement(
             name: "First Steps",
             description: "Complete your first quest",
@@ -133,7 +133,7 @@ struct AchievementServiceTests {
             category: .quest,
             requirementType: .firstQuest,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
         appState.currentProfile = hero
 
@@ -150,9 +150,9 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let parent = makeParent(zoneID)
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         let achievement = Achievement(
             name: "First Steps",
             description: "Complete your first quest",
@@ -160,7 +160,7 @@ struct AchievementServiceTests {
             category: .quest,
             requirementType: .firstQuest,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
         appState.currentProfile = parent
 
@@ -177,9 +177,9 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let actor = makeHero(zoneID, recordName: "hero1")
-        let victim = makeHero(zoneID, recordName: "hero2")
-        let family = makeFamily(zoneID)
+        let actor = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let victim = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero2", recordName: "hero2")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = actor
 
         let awarded = try await service.evaluateAll(for: victim, family: family)
@@ -195,8 +195,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
 
         // Should silently no-op rather than throw or write.
@@ -215,8 +215,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
 
@@ -234,7 +234,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Test Quest",
             id: questRef.recordID
         )
@@ -245,7 +245,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             completedDate: weekOf,
             weekOf: weekOf,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
         )
 
@@ -257,7 +257,7 @@ struct AchievementServiceTests {
             category: .special,
             requirementType: .weekly100,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
 
         await cache.upsertQuest(quest)
@@ -282,8 +282,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
 
@@ -300,7 +300,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Test Quest 1",
             id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
@@ -316,7 +316,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Test Quest 2",
             id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
         )
@@ -328,7 +328,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             completedDate: weekOf,
             weekOf: weekOf,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
         )
 
@@ -340,7 +340,7 @@ struct AchievementServiceTests {
             category: .special,
             requirementType: .weekly100,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
 
         await cache.upsertQuest(quest1)
@@ -365,8 +365,9 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let family = makeFamily(zoneID)
-        let hero = makeHero(zoneID)
+        // WHY anchor: creator must equal hero iCloud so resolvedScope stays owner.
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "hero1")
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
         appState.family = family
         appState.currentProfile = hero
         appState.familyZoneID = zoneID
@@ -387,7 +388,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Cloud Quest 1",
             id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
@@ -402,7 +403,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Cloud Quest 2",
             id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
         )
@@ -414,7 +415,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             completedDate: weekOf,
             weekOf: weekOf,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
         )
 
@@ -426,7 +427,7 @@ struct AchievementServiceTests {
             category: .special,
             requirementType: .weekly100,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
 
         // Seed CloudKit directly (NOT cache, simulating cache unfresh)
@@ -444,8 +445,8 @@ struct AchievementServiceTests {
     func `multi target quest does not artificially inflate weekly completion ratio`() async throws {
         let (service, cloudKit) = makeDependencies()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let hero = makeHero(zoneID)
-        let parent = makeParent(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
         let family = Family(name: "Test Family", creatorUserRecordName: parent.id.recordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         let appState = AppState()
         appState.currentProfile = parent
@@ -471,7 +472,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Feed the Dog (3x)",
             id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
@@ -488,7 +489,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             weekOf: weekOf,
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             name: "Clean Room",
             id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
         )
@@ -500,7 +501,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             completedDate: weekOf,
             weekOf: weekOf,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
         )
         let log2 = QuestCompletion(
@@ -509,7 +510,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             completedDate: weekOf,
             weekOf: weekOf,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "log2", zoneID: zoneID)
         )
         let log3 = QuestCompletion(
@@ -518,7 +519,7 @@ struct AchievementServiceTests {
             approvalMode: .autoApprove,
             completedDate: weekOf,
             weekOf: weekOf,
-            family: makeFamilyRef(zoneID),
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID),
             id: CKRecord.ID(recordName: "log3", zoneID: zoneID)
         )
 
@@ -530,7 +531,7 @@ struct AchievementServiceTests {
             category: .special,
             requirementType: .weekly100,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
 
         _ = try await cloudKit.save(quest1, in: zoneID, using: nil)
@@ -553,36 +554,36 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
         let weekOf = WeekMath.mondayOfWeek(for: Date())
-        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: makeFamilyRef(zoneID))
+        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID))
 
         // 9 completions — should only award firstQuest, not 10
-        seedCompletions(count: 9, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedCompletions(count: 9, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
         var awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .firstQuest })
         #expect(!awarded.contains { $0.requirementType == .questCount10 })
 
         // Add one more to reach 10 — should now award questCount10 (idempotent check below)
-        seedCompletions(count: 1, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedCompletions(count: 1, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
         awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .questCount10 })
 
         // Push to 25
-        seedCompletions(count: 15, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedCompletions(count: 15, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
         awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .questCount25 })
 
         // Push to 50
-        seedCompletions(count: 25, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedCompletions(count: 25, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
         awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .questCount50 })
 
         // Push to 100
-        seedCompletions(count: 50, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedCompletions(count: 50, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
         awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .questCount100 })
     }
@@ -596,13 +597,13 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
         let weekOf = WeekMath.mondayOfWeek(for: Date())
-        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: makeFamilyRef(zoneID))
-        seedCompletions(count: 10, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID))
+        seedCompletions(count: 10, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
 
         let first = try await service.evaluateAll(for: hero, family: family)
         #expect(first.contains { $0.requirementType == .questCount10 })
@@ -628,8 +629,8 @@ struct AchievementServiceTests {
         let appState = AppState.testState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let parent = makeParent(zoneID)
-        let family = makeFamily(zoneID)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = parent
 
         try await service.seedDefaultAchievements(family: family)
@@ -667,8 +668,8 @@ struct AchievementServiceTests {
         let appState = AppState.testState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let parent = makeParent(zoneID)
-        let family = makeFamily(zoneID)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID, displayName: "Parent GM", iCloudRecordName: "parent1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = parent
 
         try await service.seedDefaultAchievements(family: family)
@@ -698,21 +699,19 @@ struct AchievementServiceTests {
         let appState = AppState.testState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
         let weekOf = WeekMath.mondayOfWeek(for: Date())
-        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: makeFamilyRef(zoneID))
-        seedCompletions(count: 10, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID))
+        seedCompletions(count: 10, hero: hero, zoneID: zoneID, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), cache: cache, weekOf: weekOf)
 
         let first = try await service.evaluateAll(for: hero, family: family)
         #expect(first.contains { $0.requirementType == .firstQuest })
         #expect(first.contains { $0.requirementType == .questCount10 })
 
-        // The triggering completion event replays (e.g. re-verified on another
-        // device) — the deterministic ProfileAchievement IDs must collapse the
-        // duplicate award into the existing rows.
+        // WHY deterministic IDs must collapse replayed awards into existing rows.
         _ = try await service.handleQuestCompleted(for: hero, family: family)
         let thirdReplay = try await service.handleQuestCompleted(for: hero, family: family)
         #expect(thirdReplay.isEmpty, "Replayed completion events must not re-award earned trophies")
@@ -737,8 +736,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
 
@@ -750,7 +749,7 @@ struct AchievementServiceTests {
             category: .goal,
             requirementType: .firstGoalCreated,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
         await cache.upsertAchievement(firstGoalCreated)
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .achievement)
@@ -765,7 +764,7 @@ struct AchievementServiceTests {
         #expect(!awarded.contains { $0.requirementType == .firstGoalCreated })
 
         // Create one goal
-        let goal = makeGoal(zoneID, hero: hero, familyRef: makeFamilyRef(zoneID))
+        let goal = makeGoal(zoneID, hero: hero, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID))
         await cache.upsertGoal(goal)
         awarded = try await service.handleGoalCreated(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .firstGoalCreated })
@@ -786,8 +785,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
 
@@ -799,7 +798,7 @@ struct AchievementServiceTests {
             category: .goal,
             requirementType: .goalGetter,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
         let firstCreated = Achievement(
             id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.firstGoalCreated.rawValue)", zoneID: zoneID),
@@ -809,7 +808,7 @@ struct AchievementServiceTests {
             category: .goal,
             requirementType: .firstGoalCreated,
             requirementValue: 1,
-            family: makeFamilyRef(zoneID)
+            family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         )
         await cache.upsertAchievement(goalGetter)
         await cache.upsertAchievement(firstCreated)
@@ -821,7 +820,7 @@ struct AchievementServiceTests {
         cache.markCacheFreshForTests(familyRecordName: "fam1", type: .goal)
 
         // Create incomplete goal — should award firstGoalCreated but NOT goalGetter
-        let incomplete = makeGoal(zoneID, hero: hero, familyRef: makeFamilyRef(zoneID), completed: false)
+        let incomplete = makeGoal(zoneID, hero: hero, familyRef: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID), completed: false)
         await cache.upsertGoal(incomplete)
         var awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .firstGoalCreated })
@@ -848,8 +847,8 @@ struct AchievementServiceTests {
         let appState = AppState()
         let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let hero = makeHero(zoneID)
-        let family = makeFamily(zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Child Hero", iCloudRecordName: "hero1")
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "parent1")
         appState.currentProfile = hero
         appState.family = family
 
@@ -862,7 +861,7 @@ struct AchievementServiceTests {
                 category: .goal,
                 requirementType: req,
                 requirementValue: 1,
-                family: makeFamilyRef(zoneID)
+                family: ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
             )
             await cache.upsertAchievement(ach)
         }
@@ -881,47 +880,6 @@ struct AchievementServiceTests {
 
 @MainActor
 private extension AchievementServiceTests {
-    func makeFamilyRef(_ zoneID: CKRecordZone.ID) -> CKRecord.Reference {
-        CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
-            action: .none
-        )
-    }
-
-    func makeHero(_ zoneID: CKRecordZone.ID, recordName: String = "hero1") -> Profile {
-        let userID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
-        return Profile(
-            displayName: "Child Hero",
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: userID,
-            family: makeFamilyRef(zoneID),
-            id: userID
-        )
-    }
-
-    func makeParent(_ zoneID: CKRecordZone.ID, recordName: String = "parent1") -> Profile {
-        let userID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
-        return Profile(
-            displayName: "Parent GM",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .guildMaster,
-            iCloudUserID: userID,
-            family: makeFamilyRef(zoneID),
-            id: userID
-        )
-    }
-
-    func makeFamily(_ zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Test Guild",
-            creatorUserRecordName: "parent1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-    }
-
     func makeGoal(_ zoneID: CKRecordZone.ID, hero: Profile, familyRef: CKRecord.Reference, name: String = "Bike", completed: Bool = false) -> Goal {
         Goal(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),

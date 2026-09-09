@@ -20,7 +20,7 @@ final class QuestAssignmentService {
     let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService
     var appState: AppState
-    var syncCoordinator: CKSyncEngineCoordinator
+    var syncCoordinator: any SyncEnqueuing
     let notificationService: NotificationService?
     let toastManager: ToastManager?
 
@@ -39,7 +39,7 @@ final class QuestAssignmentService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator,
+        syncCoordinator: any SyncEnqueuing,
         notificationService: NotificationService? = nil,
         toastManager: ToastManager? = nil
     ) {
@@ -58,7 +58,7 @@ final class QuestAssignmentService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil,
         notificationService: NotificationService? = nil,
         toastManager: ToastManager? = nil
     ) {
@@ -70,22 +70,36 @@ final class QuestAssignmentService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
-        self.init(
-            cloudKit: cloudKit,
-            cacheService: cache,
-            appState: state,
-            syncCoordinator: coord,
-            notificationService: notificationService,
-            toastManager: toastManager
-        )
+        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
+        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
+        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
+            self.init(
+                cloudKit: cloudKit,
+                cacheService: cache,
+                appState: state,
+                syncCoordinator: coord,
+                notificationService: notificationService,
+                toastManager: toastManager
+            )
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("QuestAssignmentService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("QuestAssignmentService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(
+                    cloudKit: cloudKit,
+                    cacheService: cache,
+                    appState: state,
+                    syncCoordinator: NoopSyncEnqueuing(),
+                    notificationService: notificationService,
+                    toastManager: toastManager
+                )
+            #else
+                preconditionFailure("QuestAssignmentService requires a sync coordinator in production")
+            #endif
+        }
     }
 
     @discardableResult
@@ -300,16 +314,19 @@ final class QuestAssignmentService {
             return
         }
 
-        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let identity = ScopedRecordIdentity(
-            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
-            zoneID: quest.id.zoneID,
-            recordID: quest.id,
-            familyRecordName: quest.family.recordID.recordName
+        // WHY single step: tombstone capture survives row removal across the await.
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: quest.id, familyRecordName: quest.family.recordID.recordName),
+            type: .quest,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "QuestAssignmentService.unassignQuest",
+                expectedActiveZone: appState.familyZoneID
+            )
         )
-        // WHY invalidate first: a crash between steps must not leave a server-deleted row revived by owner upsert.
-        await cacheService.invalidate(identity: identity, type: .quest, expectedActiveZone: appState.familyZoneID)
-        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: quest.id, appState: appState, logger: logger, context: "QuestAssignmentService.unassignQuest")
     }
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous
@@ -323,26 +340,93 @@ final class QuestAssignmentService {
             creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuests(family: family.id.recordName)
+                .filter { $0.assigneeRecordName == profile.id.recordName && $0.isActive && range.contains($0.weekOf) }
+                .map { [profile] cache in cache.toQuest(zoneID: profile.id.zoneID) }
+                .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
+        }
         return try await CacheFirst.cacheFirst(
             type: .quest,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, profile, range] familyName in
-                cacheService.fetchQuests(family: familyName)
-                    .filter { $0.assigneeRecordName == profile.id.recordName && $0.isActive && range.contains($0.weekOf) }
-            },
-            map: { [profile] cache in
-                cache.toQuest(zoneID: profile.id.zoneID)
-            },
-            query: { [cloudKit, profile, logger] in
-                let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
-                let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
-                var stamped: [Quest] = []
-                stamped.reserveCapacity(all.count)
-                for quest in all {
-                    if quest.name == nil {
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService, profile, range] familyName in
+                    cacheService.fetchQuests(family: familyName)
+                        .filter { $0.assigneeRecordName == profile.id.recordName && $0.isActive && range.contains($0.weekOf) }
+                },
+                map: { [profile] cache in
+                    cache.toQuest(zoneID: profile.id.zoneID)
+                },
+                query: { [cloudKit, profile, logger] in
+                    let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
+                    let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
+                    var stamped: [Quest] = []
+                    stamped.reserveCapacity(all.count)
+                    for quest in all {
+                        if quest.name == nil {
+                            do {
+                                let template = try await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID)
+                                var updated = quest
+                                updated.name = template.name
+                                stamped.append(updated)
+                            } catch {
+                                logger.warning("Failed to fetch template for quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
+                                stamped.append(quest)
+                            }
+                        } else {
+                            stamped.append(quest)
+                        }
+                    }
+                    return stamped.filter { $0.active && range.contains($0.weekOf) }
+                },
+                hydrate: { [syncCoordinator, scope, profile] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: profile.id.zoneID
+                    )
+                },
+                sortedBy: { $0.template.recordID.recordName < $1.template.recordID.recordName }
+            )
+        )
+    }
+
+    /// Cache-first read. On cold cache miss, falls back to a single synchronous
+    /// CloudKit query to hydrate. Background ongoing refresh handled by
+    /// CKSyncEngine via push notifications.
+    func fetchQuestsForFamilyWeek(family: Family, weekOf: Date) async throws -> [Quest] {
+        let range = WeekMath.range(for: weekOf, payoutDay: family.payoutDay).range
+        // WHY fail-closed: unknown scope serves cache only without guessing a database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            return cacheService.fetchQuests(family: family.id.recordName)
+                .filter { $0.isActive && range.contains($0.weekOf) }
+                .map { [family] cache in cache.toQuest(zoneID: family.id.zoneID) }
+                .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
+        }
+        return try await CacheFirst.cacheFirst(
+            type: .quest,
+            family: family,
+            cacheService: cacheService,
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService, range] familyName in
+                    cacheService.fetchQuests(family: familyName)
+                        .filter { $0.isActive && range.contains($0.weekOf) }
+                },
+                map: { [family] cache in
+                    cache.toQuest(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, range, logger] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
+                    var stamped: [Quest] = []
+                    stamped.reserveCapacity(all.count)
+                    for quest in all where quest.name == nil {
                         do {
                             let template = try await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID)
                             var updated = quest
@@ -352,70 +436,21 @@ final class QuestAssignmentService {
                             logger.warning("Failed to fetch template for quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
                             stamped.append(quest)
                         }
-                    } else {
+                    }
+                    for quest in all where quest.name != nil {
                         stamped.append(quest)
                     }
-                }
-                return stamped.filter { $0.active && range.contains($0.weekOf) }
-            },
-            hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: profile.id.zoneID
-                )
-            },
-            sortedBy: { $0.template.recordID.recordName < $1.template.recordID.recordName }
-        )
-    }
-
-    /// Cache-first read. On cold cache miss, falls back to a single synchronous
-    /// CloudKit query to hydrate. Background ongoing refresh handled by
-    /// CKSyncEngine via push notifications.
-    func fetchQuestsForFamilyWeek(family: Family, weekOf: Date) async throws -> [Quest] {
-        let range = WeekMath.range(for: weekOf, payoutDay: family.payoutDay).range
-        return try await CacheFirst.cacheFirst(
-            type: .quest,
-            family: family,
-            cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService, range] familyName in
-                cacheService.fetchQuests(family: familyName)
-                    .filter { $0.isActive && range.contains($0.weekOf) }
-            },
-            map: { [family] cache in
-                cache.toQuest(zoneID: family.id.zoneID)
-            },
-            query: { [cloudKit, range, logger] in
-                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                let predicate = NSPredicate(format: "family == %@", familyRef)
-                let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-                var stamped: [Quest] = []
-                stamped.reserveCapacity(all.count)
-                for quest in all where quest.name == nil {
-                    do {
-                        let template = try await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID)
-                        var updated = quest
-                        updated.name = template.name
-                        stamped.append(updated)
-                    } catch {
-                        logger.warning("Failed to fetch template for quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
-                        stamped.append(quest)
-                    }
-                }
-                for quest in all where quest.name != nil {
-                    stamped.append(quest)
-                }
-                return stamped.filter { $0.active && range.contains($0.weekOf) }
-            },
-            hydrate: { [syncCoordinator, appState, family] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: family.id.zoneID
-                )
-            },
-            sortedBy: { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
+                    return stamped.filter { $0.active && range.contains($0.weekOf) }
+                },
+                hydrate: { [syncCoordinator, scope, family] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                },
+                sortedBy: { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
+            )
         )
     }
 
@@ -437,7 +472,11 @@ final class QuestAssignmentService {
         // WHY: Multi-type sweep with bespoke deferral and payout-week aggregation — intentionally inline, not a single-type CacheFirst flow.
         // Query allowance periods to identify weeks whose payouts have been completed (.paid)
         let cachedAllowance = cache.fetchAllowancePeriods(family: familyName)
-        let allowanceScope: CKDatabase.Scope = appState.activeDatabaseScope
+        // WHY fail-closed: unknown scope defers expiry instead of guessing a database.
+        guard let allowanceScope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            setSweepDeferred(true)
+            return []
+        }
         let allowancePeriods: [AllowancePeriod]
         if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: allowanceScope) {
             allowancePeriods = cachedAllowance.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
@@ -462,29 +501,32 @@ final class QuestAssignmentService {
         // Preserves raw weekOf timestamps matching the profile's normalized cycle.
         let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map(\.weekOf))
 
+        let scope: CKDatabase.Scope = allowanceScope
         let allQuests: [Quest] = try await CacheFirst.cacheFirst(
             type: .quest,
             family: family,
             cacheService: cacheService,
-            appState: appState,
-            fetchCache: { [cacheService] familyName in
-                cacheService.fetchQuests(family: familyName).filter(\.isActive)
-            },
-            map: { [family] cache in
-                cache.toQuest(zoneID: family.id.zoneID)
-            },
-            query: { [cloudKit, family] in
-                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                let predicate = NSPredicate(format: "family == %@", familyRef)
-                return try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID).filter(\.active)
-            },
-            hydrate: { [syncCoordinator, appState, family] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: models,
-                    databaseScope: appState.activeDatabaseScope,
-                    zoneID: family.id.zoneID
-                )
-            }
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService] familyName in
+                    cacheService.fetchQuests(family: familyName).filter(\.isActive)
+                },
+                map: { [family] cache in
+                    cache.toQuest(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, family] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    return try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID).filter(\.active)
+                },
+                hydrate: { [syncCoordinator, scope, family] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                }
+            )
         )
 
         var deactivated: [Quest] = []
@@ -511,7 +553,7 @@ final class QuestAssignmentService {
 
     func sendAssignmentNotification(to assignee: Profile, questName: String) {
         guard let notificationService else { return }
-        Task { @MainActor @Sendable [logger, notificationService, assignee, questName] in
+        Task { [logger, notificationService, assignee, questName] in
             do {
                 try await notificationService.send(
                     .questAssigned,

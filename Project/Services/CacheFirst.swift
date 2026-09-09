@@ -16,54 +16,61 @@ private let cacheFirstLogger = Logger(category: "CacheFirst")
 /// Single-point scope-aware freshness fix — every caller rides this helper so
 /// a scope-isolation change applies once.
 enum CacheFirst {
-    /// Core generic helper.
-    ///
-    /// Encapsulates: check `isCacheAuthoritative(scope-aware)` → return cached
-    /// rows mapped (and optionally sorted) → CloudKit query → `hydrateFromQuery`
-    /// → fallback to stale cache on transient network failure only.
-    ///
-    /// - Parameter fallbackToStale: When `true` (default), a transient network
-    ///   failure (`networkUnavailable` / retryable / `CKError.network*`) falls
-    ///   back to stale cached rows so offline / brand-new-hero reads remain
-    ///   available. Non-network CloudKit failures (e.g. `notFound`,
-    ///   `permissionFailure`, `serverRecordChanged`) are rethrown even with
-    ///   `fallbackToStale == true` so persistent server errors surface to the
-    ///   caller per §5 (`CloudKitServiceError`) and the UI can show a retry /
-    ///   `StaleDataBanner` instead of silently masking. Pass `false` when the
-    ///   caller must never mask errors (explicit FamilyService-style handling).
+    /// WHY bundle: groups read-path closures so the helper stays under the lint parameter limit.
+    struct Operations<T: CloudKitRecord, C: FamilyScopedCache> {
+        let fetchCache: (String) -> [C]
+        let map: (C) -> T
+        let query: () async throws -> [T]
+        let hydrate: ([T]) async -> Void
+        let sortedBy: ((T, T) -> Bool)?
+        let fallbackToStale: Bool
+
+        init(
+            fetchCache: @escaping (String) -> [C],
+            map: @escaping (C) -> T,
+            query: @escaping () async throws -> [T],
+            hydrate: @escaping ([T]) async -> Void,
+            sortedBy: ((T, T) -> Bool)? = nil,
+            fallbackToStale: Bool = true
+        ) {
+            self.fetchCache = fetchCache
+            self.map = map
+            self.query = query
+            self.hydrate = hydrate
+            self.sortedBy = sortedBy
+            self.fallbackToStale = fallbackToStale
+        }
+    }
+
+    /// WHY single gate: authoritative cache renders instantly, transient failures fall back to stale.
     @MainActor
-    static func cacheFirst<T: CloudKitRecord, C: FamilyScopedCache>(
+    static func cacheFirst<T: CloudKitRecord>(
         type: CachedRecordType,
         family: Family,
         cacheService: any CacheServicing,
-        appState: AppState,
-        fetchCache: (String) -> [C],
-        map: (C) -> T,
-        query: () async throws -> [T],
-        hydrate: ([T]) async -> Void,
-        sortedBy sort: ((T, T) -> Bool)? = nil,
-        fallbackToStale: Bool = true
+        scope: CKDatabase.Scope,
+        operations: Operations<T, some FamilyScopedCache>
     ) async throws -> [T] {
         let familyName = family.id.recordName
-        let cached = fetchCache(familyName)
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
+        let cached = operations.fetchCache(familyName)
+        // WHY single scope: gate and hydrate share one captured value.
         if cacheService.isCacheAuthoritative(
             familyRecordName: familyName,
             type: type,
             scope: scope
         ) {
             // WHY: hydrated cache renders instantly; network reconciles in background.
-            let mapped = cached.map(map)
-            if let sort {
+            let mapped = cached.map(operations.map)
+            if let sort = operations.sortedBy {
                 return mapped.sorted(by: sort)
             }
             return mapped
         }
 
         do {
-            let queried = try await query()
-            await hydrate(queried)
-            if let sort {
+            let queried = try await operations.query()
+            await operations.hydrate(queried)
+            if let sort = operations.sortedBy {
                 return queried.sorted(by: sort)
             }
             return queried
@@ -74,15 +81,15 @@ enum CacheFirst {
             }
             // Only transient network failures fall back to stale cache. Persistent
             // CloudKit errors rethrow so callers can surface them (§5).
-            guard fallbackToStale, isTransientNetworkError(error) else {
+            guard operations.fallbackToStale, isTransientNetworkError(error) else {
                 throw error
             }
             cacheFirstLogger
                 .warning("cacheFirst \(type.rawValue, privacy: .public) CloudKit query failed (transient network), falling back to stale cache: \(error, privacy: .private)")
-            let fallback = fetchCache(familyName)
+            let fallback = operations.fetchCache(familyName)
             // Brand-new hero may not be marked fresh yet — return cached rows (even empty) on transient failure rather than throwing.
-            let mapped = fallback.map(map)
-            if let sort {
+            let mapped = fallback.map(operations.map)
+            if let sort = operations.sortedBy {
                 return mapped.sorted(by: sort)
             }
             return mapped

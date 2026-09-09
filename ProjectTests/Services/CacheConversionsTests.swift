@@ -623,6 +623,21 @@ struct CacheConversionsTests {
         #expect(restored.matchMonthlyCapPennies == nil)
     }
 
+    // MARK: - Exhaustiveness round-trip (13 types)
+
+    @Test
+    func `cachedRecordType count stays at 13 so new types need explicit conversion coverage`() {
+        ExhaustiveCacheFixtures.requireCanonicalCount()
+    }
+
+    @Test
+    func `familyCache root exception keeps empty familyRecordName while others stay scoped`() {
+        let familyCache = FamilyCache(from: ExhaustiveCacheFixtures.makeFamily(zoneID: zoneID))
+        #expect(familyCache.recordName == "fam_exhaustive")
+        let profileCache = ProfileCache(from: ExhaustiveCacheFixtures.makeProfile(zoneID: zoneID))
+        ExhaustiveCacheFixtures.verifyFamilyRoot(familyCache: familyCache, scopedFamilyName: profileCache.familyRecordName)
+    }
+
     // MARK: - Fixture helpers
 
     @Test
@@ -684,7 +699,8 @@ struct CacheConversionsTests {
             sourceDatabaseScope: nil
         )
         #expect(unpersistedScope.persistedDatabaseScope == nil)
-        #expect(unpersistedScope.validatedDatabaseScope(expectedScope: .shared) == CKDatabase.Scope.shared)
+        // WHY fail-closed: missing scope proves nothing, so unpersisted rows reject instead of guessing.
+        #expect(unpersistedScope.validatedDatabaseScope(expectedScope: .shared) == nil)
         #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: CKCurrentUserDefaultName)) == "private")
         #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: "TestOwner")) == "private")
         #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: "_sharedUser123")) == "shared")

@@ -238,6 +238,12 @@ struct BucketServiceTests {
             )
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
+            // WHY session: payout guards require active family scope, so seed it before minting.
+            appState.family = family
+            appState.familyZoneID = zoneID
+            appState.isZoneOwner = true
+            appState.currentProfile = guildMaster
+            mock.activeIsOwner = true
             mock.seedMockRecords([hero, guildMaster, family])
             cache.context?.insert(ProfileCache(from: hero))
             cache.context?.insert(ProfileCache(from: guildMaster))

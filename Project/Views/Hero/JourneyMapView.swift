@@ -18,7 +18,6 @@ struct JourneyMapView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState: AppState?
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @State private var selectedMilestone: JourneyMilestone?
     @State private var animatedHeroLevel: Int = 1
     @State private var progressionTask: Task<Void, Never>?
@@ -132,7 +131,6 @@ struct JourneyMapView: View {
             let capturedStored = stored
             let capturedProfileCache = profileCache
             let capturedAppState = appState
-            let capturedSyncCoordinator = syncCoordinator
 
             progressionTask?.cancel()
             progressionTask = Task {
@@ -150,12 +148,11 @@ struct JourneyMapView: View {
                     guard !Task.isCancelled else { return }
                     // Monotonically acknowledge that the hero reached this level on the map,
                     // syncing across all devices via CloudKit/SwiftData.
-                    await JourneyService.acknowledgeJourneyLevel(
+                    // WHY service owns enqueue: the View passes cache rows only so the engine handle never enters the View.
+                    await JourneyService.acknowledgeJourneyLevelFromView(
                         capturedTarget,
                         profileCache: capturedProfileCache,
-                        appState: capturedAppState,
-                        cacheService: capturedAppState?.cacheService,
-                        syncCoordinator: capturedSyncCoordinator
+                        appState: capturedAppState
                     )
                 } catch {
                     Self.logger.debug("Journey level animation interrupted: \(error, privacy: .private)")

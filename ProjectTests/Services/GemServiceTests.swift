@@ -13,29 +13,7 @@ import Testing
 @MainActor
 struct GemServiceTests {
     private func makeZoneID(name: String = "TestZone") -> CKRecordZone.ID {
-        CKRecordZone.ID(zoneName: name, ownerName: "TestOwner")
-    }
-
-    private func makeProfile(zoneID: CKRecordZone.ID, recordName: String = "hero1") -> Profile {
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-        let profileID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
-        return Profile(
-            displayName: "Hero",
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: profileID,
-            family: familyRef,
-            id: profileID
-        )
-    }
-
-    private func makeFamily(zoneID: CKRecordZone.ID) -> Family {
-        Family(
-            name: "Test Guild",
-            creatorUserRecordName: "hero1",
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
+        name == "TestZone" ? ExhaustiveCacheFixtures.sharedZoneID : CKRecordZone.ID(zoneName: name, ownerName: "TestOwner")
     }
 
     // MARK: - Deterministic recordName generation
@@ -156,8 +134,8 @@ struct GemServiceTests {
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         appState.cacheService = cache
-        let family = makeFamily(zoneID: zoneID)
-        var hero = makeProfile(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "hero1")
+        var hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero", iCloudRecordName: "hero1")
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -195,8 +173,8 @@ struct GemServiceTests {
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         appState.cacheService = cache
-        let family = makeFamily(zoneID: zoneID)
-        var hero = makeProfile(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "hero1")
+        var hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero", iCloudRecordName: "hero1")
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -319,8 +297,8 @@ struct GemServiceTests {
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         appState.cacheService = cache
-        let family = makeFamily(zoneID: zoneID)
-        var hero = makeProfile(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "hero1")
+        var hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero", iCloudRecordName: "hero1")
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
@@ -358,8 +336,8 @@ struct GemServiceTests {
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         appState.cacheService = cache
-        let family = makeFamily(zoneID: zoneID)
-        var hero = makeProfile(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "hero1")
+        var hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero", iCloudRecordName: "hero1")
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)

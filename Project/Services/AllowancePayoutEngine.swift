@@ -191,8 +191,7 @@ extension TreasuryService {
             existing,
             expected: expected,
             familyName: familyName,
-            zoneID: zoneID,
-            isOwner: context.isOwner
+            zoneID: zoneID
         )
         await cascadeDelta(context, shares: receiving, zoneID: zoneID)
     }
@@ -267,20 +266,23 @@ extension TreasuryService {
         _ existing: [LedgerEntryCache],
         expected: Set<String>,
         familyName: String,
-        zoneID: CKRecordZone.ID,
-        isOwner: Bool
+        zoneID: CKRecordZone.ID
     ) async {
         let stale = existing.filter { !expected.contains($0.recordName) }
         for twin in stale {
-            // WHY capture first: tombstone ID must survive local row removal.
-            let identity = ScopedRecordIdentity(
-                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
-                zoneID: zoneID,
-                recordID: CKRecord.ID(recordName: twin.recordName, zoneID: zoneID),
-                familyRecordName: familyName
+            // WHY single step: tombstone is captured inside the helper so the delete survives row removal.
+            await ActiveFamilyScopeGuard.deleteAndEnqueue(
+                cacheService: cacheService,
+                target: .init(recordID: CKRecord.ID(recordName: twin.recordName, zoneID: zoneID), familyRecordName: familyName),
+                type: .ledgerEntry,
+                deleteContext: .init(
+                    coordinator: syncCoordinator,
+                    appState: appState,
+                    logger: logger,
+                    context: "TreasuryService.pruneStaleTwins",
+                    expectedActiveZone: appState.familyZoneID
+                )
             )
-            await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
-            syncCoordinator.enqueueDelete(recordID: identity.recordID, isOwner: isOwner)
         }
     }
 

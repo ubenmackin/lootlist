@@ -43,7 +43,9 @@ final class FamilyInvitationCoordinator: FamilyInviting {
 
     /// Resolves role-specific share presentation via FamilyService (zone owner only).
     func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation? {
-        guard appState.isZoneOwner,
+        // WHY single resolver: stored flag alone proves nothing when creator anchor unresolved.
+        guard ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState),
+              DatabaseScopeResolver.resolvedScope(appState: appState) != nil,
               appState.familyZoneID != nil,
               let family = appState.family
         else { return nil }
@@ -62,7 +64,11 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         heroes: [ProfileCache],
         parents: [ProfileCache]
     ) async -> [FamilyInvitation] {
-        guard appState.isZoneOwner, let family = appState.family else {
+        // WHY single resolver: stored flag alone proves nothing when creator anchor unresolved.
+        guard ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState),
+              DatabaseScopeResolver.resolvedScope(appState: appState) != nil,
+              let family = appState.family
+        else {
             return []
         }
         var currentUserRecordName: String
@@ -114,7 +120,11 @@ final class FamilyInvitationCoordinator: FamilyInviting {
     /// Fail-closed: every guard throws so the panel never reports success when
     /// revocation never ran.
     func revokeInvitation(_ invitation: FamilyInvitation) async throws {
-        guard appState.isZoneOwner, let family = appState.family else {
+        // WHY sole boundary: service revocation performs no owner-anchor check, so unresolved anchor denies.
+        guard ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState),
+              DatabaseScopeResolver.resolvedScope(appState: appState) != nil,
+              let family = appState.family
+        else {
             throw FamilyServiceError.unauthorized
         }
         if invitation.kind == .removedIdentity {

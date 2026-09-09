@@ -132,7 +132,7 @@ final class XPService {
 
             if let notificationService {
                 let newLevel = updated.level
-                Task { @MainActor @Sendable [logger, notificationService, updated, newLevel] in
+                Task { [logger, notificationService, updated, newLevel] in
                     do {
                         try await notificationService.send(
                             .levelUp,

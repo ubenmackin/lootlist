@@ -14,7 +14,6 @@ struct QuestLogView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(ToastManager.self) private var toastManager
 
     @Query private var cachedProfiles: [ProfileCache]
@@ -113,16 +112,9 @@ struct QuestLogView: View {
         familyRecordName ?? appState.family?.id.recordName ?? ""
     }
 
-    private var isSyncing: Bool {
-        lifecycleCoordinator?.isSyncing == true
-    }
-
-    private var pendingUploadCount: Int {
-        syncCoordinator?.pendingUploadCount ?? 0
-    }
-
-    private var lastSyncedAt: Date? {
-        syncCoordinator?.lastSyncedAt
+    /// WHY struct-only: footnote and banner render this snapshot so the engine handle never enters the View.
+    private var syncHealth: SyncHealthSnapshot {
+        lifecycleCoordinator?.syncHealthSnapshot ?? SyncHealthSnapshot()
     }
 
     private var content: some View {
@@ -151,7 +143,7 @@ struct QuestLogView: View {
                 family: targetFamilyForStale,
                 type: .quest,
                 count: cachedQuests.count,
-                isSyncing: isSyncing
+                isSyncing: syncHealth.isSyncing
             )
             .padding(.horizontal)
             .padding(.bottom, 4)
@@ -286,9 +278,9 @@ struct QuestLogView: View {
     /// WHY prod-safe subset: inline footnote mirrors iCloudStatusView counts without DEBUG diagnostics.
     private var syncFootnote: some View {
         SyncFootnoteView(
-            pendingCount: pendingUploadCount,
-            isSyncing: isSyncing,
-            lastSyncedAt: lastSyncedAt
+            pendingCount: syncHealth.pendingUploadCount,
+            isSyncing: syncHealth.isSyncing,
+            lastSyncedAt: syncHealth.lastSyncedAt
         )
         .accessibilityIdentifier("questLog.syncFootnote")
     }

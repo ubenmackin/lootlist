@@ -11,7 +11,7 @@ import Observation
 import os
 import Synchronization
 
-/// Manages CKSyncEngine instances across private and shared database scopes.
+/// WHY single engine: private and shared scopes share one lifecycle.
 @MainActor
 @Observable
 final class CKSyncEngineCoordinator: SyncEnqueuing {
@@ -54,12 +54,11 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     @ObservationIgnored private var currentPassHadCacheWriteFailures = false
     @ObservationIgnored private let pendingEnqueueBuffer = Mutex<[ScopedRecordIdentity]>([])
     @ObservationIgnored private let pendingDeleteBuffer = Mutex<[ScopedRecordIdentity]>([])
-    // WHY: transient fetch failures leave deletion unverified — stall would retain pending save forever without progress; retry state ensures exponential backoff re-evaluation rather than tight spin.
-    // WHY: retry state is Mutex-backed and accessed from both MainActor and nonisolated deinit; nonisolated storage avoids Swift 6 actor-isolation violation.
+    // WHY backoff retry: unverified deletions re-evaluate without tight spin.
+    // WHY nonisolated retry: deinit cancels without hopping to MainActor.
     @ObservationIgnored private nonisolated let retryDeadlines = Mutex<[String: Date]>([:])
     @ObservationIgnored private nonisolated let retryAttempts = Mutex<[String: Int]>([:])
-    // WHY: stores in-flight retry Tasks per record so deinit can cancel and overwrite handling can coalesce storms.
-    // Nonisolated so deinit (nonisolated) can cancel without hopping to MainActor or racing with scheduleRetry/clearRetryState.
+    // WHY coalesced retry: per-record tasks cancel on overwrite and teardown.
     @ObservationIgnored private nonisolated let retryTasks = Mutex<[String: Task<Void, Never>]>([:])
 
     var isSyncing: Bool = false
@@ -299,9 +298,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
 
     // MARK: - Retry Scheduling (fail-closed stall recovery)
 
-    /// Schedules re-evaluation of a pending save after transient fetch failure.
-    /// WHY: `confirmedLocalDeletion` returning `false` on `tryFetch == nil` stalls sync batch indefinitely; scheduling with exponential backoff [0.5s, 1.5s, 4s] and stamping a 30s
-    /// retry deadline ensures re-attempt without tight spin and never drops deletion.
+    /// WHY backoff retry: transient fetch stalls re-attempt without tight spin.
     func scheduleRetry(for recordID: CKRecord.ID, isOwner: Bool) {
         let key = recordID.recordName
         // Overwrite handling: cancel any existing retry Task for this record before stamping new deadline.
@@ -448,12 +445,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             syncError = error.localizedDescription
             postSyncDidComplete(outcome: .failed)
         }
-        // WHY: terminated-push coverage complements push-driven sync — silent
-        // pushes are throttled on expensive networks and jetsam can kill the
-        // app before pendingRecordZoneChanges upload. Scheduling the
-        // BGProcessingTask retry ensures unsynced ledger entries and quest
-        // completions eventually reach CloudKit when the system next launches
-        // the app in the background.
+        // WHY terminated retry: jetsam before upload still reaches CloudKit via BG task.
         AppDelegate.scheduleSyncProcessingTask()
     }
 
@@ -471,7 +463,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         currentPassHadCacheWriteFailures = true
     }
 
-    /// Stamps freshness watermarks when all active database scopes succeed without errors.
+    /// WHY gated stamp: all active scopes must succeed without errors.
     private func completeSyncPass() {
         // Freshness gating: private scope success must not stamp shared record types.
         if !activeFetchPassScopes.isEmpty,

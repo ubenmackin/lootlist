@@ -677,7 +677,7 @@ struct GoalEditorSheet: View {
         isExtractingPrice = false
         resolvedImageURL = nil
         // WHY snapshot: link fetch suspends; Sendable URL rides the Task while @State stays on MainActor.
-        Task { @MainActor @Sendable [url] in
+        Task { [url] in
             if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
                 if let title = metadata.title, !title.isEmpty {
                     resolvedTitle = title
@@ -731,7 +731,7 @@ struct GoalEditorSheet: View {
 
         isSaving = true
         // WHY snapshot: draft crosses suspension; Sendable copy rides the Task.
-        Task { @MainActor @Sendable [draft] in
+        Task { [draft] in
             do {
                 try await onSave(draft)
                 dismiss()
@@ -748,7 +748,7 @@ struct GoalEditorSheet: View {
         guard let onDelete else { return }
         isDeleting = true
         // WHY MainActor hop: @State mutations resume on MainActor after suspension.
-        Task { @MainActor @Sendable in
+        Task {
             do {
                 try await onDelete()
                 dismiss()
@@ -764,7 +764,7 @@ struct GoalEditorSheet: View {
         guard let onPurchase else { return }
         isPurchasing = true
         // WHY MainActor hop: @State mutations resume on MainActor after suspension.
-        Task { @MainActor @Sendable in
+        Task {
             do {
                 try await onPurchase()
                 dismiss()

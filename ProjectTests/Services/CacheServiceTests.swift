@@ -651,7 +651,8 @@ extension CacheServiceTests {
     @Test
     func `freshness watermark starts unstamped`() throws {
         let service = try makeService()
-        #expect(service.isCacheFresh(familyRecordName: "never-stamped-fam", type: .quest) == false)
+        #expect(service.isCacheFresh(familyRecordName: "never-stamped-fam", type: .quest, scope: .shared) == false)
+        #expect(service.isCacheFresh(familyRecordName: "never-stamped-fam", type: .quest, scope: .private) == false)
         #expect(service.isCacheAuthoritative(familyRecordName: "never-stamped-fam", type: .quest, scope: .shared) == false)
         #expect(service.isCacheAuthoritative(familyRecordName: "never-stamped-fam", type: .quest, scope: .private) == false)
         #expect(service.isStale(for: "never-stamped-fam", type: .quest, cachedCount: 0) == false)

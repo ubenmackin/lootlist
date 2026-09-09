@@ -10,13 +10,9 @@ import CryptoKit
 import Foundation
 import os
 
-/// One CSV line held in staging until the parent confirms the import.
-/// Malformed rows stay present with `parseIssue` set — they are never
-/// dropped silently, so the parent can fix or exclude them explicitly.
+/// WHY staging: malformed rows persist for explicit parent fix, never silent drop.
 struct StagedImportRow: Identifiable, Equatable {
-    /// Stable identity for staging edits: line number plus a content digest,
-    /// so duplicate rows in one file keep distinct identities while edits
-    /// never re-key the row mid-review.
+    /// WHY stable identity: line plus content digest keeps duplicate rows distinct.
     let id: String
 
     let lineNumber: Int
@@ -26,12 +22,11 @@ struct StagedImportRow: Identifiable, Equatable {
     var amountText: String
     var dateText: String
 
-    /// Raw "Purchased By" cell as written in the file; matched against child
-    /// profile display names to pre-select the assignment dropdown.
+    /// WHY pre-select: raw cell matches child display names for assignment dropdown.
     var purchasedByRaw: String?
 
     var date: Date?
-    /// Whole pennies (signed) parsed from the CSV amount cell.
+    /// WHY signed pennies: CSV amounts debit spend consistently.
     var amount: Int64?
 
     var assignedProfileRecordName: String?
@@ -62,15 +57,13 @@ enum LedgerImportError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Parses ledger CSV imports into editable staging rows.
+/// WHY staging: CSV text becomes editable rows before any ledger write.
 enum LedgerCSVParser {
     static func parse(_ csvText: String) -> [StagedImportRow] {
         let records = tokenize(csvText)
         guard let firstRecord = records.first else { return [] }
 
-        // Header detection is content-based so exports with or without a
-        // header land on the same column mapping; unknown headers fall back
-        // to the export's canonical column order.
+        // WHY content header: exports with or without header share one mapping.
         let headerNames = firstRecord.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         let isHeader = headerNames.contains("transaction date") && headerNames.contains("amount")
         let columns = isHeader ? ColumnMapping(header: headerNames) : .positional
@@ -160,8 +153,7 @@ enum LedgerCSVParser {
         )
     }
 
-    /// RFC4180-style tokenizer: quoted fields may contain commas, newlines,
-    /// and escaped double quotes (""). CRLF and bare LF both end records.
+    /// WHY RFC4180: quoted fields carry commas, newlines, and escaped quotes.
     static func tokenize(_ csvText: String) -> [[String]] {
         let chars = Array(csvText)
         var records: [[String]] = []
@@ -215,9 +207,7 @@ enum LedgerCSVParser {
         return records
     }
 
-    /// Accepts currency amounts like "12.50", "(12.50)", "-12.5", "1,234.56", and bare decimals.
-    /// Thousands separators are stripped before numeric conversion because
-    /// bank-style exports quote amounts containing commas.
+    /// WHY bank exports: thousands separators strip before numeric conversion.
     static func parseAmount(_ raw: String) -> Int64? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -243,7 +233,7 @@ enum LedgerCSVParser {
         return negative ? -abs(pennies) : pennies
     }
 
-    /// Parses flexible date formats (ISO timestamps, date-only, US slashes).
+    /// WHY flexible dates: ISO and US bank formats share one parser.
     static func parseDate(_ raw: String) -> Date? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -282,13 +272,19 @@ enum LedgerCSVParser {
     }
 }
 
-/// Creates ledger entries from confirmed staging rows using deterministic IDs.
+// WHY deterministic import: confirmed rows mint stable IDs without touching ledger pre-confirm.
+#if DEBUG
+    /// WHY test seam: cache-only coordination keeps reads deterministic.
+    @MainActor
+    extension NoopSyncEnqueuing: SyncCoordinating {}
+#endif
+
 @MainActor
 @Observable
 final class LedgerImportService {
     private let cloudKit: any CloudKitServiceProtocol
-    let cacheService: CacheService
-    let syncCoordinator: CKSyncEngineCoordinator
+    let cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing & SyncCoordinating
     let appState: AppState
 
     private static let staticLogger = Logger(category: "LedgerImport")
@@ -301,9 +297,9 @@ final class LedgerImportService {
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService,
+        cacheService: any CacheServicing,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator
+        syncCoordinator: any SyncEnqueuing & SyncCoordinating
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -314,11 +310,11 @@ final class LedgerImportService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
+        cacheService: (any CacheServicing)? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing & SyncCoordinating)? = nil
     ) {
-        let cache: CacheService
+        let cache: any CacheServicing
         if let cacheService {
             cache = cacheService
         } else {
@@ -326,15 +322,23 @@ final class LedgerImportService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: nil, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
-        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
+        // WHY single stack: shared coordinator owns hydration; ephemeral engines fork freshness.
+        if let coord: any SyncEnqueuing & SyncCoordinating = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
+            self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
+        } else {
+            #if DEBUG
+                // WHY test seam: cache-only coordination keeps reads deterministic.
+                if TestEnvironment.isRunningUnitOrUITests {
+                    Self.staticLogger.warning("LedgerImportService initialized without syncCoordinator; using test Noop seam.")
+                } else {
+                    Self.staticLogger.error("LedgerImportService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                }
+                self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
+            #else
+                // WHY fail-closed: production without engine must not drop writes.
+                preconditionFailure("LedgerImportService requires a sync coordinator in production")
+            #endif
+        }
     }
 
     // MARK: - Staging
@@ -345,12 +349,12 @@ final class LedgerImportService {
 
     // MARK: - Deterministic IDs
 
-    /// The content hash covers everything that defines the purchase —
-    /// including the assigned child — so identical lines bought for different
-    /// kids produce distinct entries, and any review-time edit changes identity.
+    /// WHY distinct identity: assigned child is part of the content hash.
     static func recordName(for row: StagedImportRow, profileRecordName: String) -> String {
         let cents = Int(row.amount ?? 0)
-        let timestamp = Int((row.date ?? Date()).timeIntervalSince1970)
+        // WHY sentinel: blockingRows gates nil dates, but direct callers still converge on a stable value.
+        let rowDate = row.date ?? Date(timeIntervalSince1970: 0)
+        let timestamp = Int(rowDate.timeIntervalSince1970)
         let canonical = [
             row.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             row.merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -363,8 +367,7 @@ final class LedgerImportService {
         return DeterministicRecordID.import(hex: hex)
     }
 
-    /// Rows that would still block finalization: unassigned children or
-    /// fields the parser could not read. Excluded rows never block.
+    /// WHY explicit gate: excluded rows never block finalization.
     static func blockingRows(in stagedRows: [StagedImportRow]) -> [StagedImportRow] {
         stagedRows.filter { row in
             !row.isExcluded && (!row.isAssigned || row.parseIssue != nil || row.amount == nil || row.date == nil)
@@ -377,6 +380,16 @@ final class LedgerImportService {
         guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
+        // WHY fail-closed: production without engine must not drop writes.
+        #if !DEBUG
+            guard !(syncCoordinator is NoopSyncEnqueuing) else {
+                throw LedgerImportError.persistenceFailed
+            }
+        #else
+            if !TestEnvironment.isRunningUnitOrUITests, syncCoordinator is NoopSyncEnqueuing {
+                throw LedgerImportError.persistenceFailed
+            }
+        #endif
         try validateScope(family: family)
 
         let included = stagedRows.filter { !$0.isExcluded }
@@ -399,14 +412,13 @@ final class LedgerImportService {
             else { continue }
 
             let recordName = Self.recordName(for: row, profileRecordName: profileRecordName)
-            // Idempotency: a deterministic ID already in the cache means this
-            // exact row was confirmed before — skip it rather than double-spend.
+            // WHY idempotent: deterministic ID already cached means row was confirmed before.
             if cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) != nil {
                 skippedDuplicates += 1
                 continue
             }
 
-            // WHY: imports debit the spend bucket so bucket balances stay consistent with the ledger total.
+            // WHY spend debit: imports keep bucket balances consistent with ledger total.
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(
                     recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID),
@@ -439,11 +451,7 @@ final class LedgerImportService {
     }
 
     private func validateScope(family: Family) throws {
-        do {
-            try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
-        } catch {
-            logger.warning("Strict scope check failed, falling back to family-only check: \(error, privacy: .private)")
-            try ActiveFamilyScopeGuard.requireActiveFamily(familyRecordName: family.id.recordName, appState: appState)
-        }
+        // WHY fail-closed: tests establish full session, never family-only fallback.
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
     }
 }
