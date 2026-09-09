@@ -59,11 +59,6 @@ extension QuestCompletionService {
     }
 
     @discardableResult
-    func approve(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        try await verify(questLog: questLog, by: parent)
-    }
-
-    @discardableResult
     func reject(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
         guard let acting = appState.currentProfile,
               acting.id == parent.id,

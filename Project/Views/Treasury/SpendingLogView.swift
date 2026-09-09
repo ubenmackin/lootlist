@@ -10,17 +10,12 @@ import SwiftUI
 
 struct SpendingLogView: View {
     @Bindable var viewModel: TreasuryViewModel
-    let familyRecordName: String?
-    private let profileRecordName: String?
-
     @Binding var scope: CalendarScope
 
     @Query private var cachedLedgers: [LedgerEntryCache]
 
     init(viewModel: TreasuryViewModel, familyRecordName: String? = nil, profileRecordName: String? = nil, scope: Binding<CalendarScope>) {
         self.viewModel = viewModel
-        self.familyRecordName = familyRecordName
-        self.profileRecordName = profileRecordName
         _scope = scope
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""

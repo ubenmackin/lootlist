@@ -67,10 +67,6 @@ struct MultiPartQuestCard: View {
         min(targetCount, approvedCount)
     }
 
-    private var approvalMode: ApprovalMode {
-        quest.approvalModeEnum ?? .autoApprove
-    }
-
     private func partName(for index: Int) -> String {
         // WHY: day checklist ticks one weekday per approval, so rows read as days not ordinals.
         if isDayChecklist, index < orderedDays.count {

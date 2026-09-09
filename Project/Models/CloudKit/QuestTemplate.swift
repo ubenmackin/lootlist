@@ -139,8 +139,4 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         self.family = family
         self.isActive = isActive
     }
-
-    var formattedDefaultGold: String {
-        CurrencyFormatter.string(pennies: defaultGold)
-    }
 }

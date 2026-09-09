@@ -12,10 +12,6 @@ import os
 // MARK: - Cache-First Fetches & Helpers
 
 extension TreasuryService {
-    func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
-        try await resolvedLedgerService.fetchAllLedgerEntries(profile: profile)
-    }
-
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
         // WHY fail-closed: unknown scope serves cache only without guessing a database.
         guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {

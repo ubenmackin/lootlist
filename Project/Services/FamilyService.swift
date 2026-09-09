@@ -133,10 +133,6 @@ final class FamilyService: FamilyProfileFetching {
 
     var syncCoordinator: CKSyncEngineCoordinator?
 
-    var cloudKitReference: any CloudKitServiceProtocol {
-        cloudKit
-    }
-
     let toastManager: ToastManager?
 
     /// Bootstrap seeder for default achievements during family creation.

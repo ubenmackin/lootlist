@@ -10,7 +10,6 @@ import SwiftData
 import SwiftUI
 
 struct iCloudStatusView: View {
-    private static let logger = Logger(category: "iCloudStatusView")
     @Environment(AppState.self) private var appState
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator: AppSyncCoordinator?

@@ -48,7 +48,6 @@ enum QuestServiceError: Error, Equatable, Sendable, LocalizedError {
 @MainActor
 @Observable
 final class QuestService {
-    private let logger = Logger(category: "QuestService")
     let cloudKit: any CloudKitServiceProtocol
 
     let xpService: XPService
@@ -291,13 +290,25 @@ final class QuestService {
         try await templateService.fetchTemplates(family: family)
     }
 
-    /// Cache-first template fetch with server hydration fallback for local reads.
+    /// WHY facade: legacy callers resolve templates through the template service without a new dependency.
     func fetchTemplateCached(id: String, familyRecordName: String) async throws -> QuestTemplate? {
         try await templateService.fetchTemplateCached(id: id, familyRecordName: familyRecordName)
     }
 
+    /// WHY hydrating: single-template reads fall back to CloudKit so callers never miss a fresh template.
     func fetchTemplateCached(id: CKRecord.ID, familyRecordName: String) async throws -> QuestTemplate? {
         try await templateService.fetchTemplateCached(id: id, familyRecordName: familyRecordName)
+    }
+
+    /// WHY facade: payout-day resolution stays behind the assignment service so week math never drifts.
+    func effectivePayoutDay(for profile: Profile) -> PayoutDay {
+        assignmentService.effectivePayoutDay(for: profile)
+    }
+
+    /// WHY facade: legacy approval entry forwards to the completion service without behavior change.
+    @discardableResult
+    func approve(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
+        try await completionService.verify(questLog: questLog, by: parent)
     }
 
     // MARK: - Quest Assignment
@@ -394,11 +405,6 @@ final class QuestService {
         assignmentService.sendAssignmentNotification(to: assignee, questName: questName)
     }
 
-    /// Resolves effective payout day (profile override -> family config -> Sunday default).
-    func effectivePayoutDay(for profile: Profile) -> PayoutDay {
-        assignmentService.effectivePayoutDay(for: profile)
-    }
-
     // MARK: - Quest Completions & Verification
 
     @discardableResult
@@ -422,11 +428,6 @@ final class QuestService {
     @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
         try await completionService.verify(questLog: questLog, by: parent)
-    }
-
-    @discardableResult
-    func approve(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        try await completionService.approve(questLog: questLog, by: parent)
     }
 
     @discardableResult

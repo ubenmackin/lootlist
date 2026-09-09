@@ -24,13 +24,11 @@ struct BucketTransferView: View {
     @State private var isSaving: Bool = false
     @State private var showConfirmation: Bool = false
 
-    private let familyRecordName: String?
     private let profileRecordName: String?
 
     @Query private var ledgerCaches: [LedgerEntryCache]
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
-        self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""

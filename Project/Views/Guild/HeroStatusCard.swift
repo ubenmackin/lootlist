@@ -14,8 +14,6 @@ struct HeroStatusCard: View {
 
     var onTap: (() -> Void)?
 
-    @State private var isExpanded: Bool = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             headerRow
@@ -138,7 +136,7 @@ struct HeroStatusCard: View {
     @ViewBuilder
     private var recentLogsDisclosure: some View {
         if let logs = recentQuestLogs {
-            DisclosureGroup(isExpanded: $isExpanded) {
+            DisclosureGroup {
                 VStack(alignment: .leading, spacing: 6) {
                     if logs.isEmpty {
                         Text("No recent completions")

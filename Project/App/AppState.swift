@@ -233,21 +233,10 @@ final class AppState {
         authCoordinator.clearSession()
     }
 
-    func clearSessionAsync() async {
-        await authCoordinator.clearSessionAsync()
-    }
-
     /// Extended session clearing that also resets CloudKit scope and engine state.
     func clearSessionAndCloudKitScope(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) {
         authCoordinator.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
-
-    /// Extended async session clearing that awaits the background cache purge.
-    func clearSessionAndCloudKitScopeAsync(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
-        await authCoordinator.clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
-    }
-
-    // MARK: - AuthenticationCoordinator Delegation
 
     func restoreSession(cloudKit: any CloudKitServiceProtocol) async {
         await authCoordinator.restoreSession(cloudKit: cloudKit)
@@ -278,16 +267,6 @@ final class AppState {
         await AuthenticationCoordinator.sharedZoneFamily(cloudKit: cloudKit, zoneID: zoneID)
     }
 
-    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
-        await authCoordinator.acceptDetectedFamily(
-            familyCache: familyCache,
-            profileCache: profileCache,
-            zoneID: zoneID,
-            isOwner: isOwner,
-            cloudKit: cloudKit
-        )
-    }
-
     func acceptDetectedFamily(
         familyCache: FamilyCache,
         profileCache: ProfileCache,
@@ -310,16 +289,6 @@ final class AppState {
         await authCoordinator.acceptDetectedFamily(
             family: family,
             profile: profile,
-            zoneID: zoneID,
-            isOwner: isOwner,
-            cloudKit: cloudKit
-        )
-    }
-
-    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
-        await authCoordinator.rejectDetectedFamily(
-            familyCache: familyCache,
-            profileCache: profileCache,
             zoneID: zoneID,
             isOwner: isOwner,
             cloudKit: cloudKit

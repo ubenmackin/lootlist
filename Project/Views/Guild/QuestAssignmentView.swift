@@ -17,7 +17,6 @@ struct QuestAssignmentView: View {
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
-    @Environment(QuestService.self) private var questService
     @Environment(AppState.self) private var appState
 
     @Query private var cachedCompletions: [QuestCompletionCache]

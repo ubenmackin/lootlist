@@ -133,12 +133,12 @@ final class CacheService: CacheServicing {
         }
     }
 
-    /// Throwing variant for callers that prefer explicit error handling over fatalError.
+    /// WHY throwing alias: callers that must distinguish failure ride the same two-attempt path.
     static func makeInMemoryFallback(logger: Logger? = nil) throws -> CacheService {
-        guard let service = makeInMemoryFallbackOrNil(logger: logger) else {
-            throw CacheServiceError.inMemoryFallbackFailed
+        if let service = makeInMemoryFallbackOrNil(logger: logger) {
+            return service
         }
-        return service
+        throw CacheServiceError.inMemoryFallbackFailed
     }
 
     /// Attaches a writer created off the main actor. The writer is hoisted as a
@@ -237,13 +237,55 @@ final class CacheService: CacheServicing {
         freshnessVersion &+= 1
     }
 
-    func markCacheFreshForTests(familyRecordName: String, types: [CachedRecordType], at date: Date = Date()) {
+    /// Stamps freshness for record type in the specified database scope.
+    func stampCacheWatermarks(for types: Set<CachedRecordType>, scope: CKDatabase.Scope, familyRecordName: String) {
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
+            #endif
+            return
+        }
+        let family = normalizedFamily(familyRecordName)
+        guard !family.isEmpty else { return }
         for type in types {
-            markCacheFreshForTests(familyRecordName: familyRecordName, type: type, at: date)
+            markCacheFresh(familyRecordName: family, type: type, scope: scope)
         }
     }
 
-    /// Stamps freshness for record type in the specified database scope.
+    func stampCacheWatermarks(for types: [CachedRecordType], scope: CKDatabase.Scope, familyRecordName: String) {
+        stampCacheWatermarks(for: Set(types), scope: scope, familyRecordName: familyRecordName)
+    }
+
+    /// WHY alias: singular stamp stays behind the set path so key derivation never drifts.
+    func stampCacheWatermark(for type: CachedRecordType, scope: CKDatabase.Scope, familyRecordName: String) {
+        stampCacheWatermarks(for: Set([type]), scope: scope, familyRecordName: familyRecordName)
+    }
+
+    /// WHY alias: scope-array fan-out shares the set path so multi-scope stamps stay identical.
+    func stampCacheWatermarkForScopes(familyRecordName: String, type: CachedRecordType, scopes: [CKDatabase.Scope]) {
+        for scope in scopes {
+            stampCacheWatermark(for: type, scope: scope, familyRecordName: familyRecordName)
+        }
+    }
+
+    // WHY: AnyContainer overload preserves legacy call sites that resolve ModelContainer dynamically;
+    // normalizing family via the single helper keeps key derivation identical across overloads.
+    func stampCacheWatermarkAnyContainer(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, containers: [ModelContainer]) {
+        let family = normalizedFamily(familyRecordName)
+        guard !family.isEmpty else { return }
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled")
+            #endif
+            return
+        }
+        // WHY: Deterministic resolution prefers the service's own container when present so
+        // repeated calls are stable regardless of container ordering.
+        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
+        _ = resolved
+        markCacheFresh(familyRecordName: family, type: type, scope: scope)
+    }
+
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         freshnessVersion &+= 1
@@ -341,163 +383,10 @@ final class CacheService: CacheServicing {
     private func normalizedFamily(_ familyRecordName: String) -> String {
         familyRecordName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
-    // WHY: ViewModel preview instances resolve cache without ever stamping freshness; a single
-    // immutable flag disables all watermark writes for that instance so query-only hosts never
-    // promote stale data to fresh while production instances remain unaffected.
-    func stampCacheWatermark(for type: CachedRecordType, scope: CKDatabase.Scope, familyRecordName: String) {
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled for \(type.rawValue, privacy: .public)")
-            #endif
-            return
-        }
-        let family = normalizedFamily(familyRecordName)
-        guard !family.isEmpty else { return }
-        markCacheFresh(familyRecordName: family, type: type, scope: scope)
-    }
-
-    func stampCacheWatermarks(for types: Set<CachedRecordType>, scope: CKDatabase.Scope, familyRecordName: String) {
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
-            #endif
-            return
-        }
-        let family = normalizedFamily(familyRecordName)
-        guard !family.isEmpty else { return }
-        for type in types {
-            markCacheFresh(familyRecordName: family, type: type, scope: scope)
-        }
-    }
-
-    func stampCacheWatermarks(for types: [CachedRecordType], scope: CKDatabase.Scope, familyRecordName: String) {
-        stampCacheWatermarks(for: Set(types), scope: scope, familyRecordName: familyRecordName)
-    }
-
-    // WHY: AnyContainer overload preserves legacy call sites that resolve ModelContainer dynamically;
-    // normalizing family via the single helper keeps key derivation identical across overloads.
-    func stampCacheWatermarkAnyContainer(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, containers: [ModelContainer]) {
-        let family = normalizedFamily(familyRecordName)
-        guard !family.isEmpty else { return }
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled")
-            #endif
-            return
-        }
-        // WHY: Deterministic resolution prefers the service's own container when present so
-        // repeated calls are stable regardless of container ordering.
-        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
-        _ = resolved
-        markCacheFresh(familyRecordName: family, type: type, scope: scope)
-    }
-
-    // WHY: AnyContainer scope-array overload centralizes ambiguous-container handling; the
-    // deterministic fallback guarantees RELEASE still stamps into the resolved known container.
-    func stampCacheWatermarkForScopesAnyContainer(familyRecordName: String, types: Set<CachedRecordType>, scopes: Set<CKDatabase.Scope>, containers: [ModelContainer]) {
-        let family = normalizedFamily(familyRecordName)
-        guard !family.isEmpty else { return }
-        guard allowsWatermarkStamps else {
-            #if DEBUG
-                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
-            #endif
-            return
-        }
-        if containers.count > 1 {
-            assertionFailure("CacheService: ambiguous watermark container — \(containers.count) containers provided for family \(family); stamping into resolved known container")
-            logger
-                .fault(
-                    "CacheService: ambiguous watermark container — count=\(containers.count, privacy: .public) family=\(family, privacy: .private) stamping into resolved known container"
-                )
-        }
-        // WHY: Deterministic resolution keeps DEBUG and RELEASE identical in outcome — the known
-        // container is the service's own container when present, otherwise the first provided.
-        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
-        _ = resolved
-        for type in types {
-            for scope in scopes where type.fetchScopes.contains(scope) {
-                markCacheFresh(familyRecordName: family, type: type, scope: scope)
-            }
-        }
-    }
-
-    func stampCacheWatermarkForScopesAnyContainer(familyRecordName: String, types: [CachedRecordType], scopes: [CKDatabase.Scope], containers: [ModelContainer]) {
-        stampCacheWatermarkForScopesAnyContainer(familyRecordName: familyRecordName, types: Set(types), scopes: Set(scopes), containers: containers)
-    }
 }
 
 enum CacheServiceError: Error {
     case inMemoryFallbackFailed
-}
-
-// MARK: - Ledger pagination (V10 indexes)
-
-@MainActor
-extension CacheService {
-    /// WHY indexed window: family+profile+date narrows via the V10 composite index so history never scans.
-    /// WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan.
-    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
-    func fetchLedgerEntriesForMonth(
-        familyRecordName: String,
-        profileRecordName: String? = nil,
-        monthContaining date: Date = Date(),
-        fetchLimit: Int? = nil
-    ) -> [LedgerEntryCache] {
-        let family = familyRecordName
-        guard !family.isEmpty else { return [] }
-        let start = WeekMath.monthStart(for: date)
-        let end = WeekMath.monthEnd(for: date)
-        if let profile = profileRecordName, !profile.isEmpty {
-            var descriptor = FetchDescriptor<LedgerEntryCache>(
-                predicate: #Predicate {
-                    $0.familyRecordName == family && $0.profileRecordName == profile && $0.date >= start && $0.date < end
-                },
-                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
-            )
-            if let fetchLimit, fetchLimit > 0 {
-                descriptor.fetchLimit = fetchLimit
-            }
-            return fetch(descriptor)
-        }
-        // WHY DB-level month window: family+date narrows in store so one month never loads whole family table.
-        var descriptor = FetchDescriptor<LedgerEntryCache>(
-            predicate: #Predicate {
-                $0.familyRecordName == family && $0.date >= start && $0.date < end
-            },
-            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
-        )
-        if let fetchLimit, fetchLimit > 0 {
-            descriptor.fetchLimit = fetchLimit
-        }
-        return fetch(descriptor)
-    }
-
-    /// WHY capped page: fetchLimit bounds the indexed date-descending read so long histories stay paged.
-    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
-    func fetchRecentLedgerEntries(
-        familyRecordName: String,
-        profileRecordName: String? = nil,
-        fetchLimit: Int = 50
-    ) -> [LedgerEntryCache] {
-        let family = familyRecordName
-        guard !family.isEmpty else { return [] }
-        var descriptor = if let profile = profileRecordName, !profile.isEmpty {
-            FetchDescriptor<LedgerEntryCache>(
-                predicate: #Predicate {
-                    $0.familyRecordName == family && $0.profileRecordName == profile
-                },
-                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
-            )
-        } else {
-            FetchDescriptor<LedgerEntryCache>(
-                predicate: #Predicate { $0.familyRecordName == family },
-                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
-            )
-        }
-        descriptor.fetchLimit = max(1, fetchLimit)
-        return fetch(descriptor)
-    }
 }
 
 // WHY: fail-open diagnostic — gem-credit path previously returned false silently; logger surfaces dedup/fetch failures for on-call triage without altering idempotency.

@@ -51,10 +51,6 @@ enum PayoutDay: String, Codable, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    var weekdayNumber: Int {
-        calendarWeekday
-    }
-
     var nextDay: PayoutDay {
         let next = (calendarWeekday % 7) + 1
         return PayoutDay.from(weekday: next)

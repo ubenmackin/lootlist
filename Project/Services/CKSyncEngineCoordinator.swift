@@ -236,10 +236,6 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             )
     }
 
-    func enqueueRewardEvent(_ event: RewardEvent, isOwner: Bool) {
-        enqueueSave(recordID: event.id, isOwner: isOwner)
-    }
-
     /// Batch variant of `enqueueSave` — enqueues each recordID in a tight loop.
     /// Cheap state mutation only; keeps `contributeToBucket`'s N+M saves to one
     /// cache transaction and one logical enqueue pass.
@@ -339,11 +335,6 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             }
         }
         retryTasks.withLock { $0[key] = task }
-    }
-
-    /// Returns the stamped 30s retry deadline for a record, if any.
-    func retryDeadline(for recordID: CKRecord.ID) -> Date? {
-        retryDeadlines.withLock { $0[recordID.recordName] }
     }
 
     /// Clears retry state after successful re-evaluation.
@@ -560,16 +551,6 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
             }
         }
-    }
-
-    /// Convenience overload accepting an ordered collection of types.
-    func stampFreshness(for types: [CachedRecordType], scopes: Set<CKDatabase.Scope>) {
-        stampFreshness(for: Set(types), scopes: scopes)
-    }
-
-    /// Compatibility wrapper for call sites that reference the historic name.
-    func stampCacheFreshness(for types: Set<CachedRecordType>, scopes: Set<CKDatabase.Scope>) {
-        stampFreshness(for: types, scopes: scopes)
     }
 
     private func postSyncDidComplete(outcome: SyncOutcome) {

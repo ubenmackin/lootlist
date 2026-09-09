@@ -7,13 +7,11 @@
 
 import SwiftUI
 
-/// Forwarding stub — celebration presentation is handled by ToastManager.
+/// Compatibility forwarding view retained for legacy callers; canonical canvas lives in CelebrationOverlay.
 struct CelebrationOverlayView: View {
-    let item: CelebrationItem
-    let familyRecordName: String?
-    let onDismiss: () -> Void
+    let isPresented: Bool
 
     var body: some View {
-        EmptyView()
+        CelebrationOverlay(isPresented: isPresented)
     }
 }

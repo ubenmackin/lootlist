@@ -154,10 +154,6 @@ extension FamilyService {
 
     // MARK: - Session & Detected Family Facades (CloudKit isolation)
 
-    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool) async {
-        await appState.acceptDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
-    }
-
     func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneName: String, zoneOwnerName: String, isOwner: Bool) async {
         await appState.acceptDetectedFamily(
             familyCache: familyCache,
@@ -175,10 +171,6 @@ extension FamilyService {
 
     func acceptDetectedFamily(family: Family, profile: Profile, isOwner: Bool) async {
         await acceptDetectedFamily(family: family, profile: profile, zoneID: family.id.zoneID, isOwner: isOwner)
-    }
-
-    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool) async {
-        await appState.rejectDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
     }
 
     func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneName: String, zoneOwnerName: String, isOwner: Bool) async {

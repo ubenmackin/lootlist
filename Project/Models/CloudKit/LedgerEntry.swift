@@ -135,10 +135,6 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         self.toBucket = toBucket
         self.family = family
     }
-
-    var formattedAmount: String {
-        CurrencyFormatter.string(pennies: amount)
-    }
 }
 
 /// Single-count contract (bucket-only): counted = bucketKind != nil && source != goal && source != transfer; bonus = counted && source != quest.

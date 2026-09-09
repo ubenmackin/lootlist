@@ -311,16 +311,4 @@ final class BonusObjectiveService {
 
         activeSoundManager?.play(.gemEarned)
     }
-
-    func isClaimed(objective: BonusObjective, profile: Profile) -> Bool {
-        let current = resolvedProfile(profile) ?? profile
-        return current.claimedBonusObjectives.contains(objective.id)
-    }
-
-    private func resolvedProfile(_ profile: Profile) -> Profile? {
-        guard let cacheService else { return nil }
-        let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
-        guard let cached = cacheService.fetchProfile(recordName: profile.id.recordName, family: familyRecordName) else { return nil }
-        return cached.toProfile(zoneID: profile.id.zoneID)
-    }
 }

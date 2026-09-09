@@ -47,30 +47,12 @@ final class LedgerService {
         appState: AppState? = nil,
         syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
-        let cache: any CacheServicing
-        if let cacheService {
-            cache = cacheService
-        } else {
-            Self.staticLogger.warning("LedgerService initialized without cacheService; using fallback in-memory cache.")
-            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
-        }
-        let state = appState ?? AppState()
-        // WHY single stack: shared coordinator owns hydration; ephemeral engines fork freshness.
-        if let coord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
-            self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    Self.staticLogger.warning("LedgerService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("LedgerService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
-            #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("LedgerService requires a sync coordinator in production")
-            #endif
-        }
+        self.init(
+            cloudKit: cloudKit,
+            cacheService: ServiceInitHelper.resolveCacheService(provided: cacheService, logger: Self.staticLogger, serviceName: "LedgerService"),
+            appState: appState ?? AppState(),
+            syncCoordinator: ServiceInitHelper.resolveSyncCoordinator(provided: syncCoordinator, logger: Self.staticLogger, serviceName: "LedgerService")
+        )
     }
 
     // MARK: - Cached Reads

@@ -73,11 +73,6 @@ struct PixelCanvasView: View {
         self.animated = animated
     }
 
-    init(matrix: [String], palette: [Character: Color], animated: Bool = true) {
-        self.sprite = PixelSpriteData(matrix: matrix, palette: palette)
-        self.animated = animated
-    }
-
     var body: some View {
         GeometryReader { geo in
             let size = geo.size

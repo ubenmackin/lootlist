@@ -79,20 +79,4 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
         self.enabled = enabled
         self.family = family
     }
-
-    init(profile: CKRecord.Reference,
-         eventType: NotificationEventType,
-         role: UserRole,
-         family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
-    {
-        let defaultEnabled = role.isParent
-            ? eventType.defaultEnabledForParent
-            : eventType.defaultEnabledForHero
-        self.init(profile: profile,
-                  eventType: eventType,
-                  enabled: defaultEnabled,
-                  family: family,
-                  id: id)
-    }
 }

@@ -24,8 +24,6 @@ struct ProfileView: View {
 
     @Environment(FamilyService.self) private var familyService
 
-    @Environment(QuestService.self) private var questService
-
     @Environment(AchievementService.self) private var achievementService
 
     @Query private var cachedAchievements: [AchievementCache]
@@ -678,10 +676,6 @@ struct ProfileView: View {
 /// WHY service-owned: Views/ViewModels never touch UserDefaults directly; all reads/writes ride this store.
 enum AppIconEligibilityStore {
     static let maxSavingsStreakWeeksKey = "appicon.maxSavingsStreakWeeks"
-
-    static func maxSavingsStreakWeeks(defaults: UserDefaults = .standard) -> Int {
-        defaults.integer(forKey: maxSavingsStreakWeeksKey)
-    }
 
     static func recordSavingsStreak(_ streak: Int, defaults: UserDefaults = .standard) {
         let stored = defaults.integer(forKey: maxSavingsStreakWeeksKey)

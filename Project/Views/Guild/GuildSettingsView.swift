@@ -20,7 +20,6 @@ struct GuildSettingsView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
-    @Environment(CacheService.self) private var cacheService: CacheService?
 
     @State private var viewModel: FamilyDashboardViewModel?
 
@@ -39,6 +38,7 @@ struct GuildSettingsView: View {
 
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
+    @State private var isPayoutPolicyExpanded: Bool = false
 
     @State private var showRolePicker: Bool = false
     @State private var sharePresentation: CloudSharePresentation?
@@ -46,7 +46,6 @@ struct GuildSettingsView: View {
 
     @State private var showRoleTransferConfirm: ProfileCache?
     @State private var isRoleTransferConfirmPresented: Bool = false
-    @State private var isPayoutPolicyExpanded: Bool = false
     @State private var revokeError: String?
     @State private var isSigningOut: Bool = false
     @State private var ledgerHistoryLimit: Int = 50

@@ -51,57 +51,6 @@ final class QuestAssignmentService {
         self.toastManager = toastManager
     }
 
-    private static let staticLogger = Logger(category: "QuestAssignmentService")
-
-    @_disfavoredOverload
-    convenience init(
-        cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
-        notificationService: NotificationService? = nil,
-        toastManager: ToastManager? = nil
-    ) {
-        let cache: CacheService
-        if let cacheService {
-            cache = cacheService
-        } else {
-            Self.staticLogger.warning("QuestAssignmentService initialized without cacheService; using fallback in-memory cache.")
-            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
-        }
-        let state = appState ?? AppState()
-        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
-        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
-        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
-            self.init(
-                cloudKit: cloudKit,
-                cacheService: cache,
-                appState: state,
-                syncCoordinator: coord,
-                notificationService: notificationService,
-                toastManager: toastManager
-            )
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    Self.staticLogger.warning("QuestAssignmentService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("QuestAssignmentService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                self.init(
-                    cloudKit: cloudKit,
-                    cacheService: cache,
-                    appState: state,
-                    syncCoordinator: NoopSyncEnqueuing(),
-                    notificationService: notificationService,
-                    toastManager: toastManager
-                )
-            #else
-                preconditionFailure("QuestAssignmentService requires a sync coordinator in production")
-            #endif
-        }
-    }
-
     @discardableResult
     func assignQuest(template: QuestTemplate,
                      assignee: Profile,
@@ -590,13 +539,5 @@ final class QuestAssignmentService {
 private extension Logger {
     func warning(_ message: String, family: String, zone: String) {
         log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
-    }
-
-    func info(_ message: String, family: String, zone: String) {
-        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
-    }
-
-    func error(_ message: String, family: String, zone: String) {
-        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

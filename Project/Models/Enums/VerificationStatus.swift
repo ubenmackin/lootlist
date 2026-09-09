@@ -19,16 +19,6 @@ enum VerificationStatus: String, Sendable, CaseIterable, Codable {
     /// Pending submission unsubmitted by the completer or parent (keeps history append-only).
     case withdrawn
 
-    var displayName: String {
-        switch self {
-        case .autoApproved: "Auto-Approved"
-        case .pending: "Pending"
-        case .verified: "Verified"
-        case .rejected: "Rejected"
-        case .withdrawn: "Withdrawn"
-        }
-    }
-
     var iconSystemName: String {
         switch self {
         case .autoApproved: "checkmark.seal.fill"

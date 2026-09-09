@@ -29,9 +29,18 @@ enum DeterministicRecordID {
         recordName.hasPrefix(contribRoot)
     }
 
-    /// Returns true when `recordName` is a contribution for the given goal.
+    /// WHY scoped check: prefix alone collides across goals, so goal binding confirms ownership.
     static func isContribution(_ recordName: String, for goalRecordName: String) -> Bool {
         recordName.hasPrefix(contributionPrefix(for: goalRecordName))
+    }
+
+    /// WHY single source: purchase debit identity stays behind the factory so dedupe never drifts.
+    static func isPurchaseRecord(_ recordName: String, goalRecordName: String) -> Bool {
+        recordName == purchase(goalRecordName: goalRecordName)
+    }
+
+    static func isPurchaseRecord(_ recordName: String) -> Bool {
+        recordName.hasPrefix(purchaseRoot)
     }
 
     static func interest(profileRecordName: String, monthKey: String) -> String {
@@ -46,22 +55,23 @@ enum DeterministicRecordID {
         "\(contributionPrefix(for: goalRecordName))\(sourceEventID)"
     }
 
+    /// WHY single source: reward minting dedupes on this name across devices.
+    static func reward(completionID: String) -> String {
+        "reward-\(completionID)"
+    }
+
+    /// WHY UTC: same instant resolves to same month on every device for dedupe.
+    static func monthKeyUTC(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
+        WeekMath.monthKey(for: date, calendar: calendar)
+    }
+
     /// Deterministic purchase debit for a goal: `purchase-{goalRecordName}`.
     static func purchase(goalRecordName: String) -> String {
         "\(purchaseRoot)\(goalRecordName)"
     }
 
-    /// Returns true when `recordName` is any purchase debit record.
-    static func isPurchaseRecord(_ recordName: String) -> Bool {
-        recordName.hasPrefix(purchaseRoot)
-    }
-
     static func transfer(profileRecordName: String, transferID: String) -> String {
         "transfer-\(profileRecordName)-\(transferID)"
-    }
-
-    static func reward(completionID: String) -> String {
-        "reward-\(completionID)"
     }
 
     static func `import`(hex: String) -> String {
@@ -88,10 +98,6 @@ enum DeterministicRecordID {
 /// calendar math lives in `WeekMath` so timezone handling cannot diverge
 /// between interest/match/daily-login flows.
 enum DeterministicIdentity {
-    static func monthKeyUTC(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
-        WeekMath.monthKey(for: date, calendar: calendar)
-    }
-
     /// UTC `yyyy-MM-dd` day key for daily-login deterministic dedupe.
     /// Thin wrapper over `WeekMath.dayKey(for:calendar:)` so daily-login shares
     /// the single-source `Calendar.iso8601UTC` path with `WeekMath` and monthKey.
@@ -112,7 +118,7 @@ enum IdempotencyGuard {
         entries.contains(where: { $0.recordName == recordName })
     }
 
-    /// Overload for domain `LedgerEntry` arrays (CKRecord.ID-backed).
+    /// WHY domain mirror: pre-cache flows check the same identity without a store read.
     static func containsDeterministicID(_ recordName: String, in entries: [LedgerEntry]) -> Bool {
         entries.contains(where: { $0.id.recordName == recordName })
     }

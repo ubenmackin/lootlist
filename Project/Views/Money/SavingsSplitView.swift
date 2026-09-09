@@ -23,11 +23,9 @@ struct SavingsSplitView: View {
     @State private var isSaving: Bool = false
     @State private var errorMessage: String?
 
-    private let familyRecordName: String?
     private let profileRecordName: String?
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
-        self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
         // Single-row targeted fetch (e.g. parent inspecting a hero); otherwise family-scoped fetch resolved via currentProfile.

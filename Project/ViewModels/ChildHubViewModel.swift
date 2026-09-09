@@ -110,10 +110,6 @@ final class ChildHubViewModel {
         HubQueryProvider.firstName(displayName: displayName)
     }
 
-    func firstName(for row: ProfileCache?) -> String? {
-        Self.firstName(displayName: row?.displayName)
-    }
-
     /// Most-recent ledger slice for the momentum sparkline.
     nonisolated static func recentLedgers(_ ledgers: [LedgerEntryCache], limit: Int = 7) -> [LedgerEntryCache] {
         HubQueryProvider.recentLedgers(ledgers, limit: limit)

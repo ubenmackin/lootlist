@@ -30,7 +30,7 @@ struct AvatarSelectionView: View {
     @Environment(ToastManager.self) private var toastManager
 
     @FocusState private var isNameFocused: Bool
-    @State private var isRPGExpanded: Bool = false
+
     @State private var selectedPhotoItem: PhotosPickerItem?
 
     private let logger = Logger(category: "AvatarSelectionView")
@@ -210,7 +210,6 @@ struct AvatarSelectionView: View {
     /// default onboarding path stays lightweight (name + emoji only).
     private var rpgDisclosureSection: some View {
         DisclosureGroup(
-            isExpanded: $isRPGExpanded,
             content: {
                 VStack(alignment: .leading, spacing: 20) {
                     customPhotoSection

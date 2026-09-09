@@ -30,10 +30,6 @@ enum PayoutStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var isResolved: Bool {
-        self == .paid
-    }
-
     var rank: Int {
         switch self {
         case .active: 0

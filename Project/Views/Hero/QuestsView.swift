@@ -5,19 +5,15 @@
 //  Created by Ben Mackin on 8/17/26.
 //
 
-import os
 import SwiftData
 import SwiftUI
 
 struct QuestsView: View {
-    private static let logger = Logger(category: "QuestsView")
-
+    @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
-    @Environment(ToastManager.self) private var toastManager
-    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
-    @Environment(XPService.self) private var xpService
     @Environment(LootDropService.self) private var lootDropService
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]

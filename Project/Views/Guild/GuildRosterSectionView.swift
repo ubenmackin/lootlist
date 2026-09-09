@@ -17,7 +17,6 @@ struct GuildRosterSectionView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
-    @Environment(QuestService.self) private var questService
     @Environment(ToastManager.self) private var toastManager
 
     @Binding var heroToEdit: ProfileCache?

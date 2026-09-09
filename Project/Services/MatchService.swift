@@ -50,31 +50,12 @@ final class MatchService {
         appState: AppState? = nil,
         syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
-        let cache: any CacheServicing
-        if let cacheService {
-            cache = cacheService
-        } else {
-            Self.staticLogger.warning("MatchService initialized without cacheService; using fallback in-memory cache.")
-            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
-        }
-        let state = appState ?? AppState()
-        let coord: any SyncEnqueuing
-        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
-            coord = resolvedCoord
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    Self.staticLogger.warning("MatchService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("MatchService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                coord = NoopSyncEnqueuing()
-            #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("MatchService requires a sync coordinator in production")
-            #endif
-        }
-        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
+        self.init(
+            cloudKit: cloudKit,
+            cacheService: ServiceInitHelper.resolveCacheService(provided: cacheService, logger: Self.staticLogger, serviceName: "MatchService"),
+            appState: appState ?? AppState(),
+            syncCoordinator: ServiceInitHelper.resolveSyncCoordinator(provided: syncCoordinator, logger: Self.staticLogger, serviceName: "MatchService")
+        )
     }
 
     // MARK: - Deterministic Identity

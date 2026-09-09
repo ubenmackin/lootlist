@@ -12,7 +12,6 @@ import SwiftUI
 struct KidsSavingsGoalsView: View {
     private static let logger = Logger(category: "KidsSavingsGoalsView")
 
-    private let familyRecordName: String?
     private let focusedProfileRecordName: String?
 
     @Environment(AppState.self) private var appState
@@ -27,7 +26,6 @@ struct KidsSavingsGoalsView: View {
     @State private var goalToDelete: GoalCache?
 
     init(familyRecordName: String? = nil, focusedProfileRecordName: String? = nil) {
-        self.familyRecordName = familyRecordName
         self.focusedProfileRecordName = focusedProfileRecordName
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "KidsSavingsGoalsView")

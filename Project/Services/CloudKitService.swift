@@ -100,10 +100,6 @@ class CloudKitService: CloudKitServiceProtocol {
     private var cachedPrivateDatabase: CKDatabase?
     private var cachedSharedDatabase: CKDatabase?
 
-    var database: CKDatabase? {
-        privateDatabase
-    }
-
     var privateDatabase: CKDatabase? {
         if let cachedPrivateDatabase {
             return cachedPrivateDatabase
@@ -143,10 +139,6 @@ class CloudKitService: CloudKitServiceProtocol {
 
     var activeFamilyDatabase: CKDatabase? {
         database(isOwner: activeIsOwner)
-    }
-
-    var resolvedZoneID: CKRecordZone.ID {
-        activeFamilyZoneID ?? defaultZoneID
     }
 
     func database(isOwner: Bool) -> CKDatabase? {

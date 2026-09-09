@@ -37,14 +37,6 @@ enum AchievementCategory: String, Codable, Sendable {
     case goal
 }
 
-enum AchievementServiceError: Error, LocalizedError, Equatable, Sendable {
-    case persistenceFailed
-
-    var errorDescription: String? {
-        "Could not save achievement. Please try again."
-    }
-}
-
 struct ProfileStats: Sendable {
     let questCount: Int
     let bestWeeklyCompletion: Double
@@ -88,8 +80,6 @@ final class AchievementService {
     let cacheService: (any CacheServicing)?
     var syncCoordinator: (any SyncEnqueuing)?
 
-    let toastManager: ToastManager?
-
     var appState: AppState?
 
     var notificationService: NotificationService?
@@ -100,14 +90,13 @@ final class AchievementService {
     init(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: (any CacheServicing)? = nil,
-        toastManager: ToastManager? = nil,
+        toastManager _: ToastManager? = nil,
         appState: AppState? = nil,
         celebrationManager: CelebrationManager? = nil,
         syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
-        self.toastManager = toastManager
         self.appState = appState
         self.celebrationManager = celebrationManager
         self.syncCoordinator = syncCoordinator

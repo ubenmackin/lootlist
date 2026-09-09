@@ -245,7 +245,11 @@ struct ChildHubView: View {
             }
             .sheet(isPresented: $isShowingLogSpending) {
                 if let treasuryViewModel {
-                    LogSpendingView(viewModel: treasuryViewModel, familyRecordName: familyRecordName)
+                    LogSpendingView(
+                        viewModel: treasuryViewModel,
+                        familyRecordName: familyRecordName,
+                        profileRecordName: profileRecordName ?? currentProfileRow?.recordName
+                    )
                 }
             }
             .sheet(isPresented: $isShowingSplit) {

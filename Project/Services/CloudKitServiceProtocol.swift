@@ -176,10 +176,10 @@ protocol CloudKitServiceProtocol: AnyObject, Sendable {
     var activeIsOwner: Bool { get set }
     var resolvedZoneID: CKRecordZone.ID { get }
 
-    var database: CKDatabase? { get }
     var privateDatabase: CKDatabase? { get }
     var sharedDatabase: CKDatabase? { get }
     var activeFamilyDatabase: CKDatabase? { get }
+    var database: CKDatabase? { get }
 
     func database(isOwner: Bool) -> CKDatabase?
 
@@ -189,7 +189,7 @@ protocol CloudKitServiceProtocol: AnyObject, Sendable {
     func query<T: CloudKitRecord>(_ type: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?, using db: CKDatabase?) async throws
         -> [T]
     func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID?, using db: CKDatabase?) async throws
-    func delete(_ entity: some CloudKitRecord, using db: CKDatabase?) async throws
+    func delete(_ entity: some CloudKitRecord, in zoneID: CKRecordZone.ID?, using db: CKDatabase?) async throws
 
     func ensureZoneExists(_ zoneID: CKRecordZone.ID) async throws
 
@@ -230,6 +230,20 @@ protocol CloudKitServiceProtocol: AnyObject, Sendable {
 
 /// Convenience overloads; protocol requirements live above.
 extension CloudKitServiceProtocol {
+    var database: CKDatabase? {
+        privateDatabase
+    }
+
+    var resolvedZoneID: CKRecordZone.ID {
+        activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "LootListZone", ownerName: CKCurrentUserDefaultName)
+    }
+
+    func delete(_ entity: some CloudKitRecord, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws {
+        // WHY zone-aware: entity zone rides the delete so tombstones land in the active family zone.
+        let record = entity.toRecord()
+        try await delete(record.recordID, in: zoneID ?? record.recordID.zoneID, using: db)
+    }
+
     func claimRewardEvent(
         _ event: RewardEvent,
         in zoneID: CKRecordZone.ID? = nil,
@@ -266,11 +280,6 @@ extension CloudKitServiceProtocol {
 
     func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws {
         try await delete(recordID, in: zoneID, using: db)
-    }
-
-    func delete(_ entity: some CloudKitRecord, using db: CKDatabase? = nil) async throws {
-        let record = entity.toRecord()
-        try await delete(record.recordID, in: record.recordID.zoneID, using: db)
     }
 
     /// Performs a conditional balance update and ledger creation in one CloudKit operation.

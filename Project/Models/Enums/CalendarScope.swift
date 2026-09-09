@@ -40,12 +40,6 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Inclusive bounds of the scope for the current date, used to format sublabels and to test membership
-    /// via `contains(_:)`.
-    var dateRange: ClosedRange<Date> {
-        dateRange(payoutDay: .sunday)
-    }
-
     /// Inclusive bounds of the scope for the current date, anchored on the given payout day for
     /// `.thisWeek`.
     func dateRange(payoutDay: PayoutDay) -> ClosedRange<Date> {
@@ -61,11 +55,6 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
         case .allTime:
             return Date.distantPast ... Date()
         }
-    }
-
-    /// Medium-style formatted bounds joined by an en dash, e.g. "Aug 1, 2026 – Aug 31, 2026".
-    var dateRangeSublabel: String {
-        dateRangeSublabel(payoutDay: .sunday)
     }
 
     /// Medium-style formatted bounds joined by an en dash, e.g. "Aug 1, 2026 – Aug 31, 2026".

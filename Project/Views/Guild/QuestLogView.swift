@@ -12,7 +12,7 @@ struct QuestLogView: View {
     @Environment(QuestService.self) private var questService
     @Environment(FamilyService.self) private var familyService
     @Environment(AppState.self) private var appState
-    @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(ToastManager.self) private var toastManager
 

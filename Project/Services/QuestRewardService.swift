@@ -144,50 +144,13 @@ final class QuestRewardService {
 
     /// WHY cache-first: reward path stays self-contained without a service cycle.
     private func fetchLogsForReward(forQuest quest: Quest) async throws -> [QuestCompletion] {
-        let family = Family(
-            name: "",
-            creatorUserRecordName: nil,
-            id: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
-        )
-        // WHY fail-closed: unknown scope serves cache only without guessing a database.
-        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
-            return cacheService.fetchQuestCompletions(family: family.id.recordName)
-                .filter { $0.questRecordName == quest.id.recordName }
-                .map { [quest] cache in cache.toQuestCompletion(zoneID: quest.id.zoneID) }
-                .sorted { $0.completedDate > $1.completedDate }
-        }
-        return try await CacheFirst.cacheFirst(
-            type: .questCompletion,
-            family: family,
+        try await QuestLogFetchHelper.fetchQuestLogs(
+            forQuest: quest,
+            useCache: true,
+            appState: appState,
             cacheService: cacheService,
-            scope: scope,
-            operations: .init(
-                fetchCache: { [cacheService, quest] familyName in
-                    cacheService.fetchQuestCompletions(family: familyName)
-                        .filter { $0.questRecordName == quest.id.recordName }
-                },
-                map: { [quest] cache in
-                    cache.toQuestCompletion(zoneID: quest.id.zoneID)
-                },
-                query: { [cloudKit, quest] in
-                    let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
-                    let predicate = NSPredicate(format: "quest == %@", questRef)
-                    return try await cloudKit.query(
-                        QuestCompletion.self,
-                        predicate: predicate,
-                        in: quest.id.zoneID,
-                        sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
-                    )
-                },
-                hydrate: { [syncCoordinator, scope, quest] models in
-                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                        models: models,
-                        databaseScope: scope,
-                        zoneID: quest.id.zoneID
-                    )
-                },
-                sortedBy: { $0.completedDate > $1.completedDate }
-            )
+            cloudKit: cloudKit,
+            syncCoordinator: syncCoordinator
         )
     }
 

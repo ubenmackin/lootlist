@@ -113,12 +113,4 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         self.paidAmount = paidAmount
         self.family = family
     }
-
-    var formattedTotalEarned: String {
-        CurrencyFormatter.string(pennies: totalEarned)
-    }
-
-    var formattedPaidAmount: String? {
-        paidAmount.map { CurrencyFormatter.string(pennies: $0) }
-    }
 }

@@ -61,10 +61,6 @@ protocol CacheMergeable: PersistentModel {
 }
 
 extension CacheMergeable {
-    func update(from domain: DomainModel) {
-        update(from: domain, isServerSync: false)
-    }
-
     /// Hoisted single & batch upsert field-application helper shared across CacheService upserts.
     static func apply(_ cached: Self, from domain: DomainModel, isServerSync: Bool = false) {
         cached.update(from: domain, isServerSync: isServerSync)

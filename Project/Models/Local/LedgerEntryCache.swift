@@ -56,10 +56,6 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         return LedgerSource(rawValue: source)
     }
 
-    var formattedAmount: String {
-        CurrencyFormatter.string(pennies: amount)
-    }
-
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

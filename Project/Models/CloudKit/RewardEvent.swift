@@ -92,10 +92,6 @@ struct RewardEvent: Identifiable, Equatable, Sendable, CloudKitRecord {
     }
 
     static func recordID(completionRecordName: String, zoneID: CKRecordZone.ID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "reward-\(completionRecordName)", zoneID: zoneID)
-    }
-
-    var formattedGoldAmount: String {
-        CurrencyFormatter.string(pennies: goldAmount)
+        CKRecord.ID(recordName: DeterministicRecordID.reward(completionID: completionRecordName), zoneID: zoneID)
     }
 }

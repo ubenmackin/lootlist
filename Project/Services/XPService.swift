@@ -9,14 +9,6 @@ import CloudKit
 import Foundation
 import os
 
-enum XPServiceError: Error, LocalizedError, Equatable, Sendable {
-    case persistenceFailed
-
-    var errorDescription: String? {
-        "Could not update XP. Please try again."
-    }
-}
-
 struct LevelProgress: Equatable, Sendable {
     let currentLevel: Int
 

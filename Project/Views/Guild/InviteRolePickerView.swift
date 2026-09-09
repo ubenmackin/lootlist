@@ -42,7 +42,6 @@ struct InviteRolePickerView: View {
 
             VStack(spacing: 12) {
                 RoleOptionCard(
-                    role: .hero,
                     title: "Hero",
                     subtitle: "For kids & dependents — complete quests, earn money & rewards",
                     iconName: "figure.and.child.holdinghands",
@@ -52,7 +51,6 @@ struct InviteRolePickerView: View {
                 }
 
                 RoleOptionCard(
-                    role: .ranger,
                     title: "Ranger",
                     subtitle: "For co-parents & guardians — manage quests, approve payouts & settings",
                     iconName: "person.2.fill",
@@ -76,7 +74,6 @@ struct InviteRolePickerView: View {
 
 /// Custom interactive selection card for the role picker
 private struct RoleOptionCard: View {
-    let role: UserRole
     let title: String
     let subtitle: String
     let iconName: String

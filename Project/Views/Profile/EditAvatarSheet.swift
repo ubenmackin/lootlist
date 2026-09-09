@@ -25,7 +25,7 @@ struct EditAvatarSheet: View {
     let profileCache: ProfileCache
 
     @Environment(ToastManager.self) private var toastManager
-    @Environment(AppState.self) private var appState
+
     @Environment(FamilyService.self) private var familyService
     @Environment(\.dismiss) private var dismiss
 

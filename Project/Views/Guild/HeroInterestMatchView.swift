@@ -13,7 +13,6 @@ struct HeroInterestMatchView: View {
     private let logger = Logger(category: "HeroInterestMatch")
 
     let hero: ProfileCache
-    let familyRecordName: String?
 
     @Query private var heroRows: [ProfileCache]
 
@@ -45,7 +44,6 @@ struct HeroInterestMatchView: View {
 
     init(hero: ProfileCache, familyRecordName: String? = nil) {
         self.hero = hero
-        self.familyRecordName = familyRecordName
 
         let targetRecord = hero.recordName
         let targetFamily = familyRecordName ?? hero.familyRecordName

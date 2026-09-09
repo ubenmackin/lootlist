@@ -38,8 +38,7 @@ struct PayoutDetailContent: View {
                 date: entry.date,
                 amount: entry.amount,
                 source: entry.source,
-                bucket: entry.bucketKind ?? entry.toBucket ?? entry.fromBucket ?? "-",
-                entry: entry
+                bucket: entry.bucketKind ?? entry.toBucket ?? entry.fromBucket ?? "-"
             )
         }
     }
@@ -274,5 +273,4 @@ struct LedgerDisplayRow: Identifiable {
     let amount: Int64
     let source: String
     let bucket: String
-    let entry: LedgerEntryCache
 }

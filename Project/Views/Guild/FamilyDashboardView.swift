@@ -22,11 +22,11 @@ struct FamilyDashboardView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var viewModel: FamilyDashboardViewModel?
-    @State private var showRolePicker: Bool = false
     @State private var sharePresentation: CloudSharePresentation?
     @State private var selectedChildRecordName: String?
-    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var showPendingInspector = false
+    @State private var showRolePicker = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
@@ -185,13 +185,13 @@ struct FamilyDashboardView: View {
         }
         // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
         .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+        .sheet(item: $sharePresentation) { presentation in
+            CloudSharingControllerWrapper(presentation: presentation)
+        }
         .sheet(isPresented: $showRolePicker) {
             InviteRolePickerView { role in
                 await presentInviteShare(for: role)
             }
-        }
-        .sheet(item: $sharePresentation) { presentation in
-            CloudSharingControllerWrapper(presentation: presentation)
         }
         .onChange(of: viewModel?.loadError) { _, newError in
             if let error = newError {
@@ -769,10 +769,12 @@ private extension FamilyDashboardView {
     @MainActor
     func presentInviteShare(for role: UserRole) async {
         guard let presentation = await viewModel?.prepareInviteShare(for: role) else {
+            Self.logger.warning("Invite share preparation failed for role \(role.rawValue, privacy: .public)")
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
         }
         guard presentation.shareURL != nil else {
+            Self.logger.warning("Invite share missing URL for role \(role.rawValue, privacy: .public)")
             toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
             return
         }

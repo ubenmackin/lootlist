@@ -12,8 +12,7 @@ struct MascotBannerView: View {
     private static let logger = Logger(category: "MascotBannerView")
 
     @Environment(BonusObjectiveService.self) private var bonusService
-    @Environment(GemService.self) private var gemService
-    @Environment(SoundManager.self) private var soundManager
+
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     let profileCache: ProfileCache

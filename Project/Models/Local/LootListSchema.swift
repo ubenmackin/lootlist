@@ -7,6 +7,7 @@
 
 import SwiftData
 
+/// WHY history: VersionedSchema chain preserves V7→V10 lightweight path; V9/V10 share identical property sets.
 enum LootListSchemaV7: VersionedSchema {
     static var versionIdentifier: Schema.Version {
         Schema.Version(7, 0, 0)
@@ -30,7 +31,7 @@ enum LootListSchemaV7: VersionedSchema {
     }
 }
 
-/// Schema V8: adds goals, savings config, ledger bucket attribution, and claims.
+/// WHY history: V8 introduced GoalCache plus savings-config and bucket fields.
 enum LootListSchemaV8: VersionedSchema {
     static var versionIdentifier: Schema.Version {
         Schema.Version(8, 0, 0)
@@ -55,7 +56,7 @@ enum LootListSchemaV8: VersionedSchema {
     }
 }
 
-/// Schema V9: adds targetDate, linkURL, and imageURL to GoalCache.
+/// WHY history: V9 is the pre-index baseline V10 adds composite indexes onto.
 enum LootListSchemaV9: VersionedSchema {
     static var versionIdentifier: Schema.Version {
         Schema.Version(9, 0, 0)

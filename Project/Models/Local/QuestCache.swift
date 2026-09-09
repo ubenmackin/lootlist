@@ -62,10 +62,6 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         QuestSchedule(rawValue: scheduleType)
     }
 
-    var formattedGoldReward: String {
-        CurrencyFormatter.string(pennies: goldReward)
-    }
-
     func isScheduled(on date: Date, template: QuestTemplateCache?, payoutDay: PayoutDay) -> Bool {
         guard isActive,
               WeekMath.weekRange(starting: WeekMath.startOfWeek(for: date, payoutDay: payoutDay)).contains(weekOf)

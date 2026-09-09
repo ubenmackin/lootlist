@@ -65,12 +65,4 @@ extension CloudKitService {
     func currentUserRecordID() async throws -> CKRecord.ID {
         try await container.userRecordID()
     }
-
-    func accountStatus() async throws -> CKAccountStatus {
-        do {
-            return try await container.accountStatus()
-        } catch {
-            throw wrapError(error)
-        }
-    }
 }

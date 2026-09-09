@@ -51,14 +51,6 @@ struct ScopedRecordIdentity: Hashable, Sendable {
         self.familyRecordName = familyRecordName
     }
 
-    init(from record: CKRecord, databaseScope: CKDatabase.Scope, familyRecordName: String?) {
-        self.databaseScope = databaseScope
-        self.zoneName = record.recordID.zoneID.zoneName
-        self.zoneOwnerName = record.recordID.zoneID.ownerName
-        self.recordName = record.recordID.recordName
-        self.familyRecordName = familyRecordName
-    }
-
     var databaseScopeString: String {
         switch databaseScope {
         case .private: "private"

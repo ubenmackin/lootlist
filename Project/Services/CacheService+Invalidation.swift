@@ -59,22 +59,6 @@ extension CacheService {
         _ = saveContext()
     }
 
-    func invalidate(_ descriptor: FetchDescriptor<some PersistentModel>) {
-        guard let context else { return }
-        do {
-            if let object = try context.fetch(descriptor).first {
-                context.delete(object)
-                saveContext()
-            }
-        } catch {
-            logger.warning("Failed to fetch record for invalidation: \(error, privacy: .private)")
-        }
-    }
-
-    func invalidateByRecordName<T: PersistentModel>(_: T.Type, recordName _: String, predicate: Predicate<T>) {
-        invalidate(FetchDescriptor<T>(predicate: predicate))
-    }
-
     func deleteByNameAndFamily(_ type: (some CacheMergeable & FamilyScopedCache).Type, recordName: String, familyRecordName: String) {
         guard let context else { return }
         // WHY single source: scoped deletes share CachedRecordType primitives so indexing never drifts.

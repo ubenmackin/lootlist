@@ -72,31 +72,12 @@ class SpendingService {
         appState: AppState? = nil,
         syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
-        let cache: any CacheServicing
-        if let cacheService {
-            cache = cacheService
-        } else {
-            Self.staticLogger.warning("SpendingService initialized without cacheService; using fallback in-memory cache.")
-            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
-        }
-        let state = appState ?? AppState()
-        // WHY single stack: shared coordinator owns hydration; ephemeral engines fork freshness.
-        if let coord: any SyncEnqueuing = syncCoordinator ?? AppDependencies.shared?.syncCoordinator {
-            self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    // WHY test seam: unit tests inject no engine, so cache-only coordination keeps reads deterministic.
-                    Self.staticLogger.warning("SpendingService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("SpendingService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
-            #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("SpendingService requires a sync coordinator in production")
-            #endif
-        }
+        self.init(
+            cloudKit: cloudKit,
+            cacheService: ServiceInitHelper.resolveCacheService(provided: cacheService, logger: Self.staticLogger, serviceName: "SpendingService"),
+            appState: appState ?? AppState(),
+            syncCoordinator: ServiceInitHelper.resolveSyncCoordinator(provided: syncCoordinator, logger: Self.staticLogger, serviceName: "SpendingService")
+        )
     }
 
     func isAvailable() -> Bool {

@@ -79,7 +79,10 @@ final class HeroLedgerViewModel {
         ledgerRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
     }
 
-    func deposit(description: String, amount: Int64, date: Date) async -> Bool {
+    private func withLedgerAction(
+        failureMessage: String,
+        action: (Profile, Family) async throws -> Void
+    ) async -> Bool {
         guard let family = appState.family else {
             errorMessage = "No family loaded."
             return false
@@ -91,6 +94,18 @@ final class HeroLedgerViewModel {
         defer { isLoading = false }
 
         do {
+            try await action(profile, family)
+            errorMessage = nil
+            return true
+        } catch {
+            logger.error("Ledger action failed: \(error, privacy: .private)")
+            errorMessage = failureMessage
+            return false
+        }
+    }
+
+    func deposit(description: String, amount: Int64, date: Date) async -> Bool {
+        await withLedgerAction(failureMessage: "Could not deposit. Please try again.") { profile, family in
             // WHY full-split: depositEntries sums to the exact deposit total across bucket shares.
             _ = try await spending.depositEntries(
                 profile: profile,
@@ -101,27 +116,11 @@ final class HeroLedgerViewModel {
                 location: nil,
                 date: date
             )
-            errorMessage = nil
-            return true
-        } catch {
-            logger.error("Failed to deposit: \(error, privacy: .private)")
-            errorMessage = "Could not deposit. Please try again."
-            return false
         }
     }
 
     func withdraw(description: String, amount: Int64, date: Date) async -> Bool {
-        guard let family = appState.family else {
-            errorMessage = "No family loaded."
-            return false
-        }
-        let zoneID = appState.resolvedFamilyZoneID()
-        let profile = heroProfile.toProfile(zoneID: zoneID)
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
+        await withLedgerAction(failureMessage: "Could not withdraw. Please try again.") { profile, family in
             _ = try await spending.withdraw(
                 profile: profile,
                 family: family,
@@ -131,12 +130,6 @@ final class HeroLedgerViewModel {
                 location: nil,
                 date: date
             )
-            errorMessage = nil
-            return true
-        } catch {
-            logger.error("Failed to withdraw: \(error, privacy: .private)")
-            errorMessage = "Could not withdraw. Please try again."
-            return false
         }
     }
 }

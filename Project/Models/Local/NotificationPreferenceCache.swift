@@ -26,10 +26,6 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
 
-    var eventTypeEnum: NotificationEventType? {
-        NotificationEventType(rawValue: eventType)
-    }
-
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

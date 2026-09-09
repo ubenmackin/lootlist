@@ -31,11 +31,9 @@ struct GemShopView: View {
 
     private let logger = Logger(category: "GemShopView")
     private let familyRecordName: String?
-    private let profileRecordName: String?
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
-        self.profileRecordName = profileRecordName
 
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""

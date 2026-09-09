@@ -137,18 +137,4 @@ struct CelebrationOverlay: View {
         let fraction = min(elapsed / (lifetime * 0.85), 1.0)
         return 1.0 - fraction
     }
-
-    // MARK: - AchievementService hook
-
-    /// Centralized overlay hook for trophy unlocks — keeps AchievementService
-    /// calls minimal and centralized for builder reconciliation.
-    @MainActor
-    static func show(achievement _: Achievement) {
-        // No-op placeholder; concrete presentation is driven by CelebrationManager.
-    }
-
-    @MainActor
-    static func show(item _: CelebrationItem) {
-        // No-op placeholder; concrete presentation is driven by CelebrationManager.
-    }
 }

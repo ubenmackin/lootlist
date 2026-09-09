@@ -213,7 +213,11 @@ struct TreasuryView: View {
     @ViewBuilder
     private var logSpendingSheetContent: some View {
         if let viewModel {
-            LogSpendingView(viewModel: viewModel, familyRecordName: familyRecordName)
+            LogSpendingView(
+                viewModel: viewModel,
+                familyRecordName: familyRecordName,
+                profileRecordName: profileRecordName ?? currentProfileRows.first?.recordName
+            )
         }
     }
 

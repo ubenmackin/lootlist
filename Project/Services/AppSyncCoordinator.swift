@@ -87,14 +87,6 @@ final class AppSyncCoordinator {
         }
     }
 
-    /// Cancels stored notification listeners and clears references atomically.
-    func stopNotificationListeners() {
-        cloudKitNotificationTask?.cancel()
-        cloudKitNotificationTask = nil
-        shareAcceptedTask?.cancel()
-        shareAcceptedTask = nil
-    }
-
     deinit {
         cloudKitNotificationTask?.cancel()
         shareAcceptedTask?.cancel()
@@ -131,19 +123,6 @@ final class AppSyncCoordinator {
                 return
             }
             logger.error("Failed to register CloudKit subscription: \(error, privacy: .private)")
-        }
-    }
-
-    func removeSubscriptions(from database: CKDatabase?) async {
-        guard let database else { return }
-        do {
-            let subscriptions = try await database.allSubscriptions()
-            for sub in subscriptions {
-                try await database.deleteSubscription(withID: sub.subscriptionID)
-            }
-            logger.info("All CloudKit subscriptions removed")
-        } catch {
-            logger.error("Failed to remove CloudKit subscriptions: \(error, privacy: .private)")
         }
     }
 
@@ -266,14 +245,5 @@ final class AppSyncCoordinator {
         )
         spendDigestService = service
         return service
-    }
-
-    /// Test-only helper that injects a `.shareAccepted` event directly
-    /// through the coordinator stream without requiring a real
-    /// `CKShare.Metadata` object.  Mirrors `notifyZoneReset()`.
-    func notifyShareAccepted(shareID: CKRecord.ID) {
-        for (_, continuation) in continuations {
-            continuation.yield(.shareAccepted(shareID: shareID))
-        }
     }
 }
