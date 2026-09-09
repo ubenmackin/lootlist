@@ -108,30 +108,38 @@ struct HeroLedgerView: View {
         scrollBody
             .navigationTitle("Treasury")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { ensureViewModel() }
-            .task { ensureViewModel() }
-            .onChange(of: cachedLedgers) { _, _ in rebuild() }
-            .onChange(of: cachedQuests) { _, _ in rebuild() }
-            .onChange(of: cachedCompletions) { _, _ in rebuild() }
-            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
-            .onChange(of: cachedTemplates) { _, _ in rebuild() }
-            .onChange(of: currentProfileRows) { _, _ in rebuild() }
-            .onChange(of: scope) { _, _ in rebuild() }
-            .sheet(isPresented: $isShowingDeposit) {
-                depositSheetContent
-            }
-            .sheet(isPresented: $isShowingWithdraw) {
-                withdrawSheetContent
-            }
             .toolbar { ledgerToolbar }
-            .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
-                exportDialogContent
-            }
-            .sheet(isPresented: $showShareSheet) {
-                shareSheetContent
-            }
+            .modifier(sheetsModifier)
+            .modifier(lifecycleModifier)
             // WHY: view identity tracks family+subject+viewer so @Query predicates (init-captured) are recreated on scope switch.
             .id(viewIdentity)
+    }
+
+    private var sheetsModifier: some ViewModifier {
+        SheetsModifier(
+            isShowingDeposit: $isShowingDeposit,
+            isShowingWithdraw: $isShowingWithdraw,
+            showExportPicker: $showExportPicker,
+            showShareSheet: $showShareSheet,
+            shareURL: shareURL,
+            viewModel: viewModel,
+            heroName: hero.displayName,
+            onExport: { exportEntries(as: $0) }
+        )
+    }
+
+    private var lifecycleModifier: some ViewModifier {
+        LifecycleModifier(
+            cachedLedgers: cachedLedgers,
+            cachedQuests: cachedQuests,
+            cachedCompletions: cachedCompletions,
+            cachedAllowancePeriods: cachedAllowancePeriods,
+            cachedTemplates: cachedTemplates,
+            currentProfileRows: currentProfileRows,
+            scope: scope,
+            onAppear: { ensureViewModel() },
+            onCacheChanged: { rebuild() }
+        )
     }
 
     private var scrollBody: some View {
@@ -191,34 +199,6 @@ struct HeroLedgerView: View {
         }
     }
 
-    @ViewBuilder
-    private var depositSheetContent: some View {
-        if let vm = viewModel {
-            HeroTransactionView(mode: .deposit, viewModel: vm, heroName: hero.displayName)
-        }
-    }
-
-    @ViewBuilder
-    private var withdrawSheetContent: some View {
-        if let vm = viewModel {
-            HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: hero.displayName)
-        }
-    }
-
-    @ViewBuilder
-    private var exportDialogContent: some View {
-        Button("Export as CSV") { exportEntries(as: .csv) }
-        Button("Export as JSON") { exportEntries(as: .json) }
-        Button("Cancel", role: .cancel) {}
-    }
-
-    @ViewBuilder
-    private var shareSheetContent: some View {
-        if let url = shareURL {
-            ShareSheet(items: [url])
-        }
-    }
-
     private func ensureViewModel() {
         ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
             HeroLedgerViewModel(heroProfile: hero, spending: spending, appState: appState)
@@ -238,7 +218,7 @@ struct HeroLedgerView: View {
 
     // MARK: - Export
 
-    private enum ExportFormat { case csv, json }
+    fileprivate enum ExportFormat { case csv, json }
 
     private func exportEntries(as format: ExportFormat) {
         // cachedLedgers is already profile-scoped via predicate pushdown.
@@ -436,5 +416,78 @@ struct HeroLedgerView: View {
         Text(CurrencyFormatter.signed(amount))
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed))
+    }
+}
+
+// MARK: - View Modifiers (extracted to keep body shallow for Swift 6 type-checker)
+
+private extension HeroLedgerView {
+    struct SheetsModifier: ViewModifier {
+        @Binding var isShowingDeposit: Bool
+        @Binding var isShowingWithdraw: Bool
+        @Binding var showExportPicker: Bool
+        @Binding var showShareSheet: Bool
+        let shareURL: URL?
+        let viewModel: HeroLedgerViewModel?
+        let heroName: String
+        let onExport: (ExportFormat) -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .sheet(isPresented: $isShowingDeposit) {
+                    if let viewModel {
+                        HeroTransactionView(mode: .deposit, viewModel: viewModel, heroName: heroName)
+                    }
+                }
+                .sheet(isPresented: $isShowingWithdraw) {
+                    if let viewModel {
+                        HeroTransactionView(mode: .withdraw, viewModel: viewModel, heroName: heroName)
+                    }
+                }
+                .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
+                    Button("Export as CSV") { onExport(.csv) }
+                    Button("Export as JSON") { onExport(.json) }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .sheet(isPresented: $showShareSheet) {
+                    if let shareURL {
+                        ShareSheet(items: [shareURL])
+                    }
+                }
+        }
+    }
+
+    /// WHY split ledger lifecycle into a typed modifier: deep modifier chains stall the Swift 6 type-checker.
+    struct LifecycleModifier: ViewModifier {
+        let cachedLedgers: [LedgerEntryCache]
+        let cachedQuests: [QuestCache]
+        let cachedCompletions: [QuestCompletionCache]
+        let cachedAllowancePeriods: [AllowancePeriodCache]
+        let cachedTemplates: [QuestTemplateCache]
+        let currentProfileRows: [ProfileCache]
+        let scope: CalendarScope
+        let onAppear: () -> Void
+        let onCacheChanged: () -> Void
+
+        func body(content: Content) -> some View {
+            applyRemaining(to: applyCore(to: content))
+        }
+
+        private func applyCore(to content: Content) -> some View {
+            content
+                .onAppear { onAppear() }
+                .task { onAppear() }
+                .onChange(of: cachedLedgers) { _, _ in onCacheChanged() }
+                .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
+                .onChange(of: cachedCompletions) { _, _ in onCacheChanged() }
+        }
+
+        private func applyRemaining(to view: some View) -> some View {
+            view
+                .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
+                .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+                .onChange(of: currentProfileRows) { _, _ in onCacheChanged() }
+                .onChange(of: scope) { _, _ in onCacheChanged() }
+        }
     }
 }

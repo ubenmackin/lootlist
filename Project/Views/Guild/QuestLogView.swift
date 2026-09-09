@@ -94,19 +94,19 @@ struct QuestLogView: View {
     }
 
     var body: some View {
-        Group {
-            if showsNavigationTitle {
-                content
-                    .navigationTitle("Quest Log")
-                    .navigationBarTitleDisplayMode(.large)
-            } else {
-                content
-                    .navigationTitle("Quests & Chores")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
-        }
-        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
-        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+        content
+            .navigationTitle(navigationTitleText)
+            .navigationBarTitleDisplayMode(navigationTitleDisplayMode)
+            // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+            .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+    }
+
+    private var navigationTitleText: String {
+        showsNavigationTitle ? "Quest Log" : "Quests & Chores"
+    }
+
+    private var navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode {
+        showsNavigationTitle ? .large : .inline
     }
 
     private var targetFamilyForStale: String {
@@ -131,66 +131,81 @@ struct QuestLogView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
 
-            if !targetFamilyForStale.isEmpty {
-                StaleDataBanner(
-                    family: targetFamilyForStale,
-                    type: .quest,
-                    count: cachedQuests.count,
-                    isSyncing: isSyncing
-                )
-                .padding(.horizontal)
-                .padding(.bottom, 4)
-            }
+            staleBanner
 
             syncFootnote
                 .padding(.horizontal)
                 .padding(.bottom, 4)
 
-            List {
-                if viewModel == nil {
-                    questLogSkeleton
-                } else if let vm = viewModel, vm.displayedQuests.isEmpty {
-                    emptyState
-                } else {
-                    questRows
-                }
-            }
-            .listStyle(.insetGrouped)
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                rebuildViewModel()
-            }
+            questList
         }
         .background(Color(DesignSystemConstants.Colors.background))
-        .toolbar {
-            if viewerRole != .hero, showsHeroPicker {
-                ToolbarItem(placement: .topBarLeading) {
-                    heroPickerMenu
-                }
+        .toolbar { questLogToolbar }
+        .modifier(lifecycleModifier)
+    }
+
+    @ViewBuilder
+    private var staleBanner: some View {
+        if !targetFamilyForStale.isEmpty {
+            StaleDataBanner(
+                family: targetFamilyForStale,
+                type: .quest,
+                count: cachedQuests.count,
+                isSyncing: isSyncing
+            )
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+        }
+    }
+
+    private var questList: some View {
+        List {
+            questListBody
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await lifecycleCoordinator?.performManualSync()
+            rebuildViewModel()
+        }
+    }
+
+    @ViewBuilder
+    private var questListBody: some View {
+        if viewModel == nil {
+            questLogSkeleton
+        } else if let vm = viewModel, vm.displayedQuests.isEmpty {
+            emptyState
+        } else {
+            questRows
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var questLogToolbar: some ToolbarContent {
+        if viewerRole != .hero, showsHeroPicker {
+            ToolbarItem(placement: .topBarLeading) {
+                heroPickerMenu
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                completionFilterMenu
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            completionFilterMenu
+        }
+    }
+
+    private var lifecycleModifier: some ViewModifier {
+        LifecycleModifier(
+            cachedProfiles: cachedProfiles,
+            cachedQuests: cachedQuests,
+            cachedCompletions: cachedCompletions,
+            cachedTemplates: cachedTemplates,
+            currentProfileRows: currentProfileRows,
+            scope: scope,
+            onAppear: { ensureViewModel() },
+            onCacheChanged: { rebuildViewModel() },
+            onScopeChanged: { newScope in
+                viewModel?.dateRangePreset = newScope
             }
-        }
-        .task { ensureViewModel() }
-        .onChange(of: cachedProfiles) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedQuests) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedCompletions) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedTemplates) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: currentProfileRows) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: scope) { _, newScope in
-            viewModel?.dateRangePreset = newScope
-        }
+        )
     }
 
     private func ensureViewModel() {
@@ -457,5 +472,41 @@ struct QuestLogView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 64)
         .listRowSeparator(.hidden)
+    }
+}
+
+// MARK: - View Modifiers (extracted to keep body shallow for Swift 6 type-checker)
+
+private extension QuestLogView {
+    /// WHY split quest log lifecycle into a typed modifier: deep modifier chains stall the Swift 6 type-checker.
+    struct LifecycleModifier: ViewModifier {
+        let cachedProfiles: [ProfileCache]
+        let cachedQuests: [QuestCache]
+        let cachedCompletions: [QuestCompletionCache]
+        let cachedTemplates: [QuestTemplateCache]
+        let currentProfileRows: [ProfileCache]
+        let scope: CalendarScope
+        let onAppear: () -> Void
+        let onCacheChanged: () -> Void
+        let onScopeChanged: (CalendarScope) -> Void
+
+        func body(content: Content) -> some View {
+            applyRemaining(to: applyCore(to: content))
+        }
+
+        private func applyCore(to content: Content) -> some View {
+            content
+                .task { onAppear() }
+                .onChange(of: cachedProfiles) { _, _ in onCacheChanged() }
+                .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
+                .onChange(of: cachedCompletions) { _, _ in onCacheChanged() }
+        }
+
+        private func applyRemaining(to view: some View) -> some View {
+            view
+                .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+                .onChange(of: currentProfileRows) { _, _ in onCacheChanged() }
+                .onChange(of: scope) { _, newScope in onScopeChanged(newScope) }
+        }
     }
 }

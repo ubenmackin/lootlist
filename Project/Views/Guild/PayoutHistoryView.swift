@@ -131,85 +131,101 @@ struct PayoutHistoryView: View {
     }
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .regular {
-                regularLayout
-            } else {
-                compactLayout
+        layoutContent
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+            .modifier(exportDialogModifier)
+            .modifier(sheetsModifier)
+            .modifier(lifecycleModifier)
+            // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+            .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+    }
+
+    @ViewBuilder
+    private var layoutContent: some View {
+        if horizontalSizeClass == .regular {
+            regularLayout
+        } else {
+            compactLayout
+        }
+    }
+
+    private var exportDialogModifier: some ViewModifier {
+        ExportDialogModifier(
+            showExportPicker: $showExportPicker,
+            exportFormat: $exportFormat,
+            showExportSheet: $showExportSheet
+        )
+    }
+
+    private var sheetsModifier: some ViewModifier {
+        SheetsModifier(
+            showExportSheet: $showExportSheet,
+            showShareSheet: $showShareSheet,
+            showImportSheet: $showImportSheet,
+            shareURL: shareURL,
+            heroes: heroProfiles,
+            ledgerImportService: ledgerImportService,
+            familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName,
+            onExport: { child, startDate, endDate in
+                performExport(for: child, startDate: startDate, endDate: endDate)
             }
-        }
-        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-        .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
-            Button("Export as CSV") {
-                exportFormat = .csv
-                showExportSheet = true
+        )
+    }
+
+    private var lifecycleModifier: some ViewModifier {
+        LifecycleModifier(
+            cachedAllowancePeriods: cachedAllowancePeriods,
+            cachedProfiles: cachedProfiles,
+            cachedAchievements: cachedAchievements,
+            cachedProfileAchievements: cachedProfileAchievements,
+            cachedLedgers: cachedLedgers,
+            cachedTemplates: cachedTemplates,
+            currentProfileRows: currentProfileRows,
+            cachedGoals: cachedGoals,
+            onAppear: {
+                ensureViewModel()
+                await viewModel?.refresh()
+            },
+            onCacheChanged: {
+                rebuildFromCache()
             }
-            Button("Export as JSON") {
-                exportFormat = .json
-                showExportSheet = true
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .sheet(isPresented: $showExportSheet) {
-            ExportChildPickerSheet(
-                heroes: heroProfiles,
-                onExport: { child, startDate, endDate in
-                    performExport(for: child, startDate: startDate, endDate: endDate)
-                }
-            )
-        }
-        .sheet(isPresented: $showShareSheet) {
-            if let url = shareURL {
-                ShareSheet(items: [url])
-            }
-        }
-        .sheet(isPresented: $showImportSheet) {
-            LedgerImportView(
-                importService: ledgerImportService,
-                familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName
-            )
-        }
-        .task {
-            ensureViewModel()
-            await viewModel?.refresh()
-        }
-        .refreshable {
-            rebuildFromCache()
-        }
-        .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
-        .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
-        .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
-        .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
-        .onChange(of: cachedLedgers) { _, _ in rebuildFromCache() }
-        .onChange(of: cachedTemplates) { _, _ in rebuildFromCache() }
-        .onChange(of: currentProfileRows) { _, _ in rebuildFromCache() }
-        .onChange(of: cachedGoals) { _, _ in }
-        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
-        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+        )
     }
 
     // MARK: - Layouts
 
     private var regularLayout: some View {
         ViewThatFitsSplit {
-            NavigationSplitView {
-                sidebarContent
-                    .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 380)
-                    .searchable(text: $searchText, prompt: "Search payouts")
-                    .toolbar { payoutToolbar }
-                    .navigationTitle("Payout History")
-                    .navigationBarTitleDisplayMode(.large)
-            } detail: {
-                detailPane
-                    .toolbar { payoutToolbar }
-                    .navigationTitle(selectedPeriod != nil ? "Payout Detail" : "Payout History")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .background(Color(DesignSystemConstants.Colors.background))
-            }
-            .navigationSplitViewStyle(.balanced)
+            regularSplitContent
         } compactContent: {
             compactLayout
         }
+    }
+
+    private var regularSplitContent: some View {
+        NavigationSplitView {
+            sidebarPane
+        } detail: {
+            regularDetailPane
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var sidebarPane: some View {
+        sidebarContent
+            .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 380)
+            .searchable(text: $searchText, prompt: "Search payouts")
+            .toolbar { payoutToolbar }
+            .navigationTitle("Payout History")
+            .navigationBarTitleDisplayMode(.large)
+    }
+
+    private var regularDetailPane: some View {
+        detailPane
+            .toolbar { payoutToolbar }
+            .navigationTitle(selectedPeriod != nil ? "Payout Detail" : "Payout History")
+            .navigationBarTitleDisplayMode(.inline)
+            .background(Color(DesignSystemConstants.Colors.background))
     }
 
     private var compactLayout: some View {
@@ -221,14 +237,18 @@ struct PayoutHistoryView: View {
                 .searchable(text: $searchText, prompt: "Search payouts")
                 .toolbar { payoutToolbar }
                 .sheet(item: $selectedPeriod) { period in
-                    PayoutDetailSheet(
-                        period: period,
-                        heroName: heroName(for: period),
-                        ledgerEntries: cachedLedgers.filter { $0.profileRecordName == period.profileRecordName },
-                        goals: cachedGoals.filter { $0.profileRecordName == period.profileRecordName }
-                    )
+                    compactDetailSheet(for: period)
                 }
         }
+    }
+
+    private func compactDetailSheet(for period: AllowancePeriodCache) -> some View {
+        PayoutDetailSheet(
+            period: period,
+            heroName: heroName(for: period),
+            ledgerEntries: cachedLedgers.filter { $0.profileRecordName == period.profileRecordName },
+            goals: cachedGoals.filter { $0.profileRecordName == period.profileRecordName }
+        )
     }
 
     // MARK: - Toolbar (extracted to help Swift 6 type-checker on Xcode 26.6)
@@ -637,7 +657,7 @@ struct PayoutHistoryView: View {
 
     // MARK: - Export
 
-    private enum ExportFormat { case csv, json }
+    fileprivate enum ExportFormat { case csv, json }
 
     /// Hero-role profiles for the child picker during export.
     private var heroProfiles: [ProfileCache] {
@@ -675,6 +695,98 @@ struct PayoutHistoryView: View {
             showShareSheet = true
         } catch {
             toastManager?.show(message: "Could not write export file.", type: .error)
+        }
+    }
+}
+
+// MARK: - View Modifiers (extracted to keep body shallow for Swift 6 type-checker)
+
+private extension PayoutHistoryView {
+    struct ExportDialogModifier: ViewModifier {
+        @Binding var showExportPicker: Bool
+        @Binding var exportFormat: ExportFormat?
+        @Binding var showExportSheet: Bool
+
+        func body(content: Content) -> some View {
+            content.confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
+                Button("Export as CSV") {
+                    exportFormat = .csv
+                    showExportSheet = true
+                }
+                Button("Export as JSON") {
+                    exportFormat = .json
+                    showExportSheet = true
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+
+    struct SheetsModifier: ViewModifier {
+        @Binding var showExportSheet: Bool
+        @Binding var showShareSheet: Bool
+        @Binding var showImportSheet: Bool
+        let shareURL: URL?
+        let heroes: [ProfileCache]
+        let ledgerImportService: LedgerImportService
+        let familyRecordName: String?
+        let onExport: (ProfileCache, Date, Date) -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .sheet(isPresented: $showExportSheet) {
+                    ExportChildPickerSheet(
+                        heroes: heroes,
+                        onExport: onExport
+                    )
+                }
+                .sheet(isPresented: $showShareSheet) {
+                    if let url = shareURL {
+                        ShareSheet(items: [url])
+                    }
+                }
+                .sheet(isPresented: $showImportSheet) {
+                    LedgerImportView(
+                        importService: ledgerImportService,
+                        familyRecordName: familyRecordName
+                    )
+                }
+        }
+    }
+
+    /// WHY split payout history lifecycle into a typed modifier: deep modifier chains stall the Swift 6 type-checker.
+    struct LifecycleModifier: ViewModifier {
+        let cachedAllowancePeriods: [AllowancePeriodCache]
+        let cachedProfiles: [ProfileCache]
+        let cachedAchievements: [AchievementCache]
+        let cachedProfileAchievements: [ProfileAchievementCache]
+        let cachedLedgers: [LedgerEntryCache]
+        let cachedTemplates: [QuestTemplateCache]
+        let currentProfileRows: [ProfileCache]
+        let cachedGoals: [GoalCache]
+        let onAppear: () async -> Void
+        let onCacheChanged: () -> Void
+
+        func body(content: Content) -> some View {
+            applyRemaining(to: applyCore(to: content))
+        }
+
+        private func applyCore(to content: Content) -> some View {
+            content
+                .task { await onAppear() }
+                .refreshable { onCacheChanged() }
+                .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
+                .onChange(of: cachedProfiles) { _, _ in onCacheChanged() }
+                .onChange(of: cachedAchievements) { _, _ in onCacheChanged() }
+        }
+
+        private func applyRemaining(to view: some View) -> some View {
+            view
+                .onChange(of: cachedProfileAchievements) { _, _ in onCacheChanged() }
+                .onChange(of: cachedLedgers) { _, _ in onCacheChanged() }
+                .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+                .onChange(of: currentProfileRows) { _, _ in onCacheChanged() }
+                .onChange(of: cachedGoals) { _, _ in }
         }
     }
 }
