@@ -233,7 +233,7 @@ extension TreasuryService {
         let zoneID = family.id.zoneID
         let cache = cacheService
         // WHY shared stitch: missing-key patch rides CacheFirst so payout
-        // and log paths cannot drift; no cache writes, ingest() untouched.
+        // and log paths cannot drift; misses hydrate via ingest.
         return try await CacheFirst.resolveWithCache(
             needed: needed,
             isAuthoritative: isAuthoritative,
@@ -242,7 +242,9 @@ extension TreasuryService {
                 try await self.fetchMissingQuestsForGold(
                     missingNames: missingNames,
                     family: family,
-                    logs: logs
+                    logs: logs,
+                    databaseScope: scope,
+                    hydrationHandler: syncCoordinator.hydrationHandler
                 )
             }
         )
@@ -251,12 +253,16 @@ extension TreasuryService {
     private func fetchMissingQuestsForGold(
         missingNames: [String],
         family: Family,
-        logs _: [QuestCompletion]
+        logs _: [QuestCompletion],
+        databaseScope: CKDatabase.Scope,
+        hydrationHandler: any HydrationHandling
     ) async throws -> [Quest] {
         try await BatchQuestFetcher.fetchMissingQuests(
             names: missingNames,
             family: family,
-            cloudKit: cloudKit
+            cloudKit: cloudKit,
+            databaseScope: databaseScope,
+            hydrationHandler: hydrationHandler
         )
     }
 

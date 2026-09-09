@@ -781,6 +781,8 @@ final class ProfileViewModel {
         appState: AppState? = nil
     ) async {
         guard let profile else { return }
+        var needsEarned = true
+        var needsDefinitions = true
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
             let scope = (appState ?? achievementService.appState)?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
@@ -791,23 +793,30 @@ final class ProfileViewModel {
             if profileAuthoritative, achievementAuthoritative {
                 return
             }
+            // WHY per-type gate: skip the fetch that is already hydrated so one stale scope never refetches both.
+            needsEarned = !profileAuthoritative
+            needsDefinitions = !achievementAuthoritative
         }
-        do {
-            _ = try await achievementService.fetchEarned(profile: profile)
-        } catch is CancellationError {
-            return
-        } catch {
-            let logger = Logger(category: "ProfileView")
-            logger.debug("ProfileView: failed to fetch earned achievements for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)")
+        if needsEarned {
+            do {
+                _ = try await achievementService.fetchEarned(profile: profile)
+            } catch is CancellationError {
+                return
+            } catch {
+                let logger = Logger(category: "ProfileView")
+                logger.debug("ProfileView: failed to fetch earned achievements for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)")
+            }
         }
         guard let family else { return }
-        do {
-            _ = try await achievementService.fetchAllDefinitions(family: family)
-        } catch is CancellationError {
-            return
-        } catch {
-            let logger = Logger(category: "ProfileView")
-            logger.debug("ProfileView: failed to fetch achievement definitions for family '\(family.id.recordName, privacy: .private)': \(error, privacy: .private)")
+        if needsDefinitions {
+            do {
+                _ = try await achievementService.fetchAllDefinitions(family: family)
+            } catch is CancellationError {
+                return
+            } catch {
+                let logger = Logger(category: "ProfileView")
+                logger.debug("ProfileView: failed to fetch achievement definitions for family '\(family.id.recordName, privacy: .private)': \(error, privacy: .private)")
+            }
         }
     }
 }

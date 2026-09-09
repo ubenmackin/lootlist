@@ -308,21 +308,21 @@ final class AchievementService {
     func cachedOrSeededAchievementCaches(for family: Family) -> [AchievementCache] {
         let familyName = family.id.recordName
         if let cache = cacheService {
-            let existing = cache.fetchAchievements(family: familyName)
-            if !existing.isEmpty {
-                return existing
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
+                return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
             }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        return Self.defaultAchievements(for: familyRef).map { AchievementCache(from: $0) }
+        return Self.defaultAchievements(for: familyRef).map { AchievementCache(from: $0) }.sorted { $0.name < $1.name }
     }
 
     func ensureDefaultAchievements(for family: Family) async -> [AchievementCache] {
         let familyName = family.id.recordName
         if let cache = cacheService {
-            let existing = cache.fetchAchievements(family: familyName)
-            if !existing.isEmpty {
-                return existing
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
+                return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
             }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -353,7 +353,7 @@ final class AchievementService {
                 }
             }
         }
-        return defaults.map { AchievementCache(from: $0) }
+        return defaults.map { AchievementCache(from: $0) }.sorted { $0.name < $1.name }
     }
 
     // WHY: Bespoke fallback seeding default achievements when CloudKit empty — intentionally inline, not a single-type CacheFirst flow.
@@ -408,12 +408,10 @@ final class AchievementService {
         let fallbackFamilyName = profile.family.recordID.recordName
 
         if let cache = cacheService {
-            var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
-            if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
-                cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
-            }
-            if !cached.isEmpty {
-                return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .profileAchievement, scope: scope) {
+                return cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
+                    .map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
                     .sorted { $0.earnedDate > $1.earnedDate }
             }
         }

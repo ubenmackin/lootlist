@@ -78,25 +78,34 @@ extension QuestCompletionService {
         let isAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope)
         let zoneID = family.id.zoneID
         // WHY shared stitch: missing-key patch rides CacheFirst so payout
-        // and log paths cannot drift; no cache writes, ingest() untouched.
+        // and log paths cannot drift; misses hydrate via ingest.
         return try await CacheFirst.resolveWithCache(
             needed: needed,
             isAuthoritative: isAuthoritative,
             fetchCached: { cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) } },
             fetchMissing: { [self] missingNames in
-                try await self.fetchMissingQuestsForLogs(missingNames: missingNames, family: family)
+                try await self.fetchMissingQuestsForLogs(
+                    missingNames: missingNames,
+                    family: family,
+                    databaseScope: scope,
+                    hydrationHandler: syncCoordinator
+                )
             }
         )
     }
 
     private func fetchMissingQuestsForLogs(
         missingNames: [String],
-        family: Family
+        family: Family,
+        databaseScope: CKDatabase.Scope,
+        hydrationHandler: any HydrationHandling
     ) async throws -> [Quest] {
         try await BatchQuestFetcher.fetchMissingQuests(
             names: missingNames,
             family: family,
-            cloudKit: cloudKit
+            cloudKit: cloudKit,
+            databaseScope: databaseScope,
+            hydrationHandler: hydrationHandler
         )
     }
 

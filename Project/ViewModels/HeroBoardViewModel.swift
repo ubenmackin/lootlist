@@ -106,8 +106,15 @@ final class HeroBoardViewModel {
     /// Rebuilds board rows from the SwiftData cache the view observes via
     /// `@Query`. Also settles optimistic claims: if a pending claim now shows
     /// another claimer (their server-wins ingest landed), surface the toast.
-    func rebuildLists(quests: [QuestCache], profiles: [ProfileCache], viewerRow: ProfileCache? = nil) {
+    func rebuildLists(
+        quests: [QuestCache],
+        profiles: [ProfileCache],
+        completions _: [QuestCompletionCache] = [],
+        viewerRow: ProfileCache? = nil
+    ) {
         // WHY cache-first: gating mirrors queried rows so claim/revoke never disagrees with view tabs.
+        // WHY completions keep board reactive: completion ingest signals quest lifecycle
+        // progress, so a fresh completions pulse rebuilds rows and settles pending claims from live state.
         if let viewerRow {
             self.viewerRow = viewerRow
         }

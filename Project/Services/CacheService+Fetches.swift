@@ -239,6 +239,49 @@ extension CacheService {
         )
     }
 
+    /// WHY indexed window: family+profile+date rides the V10 composite index so history never scans.
+    /// WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan.
+    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
+    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, start: Date, end: Date) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty, !profileRecordName.isEmpty else {
+            Self.fetchLogger.warning("fetchLedgerEntries(dateRange) called without family/profile scope — returning empty (fail-closed)")
+            return []
+        }
+        guard start < end else { return [] }
+        return fetch(
+            LedgerEntryCache.self,
+            predicate: #Predicate { entry in
+                entry.profileRecordName == profileRecordName
+                    && entry.familyRecordName == familyRecordName
+                    && entry.date >= start
+                    && entry.date < end
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        )
+    }
+
+    /// WHY indexed window: family+profile+source+date rides the V10 composite index so source histories never scan.
+    /// WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan.
+    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
+    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, source: String, start: Date, end: Date) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty, !profileRecordName.isEmpty, !source.isEmpty else {
+            Self.fetchLogger.warning("fetchLedgerEntries(source,dateRange) called without family/profile/source scope — returning empty (fail-closed)")
+            return []
+        }
+        guard start < end else { return [] }
+        return fetch(
+            LedgerEntryCache.self,
+            predicate: #Predicate { entry in
+                entry.profileRecordName == profileRecordName
+                    && entry.familyRecordName == familyRecordName
+                    && entry.source == source
+                    && entry.date >= start
+                    && entry.date < end
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        )
+    }
+
     /// WHY DB-level predicate narrows via composite index
     /// `[\.familyRecordName, \.profileRecordName, \.source, \.date]` to the
     /// (family, profile, source, date) subset; `fromBucket`/`toBucket` are

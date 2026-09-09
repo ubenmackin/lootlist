@@ -96,15 +96,7 @@ struct TrophyRoomView: View {
                 )
             }
             rebuild()
-            if let profile = appState.currentProfile, let family = appState.family {
-                do {
-                    _ = try await achievementService.evaluateAll(for: profile, family: family)
-                } catch {
-                    Self.logger.warning("Failed to evaluate trophies on entry: \(error, privacy: .private)")
-                }
-                rebuild()
-                await hydrateDefinitionsIfNeeded(family: family)
-            } else if let family = appState.family {
+            if let family = appState.family {
                 await hydrateDefinitionsIfNeeded(family: family)
             }
             if familyRecordName == nil, appState.family != nil {
@@ -157,6 +149,13 @@ struct TrophyRoomView: View {
 
     private func hydrateDefinitionsIfNeeded(family: Family) async {
         guard viewModel?.allAchievements.isEmpty ?? false else { return }
+        if let cache = cacheService {
+            // WHY authoritative gate: lifecycle sync owns trophy evaluation; views stay reactive via @Query.
+            let scope = appState.activeDatabaseScope
+            if cache.isCacheAuthoritative(familyRecordName: family.id.recordName, type: .achievement, scope: scope) {
+                return
+            }
+        }
         do {
             _ = try await achievementService.fetchAllDefinitions(family: family)
         } catch {

@@ -67,6 +67,9 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     var syncError: String?
     private(set) var lastPushReceivedAt: Date?
 
+    @ObservationIgnored private var lastSendCompletedAt: Date?
+    private static let sendCoalescingInterval: TimeInterval = 2
+
     var pendingUploadCount: Int {
         var count = 0
         if let privateSyncEngine {
@@ -403,8 +406,14 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
 
     /// Manually triggers a push pass for all queued saves and deletes.
     func sendPendingChanges() async {
-        guard !isSyncing else {
-            logger.info("Send changes skipped: sync pass already in progress")
+        if isSyncing {
+            // WHY: optimistic bursts enqueue mid-pass; pendingRecordZoneChanges auto-sends so coalesce quietly.
+            logger.debug("Send changes coalesced: sync pass already in progress")
+            return
+        }
+        if let lastSendCompletedAt, Date().timeIntervalSince(lastSendCompletedAt) < Self.sendCoalescingInterval {
+            // WHY: back-to-back optimistic sends follow one completed pass; engine auto-sends so skip redundant pass.
+            logger.debug("Send changes coalesced: within coalescing window")
             return
         }
         if privateSyncEngine == nil && sharedSyncEngine == nil {
@@ -420,7 +429,10 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         currentPassHadParseFailures = false
         currentPassHadCacheWriteFailures = false
         passProducedChanges = false
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            lastSendCompletedAt = Date()
+        }
         do {
             if let privateSyncEngine {
                 try await privateSyncEngine.sendChanges()

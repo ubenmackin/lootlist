@@ -17,6 +17,8 @@ protocol CacheServicing: AnyObject {
 
     func fetchLedgerEntries(profileRecordName: String, family: String?) -> [LedgerEntryCache]
     func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache]
+    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, start: Date, end: Date) -> [LedgerEntryCache]
+    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, source: String, start: Date, end: Date) -> [LedgerEntryCache]
     func fetchTransfers(profileRecordName: String, familyRecordName: String, from fromRaw: String, to toRaw: String, dayBucket: Int) -> [LedgerEntryCache]
     func fetchLedgerEntry(recordName: String, family: String) -> LedgerEntryCache?
     func fetchProfiles(family: String?) -> [ProfileCache]
@@ -46,11 +48,15 @@ protocol CacheServicing: AnyObject {
 
 @MainActor
 extension CacheServicing {
-    func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone _: CKRecordZone.ID?) async {
-        guard let family = identity.familyRecordName else { return }
-        await invalidate(recordName: identity.recordName, family: family, type: type)
+    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, in dateRange: Range<Date>) -> [LedgerEntryCache] {
+        fetchLedgerEntries(profileRecordName: profileRecordName, familyRecordName: familyRecordName, start: dateRange.lowerBound, end: dateRange.upperBound)
     }
 
+    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, in dateInterval: DateInterval) -> [LedgerEntryCache] {
+        fetchLedgerEntries(profileRecordName: profileRecordName, familyRecordName: familyRecordName, start: dateInterval.start, end: dateInterval.end)
+    }
+
+    /// WHY no default: identity invalidation must stay zone-aware so callers never degrade to name-only deletes.
     func upsertLedgerEntry(_ entry: LedgerEntry) async {
         await upsertLedgerEntry(entry, family: nil, isServerSync: false)
     }

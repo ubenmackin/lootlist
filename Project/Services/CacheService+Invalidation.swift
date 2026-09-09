@@ -23,7 +23,7 @@ extension CacheService {
         }
     }
 
-    /// Single invalidation entry — routes all deletes through one switch.
+    /// Single invalidation entry — routes all deletes through shared dispatch.
     func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
         if let backgroundWriter {
             await backgroundWriter.deleteByIdentity(identity, type: type, expectedActiveZone: expectedActiveZone)
@@ -39,21 +39,8 @@ extension CacheService {
         expectedActiveZone: CKRecordZone.ID?
     ) {
         guard let context else { return }
-        switch type {
-        case .profile: deleteByIdentity(ProfileCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .family: deleteByIdentity(FamilyCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .quest: deleteByIdentity(QuestCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .questTemplate: deleteByIdentity(QuestTemplateCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .questCompletion: deleteByIdentity(QuestCompletionCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .ledgerEntry: deleteByIdentity(LedgerEntryCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .allowancePeriod: deleteByIdentity(AllowancePeriodCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .achievement: deleteByIdentity(AchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .profileAchievement: deleteByIdentity(ProfileAchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .notificationPreference: deleteByIdentity(NotificationPreferenceCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .gemLedger: deleteByIdentity(GemLedgerCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .rewardEvent: deleteByIdentity(RewardEventCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        case .goal: deleteByIdentity(GoalCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
-        }
+        // WHY single source: typed fan-out lives on CachedRecordType so zone checks never drift.
+        type.deleteByIdentity(in: context, identity: identity, expectedActiveZone: expectedActiveZone)
         _ = saveContext()
     }
 
@@ -67,106 +54,9 @@ extension CacheService {
 
     private func invalidateByNameAndFamilyOnMainActor(recordName: String, family: String, type: CachedRecordType) {
         guard let context else { return }
-        switch type {
-        case .profile:
-            deleteByNameAndFamily(ProfileCache.self, recordName: recordName, familyRecordName: family)
-        case .family:
-            deleteFamilyCache(recordName: recordName, in: context)
-        case .quest:
-            deleteByNameAndFamily(QuestCache.self, recordName: recordName, familyRecordName: family)
-        case .questTemplate:
-            deleteByNameAndFamily(QuestTemplateCache.self, recordName: recordName, familyRecordName: family)
-        case .questCompletion:
-            deleteByNameAndFamily(QuestCompletionCache.self, recordName: recordName, familyRecordName: family)
-        case .ledgerEntry:
-            deleteByNameAndFamily(LedgerEntryCache.self, recordName: recordName, familyRecordName: family)
-        case .allowancePeriod:
-            deleteByNameAndFamily(AllowancePeriodCache.self, recordName: recordName, familyRecordName: family)
-        case .achievement:
-            deleteByNameAndFamily(AchievementCache.self, recordName: recordName, familyRecordName: family)
-        case .profileAchievement:
-            deleteByNameAndFamily(ProfileAchievementCache.self, recordName: recordName, familyRecordName: family)
-        case .notificationPreference:
-            deleteByNameAndFamily(NotificationPreferenceCache.self, recordName: recordName, familyRecordName: family)
-        case .gemLedger:
-            deleteByNameAndFamily(GemLedgerCache.self, recordName: recordName, familyRecordName: family)
-        case .rewardEvent:
-            deleteByNameAndFamily(RewardEventCache.self, recordName: recordName, familyRecordName: family)
-        case .goal:
-            deleteByNameAndFamily(GoalCache.self, recordName: recordName, familyRecordName: family)
-        }
-    }
-
-    private func deleteFamilyCache(recordName: String, in context: ModelContext) {
-        do {
-            if let match = try context.fetch(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })).first {
-                context.delete(match)
-            }
-        } catch {
-            logger.warning("Failed to fetch FamilyCache for invalidation: \(error, privacy: .private)")
-        }
+        // WHY single source: typed fan-out lives on CachedRecordType so family scoping never drifts.
+        type.deleteByNameAndFamily(in: context, recordName: recordName, familyRecordName: family)
         _ = saveContext()
-    }
-
-    private func deleteByIdentity(
-        _ type: (some CacheMergeable).Type,
-        identity: ScopedRecordIdentity,
-        expectedActiveZone: CKRecordZone.ID?,
-        in context: ModelContext
-    ) {
-        let recordName = identity.recordID.recordName
-        do {
-            let match: any CacheMergeable
-            if let expectedFamily = identity.familyRecordName, !expectedFamily.isEmpty {
-                guard let scoped = try context.fetch(type.fetchDescriptor(recordName: recordName, familyRecordName: expectedFamily)).first else { return }
-                match = scoped
-            } else if let familyType = type as? FamilyCache.Type {
-                // WHY root exception: the family record is the partition, so recordName-only lookup stays valid here.
-                guard let root = try context.fetch(familyType.fetchDescriptor(recordName: recordName)).first else { return }
-                match = root
-            } else {
-                // WHY fail-closed: scoped delete without family must not scan other families.
-                return
-            }
-            if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
-                guard scoped.familyRecordName == expectedFamily else {
-                    logger
-                        .warning(
-                            "Cache deletion aborted for \(recordName, privacy: .private): expected family \(expectedFamily, privacy: .private), found \(scoped.familyRecordName, privacy: .private)"
-                        )
-                    return
-                }
-            }
-            if let scoped = match as? any FamilyScopedCache,
-               let sourceZone = scoped.sourceZoneName,
-               identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
-               sourceZone != identity.zoneID.zoneName
-            {
-                let isFamilyMatch: Bool = {
-                    guard let expectedFamily = identity.familyRecordName else { return false }
-                    return scoped.familyRecordName == expectedFamily
-                }()
-                let isActiveZone = expectedActiveZone.map { $0 == identity.zoneID } ?? false
-                if isFamilyMatch, isActiveZone {
-                    logger.info(
-                        """
-                        Deleting orphan cache row for \(recordName, privacy: .private) \
-                        after family zone switch: old zone \(sourceZone, privacy: .private) \
-                        → active zone \(identity.zoneID.zoneName, privacy: .private)
-                        """
-                    )
-                } else {
-                    logger
-                        .warning(
-                            "Cache deletion aborted for \(recordName, privacy: .private): expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)"
-                        )
-                    return
-                }
-            }
-            context.delete(match)
-        } catch {
-            logger.warning("Failed to fetch \(recordName, privacy: .private) for identity deletion: \(error, privacy: .private)")
-        }
     }
 
     func invalidate(_ descriptor: FetchDescriptor<some PersistentModel>) {
@@ -185,18 +75,11 @@ extension CacheService {
         invalidate(FetchDescriptor<T>(predicate: predicate))
     }
 
-    func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(_: T.Type, recordName: String, familyRecordName: String) {
+    func deleteByNameAndFamily(_ type: (some CacheMergeable & FamilyScopedCache).Type, recordName: String, familyRecordName: String) {
         guard let context else { return }
-        let descriptor = T.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
-        do {
-            let matches = try context.fetch(descriptor)
-            for match in matches {
-                context.delete(match)
-            }
-            saveContext()
-        } catch {
-            logger.warning("Failed to fetch \(T.self, privacy: .public) for invalidation: \(error, privacy: .private)")
-        }
+        // WHY single source: scoped deletes share CachedRecordType primitives so indexing never drifts.
+        CachedRecordType.deleteScopedByName(type, in: context, recordName: recordName, familyRecordName: familyRecordName)
+        saveContext()
     }
 
     // MARK: - Per-Family Purge

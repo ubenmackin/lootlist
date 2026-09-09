@@ -365,9 +365,37 @@ final class QuestCompletionService {
         awardedXPCredited: Int?,
         error _: Error
     ) async throws {
-        let rewardRecordName = DeterministicRecordID.reward(completionID: log.id.recordName)
-        await cacheService.invalidate(recordName: log.id.recordName, family: quest.family.recordID.recordName, type: .questCompletion)
-        await cacheService.invalidate(recordName: rewardRecordName, family: quest.family.recordID.recordName, type: .rewardEvent)
+        let rewardID = RewardEvent.recordID(completionRecordName: log.id.recordName, zoneID: resolvedZoneID)
+        // WHY capture first: completion save already enqueued and reward may be server-claimed, so tombstones must survive row removal.
+        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let completionIdentity = ScopedRecordIdentity(
+            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
+            zoneID: log.id.zoneID,
+            recordID: log.id,
+            familyRecordName: quest.family.recordID.recordName
+        )
+        let rewardIdentity = ScopedRecordIdentity(
+            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
+            zoneID: rewardID.zoneID,
+            recordID: rewardID,
+            familyRecordName: quest.family.recordID.recordName
+        )
+        await cacheService.invalidate(identity: completionIdentity, type: .questCompletion, expectedActiveZone: appState.familyZoneID)
+        await cacheService.invalidate(identity: rewardIdentity, type: .rewardEvent, expectedActiveZone: appState.familyZoneID)
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(
+            syncCoordinator,
+            id: log.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestCompletionService.rollbackDelete.completion"
+        )
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(
+            syncCoordinator,
+            id: rewardID,
+            appState: appState,
+            logger: logger,
+            context: "QuestCompletionService.rollbackDelete.reward"
+        )
         if awardApplied || awardedXPCredited != nil {
             await revertProfileXPToBaseline(profile: profile, resolvedZoneID: resolvedZoneID, baselineXP: baselineXP)
             await revertQuestBankAfterAward(quest: quest, resolvedZoneID: resolvedZoneID, credited: awardedXPCredited)

@@ -17,21 +17,12 @@ extension BackgroundCacheActor {
     // commitParticipantReconciliation's single-transaction gate so one saveContext() lands per
     // reconciliation pass. Empty-snapshot abort lives in AppLifecycleCoordinator.fetchFamilySnapshot.
 
-    private func validatedFamilyScope(_ familyRecordName: String?) -> String? {
-        guard let familyRecordName, !familyRecordName.isEmpty else {
-            logger.warning("Purge skipped: familyRecordName is required, got nil/empty scope")
-            return nil
-        }
-        return familyRecordName
-    }
-
     private func purgeMissing<T: CacheMergeable>(
         _: T.Type,
         validRecordNames: Set<String>,
         familyRecordName: String?
     ) async {
-        // WHY: Standalone public API wrapper guard prevents transient empty query
-        // results from wiping cache when called outside settled snapshot reconciliation.
+        // WHY standalone guard: transient empty queries must not wipe cache outside settled reconciliation.
         guard !validRecordNames.isEmpty else { return }
         await purgeMissingWithoutSave(T.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
         saveContext()
@@ -43,27 +34,8 @@ extension BackgroundCacheActor {
         familyRecordName: String?,
         preservedRecordNames: Set<String> = []
     ) async {
-        // WHY: Preserved holds unacked rows absent server-side; union keeps them while still pruning acked deletions.
-        // WHY: Entirely-empty snapshot abort lives upstream in fetchFamilySnapshot.
-        // Reaching here means at least one type had server records (scope is settled),
-        // so zero server records for this type is a legitimate purge-all.
-        var effective = validRecordNames
-        effective.formUnion(preservedRecordNames)
-        let family: String?
-        if T.self == FamilyCache.self {
-            family = nil
-        } else {
-            guard let validated = validatedFamilyScope(familyRecordName) else { return }
-            family = validated
-        }
-        let existing: [T]
-        do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: family)) } catch {
-            logger.error("Failed to fetch existing \(T.self, privacy: .private) for purgeMissing: \(error, privacy: .private)")
-            existing = []
-        }
-        for cached in existing where !effective.contains(cached.recordName) {
-            modelContext.delete(cached)
-        }
+        // WHY single source: purge rows share CachedRecordType primitives so pruning never drifts.
+        CachedRecordType.purgeRows(T.self, in: modelContext, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
     }
 
     func purgeMissingQuests(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
@@ -94,59 +66,8 @@ extension BackgroundCacheActor {
         familyRecordName: String?,
         preservedRecordNames: Set<String> = []
     ) async {
-        switch type {
-        case .profile:
-            await purgeMissingWithoutSave(ProfileCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        case .family:
-            await purgeMissingWithoutSave(FamilyCache.self, validRecordNames: validRecordNames, familyRecordName: nil, preservedRecordNames: preservedRecordNames)
-        case .quest:
-            await purgeMissingWithoutSave(QuestCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        case .questTemplate:
-            await purgeMissingWithoutSave(
-                QuestTemplateCache.self,
-                validRecordNames: validRecordNames,
-                familyRecordName: familyRecordName,
-                preservedRecordNames: preservedRecordNames
-            )
-        case .questCompletion:
-            await purgeMissingWithoutSave(
-                QuestCompletionCache.self,
-                validRecordNames: validRecordNames,
-                familyRecordName: familyRecordName,
-                preservedRecordNames: preservedRecordNames
-            )
-        case .ledgerEntry:
-            await purgeMissingWithoutSave(LedgerEntryCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        case .allowancePeriod:
-            await purgeMissingWithoutSave(
-                AllowancePeriodCache.self,
-                validRecordNames: validRecordNames,
-                familyRecordName: familyRecordName,
-                preservedRecordNames: preservedRecordNames
-            )
-        case .achievement:
-            await purgeMissingWithoutSave(AchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        case .profileAchievement:
-            await purgeMissingWithoutSave(
-                ProfileAchievementCache.self,
-                validRecordNames: validRecordNames,
-                familyRecordName: familyRecordName,
-                preservedRecordNames: preservedRecordNames
-            )
-        case .notificationPreference:
-            await purgeMissingWithoutSave(
-                NotificationPreferenceCache.self,
-                validRecordNames: validRecordNames,
-                familyRecordName: familyRecordName,
-                preservedRecordNames: preservedRecordNames
-            )
-        case .gemLedger:
-            await purgeMissingWithoutSave(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        case .rewardEvent:
-            await purgeMissingWithoutSave(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        case .goal:
-            await purgeMissingWithoutSave(GoalCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
-        }
+        // WHY single source: typed fan-out lives on CachedRecordType so pruning never drifts.
+        type.purgeMissing(in: modelContext, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
     }
 
     func purgeFamily(recordName: String) async {
@@ -230,37 +151,17 @@ extension BackgroundCacheActor {
     /// Shared fan-out so the ingestion path and the domain-write surface run
     /// identical typed deletions behind one save.
     private func performTypedDeletion(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
-        switch type {
-        case .profile: await deleteRecordByIdentity(ProfileCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .family: await deleteRecordByIdentity(FamilyCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .quest: await deleteRecordByIdentity(QuestCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .questTemplate: await deleteRecordByIdentity(QuestTemplateCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .questCompletion: await deleteRecordByIdentity(QuestCompletionCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .ledgerEntry: await deleteRecordByIdentity(LedgerEntryCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .allowancePeriod: await deleteRecordByIdentity(AllowancePeriodCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .achievement: await deleteRecordByIdentity(AchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .profileAchievement: await deleteRecordByIdentity(ProfileAchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .notificationPreference: await deleteRecordByIdentity(NotificationPreferenceCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .gemLedger: await deleteRecordByIdentity(GemLedgerCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .rewardEvent: await deleteRecordByIdentity(RewardEventCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        case .goal: await deleteRecordByIdentity(GoalCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
-        }
+        // WHY single source: typed fan-out lives on CachedRecordType so zone checks never drift.
+        type.deleteByIdentity(in: modelContext, identity: identity, expectedActiveZone: expectedActiveZone)
     }
 
-    func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(
-        type _: T.Type,
+    func deleteByNameAndFamily(
+        type: (some CacheMergeable & FamilyScopedCache).Type,
         recordName: String,
         familyRecordName: String
     ) async {
-        let descriptor = T.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
-        do {
-            let matches = try modelContext.fetch(descriptor)
-            for match in matches {
-                modelContext.delete(match)
-            }
-        } catch {
-            logger.warning("Failed to fetch \(T.self, privacy: .public) for invalidation: \(error, privacy: .private)")
-        }
+        // WHY single source: scoped deletes share CachedRecordType primitives so indexing never drifts.
+        CachedRecordType.deleteScopedByName(type, in: modelContext, recordName: recordName, familyRecordName: familyRecordName)
         saveContext()
     }
 
@@ -271,40 +172,8 @@ extension BackgroundCacheActor {
         recordName: String,
         familyRecordName: String
     ) async {
-        switch type {
-        case .profile:
-            await deleteByNameAndFamily(type: ProfileCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .family:
-            do {
-                if let match = try modelContext.fetch(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })).first {
-                    modelContext.delete(match)
-                }
-            } catch {
-                logger.warning("Failed to fetch FamilyCache for invalidation: \(error, privacy: .private)")
-            }
-        case .quest:
-            await deleteByNameAndFamily(type: QuestCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .questTemplate:
-            await deleteByNameAndFamily(type: QuestTemplateCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .questCompletion:
-            await deleteByNameAndFamily(type: QuestCompletionCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .ledgerEntry:
-            await deleteByNameAndFamily(type: LedgerEntryCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .allowancePeriod:
-            await deleteByNameAndFamily(type: AllowancePeriodCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .achievement:
-            await deleteByNameAndFamily(type: AchievementCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .profileAchievement:
-            await deleteByNameAndFamily(type: ProfileAchievementCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .notificationPreference:
-            await deleteByNameAndFamily(type: NotificationPreferenceCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .gemLedger:
-            await deleteByNameAndFamily(type: GemLedgerCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .rewardEvent:
-            await deleteByNameAndFamily(type: RewardEventCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        case .goal:
-            await deleteByNameAndFamily(type: GoalCache.self, recordName: recordName, familyRecordName: familyRecordName)
-        }
+        // WHY single source: typed fan-out lives on CachedRecordType so family scoping never drifts.
+        type.deleteByNameAndFamily(in: modelContext, recordName: recordName, familyRecordName: familyRecordName)
         saveContext()
     }
 
@@ -336,76 +205,6 @@ extension BackgroundCacheActor {
         guard saveContext() else {
             logger.error("Failed to save after clearing cache")
             return
-        }
-    }
-
-    private func deleteRecordByIdentity<T: CacheMergeable>(
-        _: T.Type,
-        identity: ScopedRecordIdentity,
-        expectedActiveZone: CKRecordZone.ID?
-    ) async {
-        let recordName = identity.recordID.recordName
-        let match: T?
-        do {
-            if let expectedFamily = identity.familyRecordName, !expectedFamily.isEmpty {
-                match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName, familyRecordName: expectedFamily)).first
-            } else if let familyType = T.self as? FamilyCache.Type {
-                // WHY root exception: the family record is the partition, so recordName-only lookup stays valid here.
-                match = try modelContext.fetch(familyType.fetchDescriptor(recordName: recordName)).first as? T
-            } else {
-                // WHY fail-closed: scoped delete without family must not scan other families.
-                match = nil
-            }
-        } catch {
-            logger.error("Failed to fetch \(T.self, privacy: .private) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .private)")
-            match = nil
-        }
-        if let match {
-            if let expectedFamily = identity.familyRecordName,
-               let scoped = match as? any FamilyScopedCache
-            {
-                guard scoped.familyRecordName == expectedFamily else {
-                    logger.warning(
-                        """
-                        BackgroundCacheActor deletion aborted for \
-                        \(recordName, privacy: .private): expected family \
-                        \(expectedFamily, privacy: .private), found \
-                        \(scoped.familyRecordName, privacy: .private)
-                        """
-                    )
-                    return
-                }
-            }
-            if let scoped = match as? any FamilyScopedCache, let sourceZone = scoped.sourceZoneName,
-               identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName, sourceZone != identity.zoneID.zoneName
-            {
-                let isFamilyMatch: Bool = {
-                    guard let expectedFamily = identity.familyRecordName else { return false }
-                    return scoped.familyRecordName == expectedFamily
-                }()
-                let isActiveZone = expectedActiveZone.map { $0 == identity.zoneID } ?? false
-                if isFamilyMatch, isActiveZone {
-                    logger.info(
-                        """
-                        BackgroundCacheActor deleting orphan for \
-                        \(recordName, privacy: .private): old zone \
-                        \(sourceZone, privacy: .private) → active zone \
-                        \(identity.zoneID.zoneName, privacy: .private)
-                        """
-                    )
-                } else {
-                    logger.warning(
-                        """
-                        BackgroundCacheActor deletion aborted for \
-                        \(recordName, privacy: .private): expected zone \
-                        \(identity.zoneID.zoneName, privacy: .private), found \
-                        \(sourceZone, privacy: .private)
-                        """
-                    )
-                    return
-                }
-            }
-            modelContext.delete(match)
         }
     }
 
