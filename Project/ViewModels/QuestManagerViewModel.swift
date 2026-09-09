@@ -36,13 +36,11 @@ final class QuestManagerViewModel {
     private(set) var loadError: String?
 
     private let questService: QuestService
-    private let familyService: FamilyService
     private let appState: AppState
     private let heroBoardService: HeroBoardService
 
-    init(questService: QuestService, familyService: FamilyService, appState: AppState) {
+    init(questService: QuestService, familyService _: FamilyService? = nil, appState: AppState) {
         self.questService = questService
-        self.familyService = familyService
         self.appState = appState
         heroBoardService = HeroBoardService(questService: questService)
         sweepDeferred = questService.sweepDeferred
@@ -283,12 +281,5 @@ final class QuestManagerViewModel {
     func groupedAssignments(_ quests: [QuestCache]) -> [(key: String, quests: [QuestCache])] {
         let grouped = Dictionary(grouping: quests) { $0.assigneeRecordName }
         return grouped.keys.sorted().map { key in (key: key, quests: grouped[key] ?? []) }
-    }
-
-    /// Case-insensitive contains shared by template and assignment search.
-    nonisolated static func matchesQuery(_ value: String, query: String) -> Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return true }
-        return value.lowercased().contains(trimmed.lowercased())
     }
 }

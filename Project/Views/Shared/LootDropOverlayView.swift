@@ -14,7 +14,6 @@ struct LootDropOverlayView: View {
     @Binding var isPresented: Bool
     let loot: LootDrop?
 
-    @Environment(SoundManager.self) private var soundManager
     @AppStorage("celebrationSoundEnabled") private var celebrationSoundEnabled: Bool = true
 
     @State private var phase: AnimationPhase = .hidden

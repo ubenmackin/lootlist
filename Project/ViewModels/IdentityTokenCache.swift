@@ -28,13 +28,4 @@ actor IdentityTokenCache {
         cache[value] = result
         return result
     }
-
-    /// Snapshot of cached tokens for inspection in tests.
-    func cachedTokens() -> [String: String] {
-        cache
-    }
-
-    func removeAll() {
-        cache.removeAll()
-    }
 }

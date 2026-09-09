@@ -60,68 +60,6 @@ final class QuestCompletionService {
         self.inFlightWithdrawals = inFlightWithdrawals
     }
 
-    private static let staticLogger = Logger(category: "QuestCompletionService")
-
-    @_disfavoredOverload
-    convenience init(
-        cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
-        xpService: XPService? = nil,
-        notificationService: NotificationService? = nil,
-        achievementService: AchievementService? = nil,
-        toastManager: ToastManager? = nil,
-        rewardService: QuestRewardService? = nil
-    ) {
-        let cache: CacheService
-        if let cacheService {
-            cache = cacheService
-        } else {
-            Self.staticLogger.warning("QuestCompletionService initialized without cacheService; using fallback in-memory cache.")
-            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
-        }
-        let state = appState ?? AppState()
-        // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
-        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
-        let coord: any SyncEnqueuing
-        if let resolvedCoord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
-            coord = resolvedCoord
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    Self.staticLogger.warning("QuestCompletionService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("QuestCompletionService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                coord = NoopSyncEnqueuing()
-            #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("QuestCompletionService requires a sync coordinator in production")
-            #endif
-        }
-        let xp = xpService ?? XPService(cloudKit: cloudKit)
-        let reward = rewardService ?? QuestRewardService(
-            cloudKit: cloudKit,
-            cacheService: cache,
-            appState: state,
-            syncCoordinator: coord,
-            xpService: xp,
-            toastManager: toastManager
-        )
-        self.init(
-            cloudKit: cloudKit,
-            cacheService: cache,
-            appState: state,
-            syncCoordinator: coord,
-            xpService: xp,
-            notificationService: notificationService,
-            achievementService: achievementService,
-            toastManager: toastManager,
-            rewardService: reward
-        )
-    }
-
     // MARK: - Quest Completions & Verification
 
     @discardableResult

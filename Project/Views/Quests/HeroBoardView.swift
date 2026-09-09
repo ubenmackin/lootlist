@@ -19,14 +19,7 @@ struct HeroBoardView: View {
     @State private var viewModel: HeroBoardViewModel?
     @State private var isSubmitting = false
 
-    /// Family record name used to push the family filter down to SwiftData.
-    /// When `nil` (no family loaded) the queries return zero rows, which is
-    /// the correct behavior — there is no family to scope to.
-    private let familyRecordName: String?
-
     init(familyRecordName: String? = nil) {
-        self.familyRecordName = familyRecordName
-
         let targetFamily = familyRecordName ?? ""
         let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)

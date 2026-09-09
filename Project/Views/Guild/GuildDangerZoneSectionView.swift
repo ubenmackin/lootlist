@@ -13,7 +13,6 @@ struct GuildDangerZoneSectionView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
-    @Environment(ToastManager.self) private var toastManager
 
     @Binding var isSigningOut: Bool
 

@@ -15,7 +15,6 @@ struct MyGoalsView: View {
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(GoalService.self) private var envGoalService: GoalService?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private static let logger = Logger(category: "MyGoals")
 
@@ -660,7 +659,7 @@ struct MyGoalsView: View {
         }
     }
 
-    private func purchaseErrorMessage(for goal: GoalCache, error: any Error) -> String {
+    private func purchaseErrorMessage(for goal: Goal, error: any Error) -> String {
         // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
         if let goalError = error as? GoalServiceError,
            let description = goalError.errorDescription
@@ -670,8 +669,8 @@ struct MyGoalsView: View {
         return "Couldn’t mark “\(goal.name)” purchased. Please try again."
     }
 
-    private func purchaseErrorMessage(for goal: Goal, error: any Error) -> String {
-        // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
+    /// WHY cache mirror: card rows carry GoalCache so error copy resolves without a domain hop.
+    private func purchaseErrorMessage(for goal: GoalCache, error: any Error) -> String {
         if let goalError = error as? GoalServiceError,
            let description = goalError.errorDescription
         {

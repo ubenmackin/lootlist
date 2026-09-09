@@ -59,12 +59,6 @@ struct MoneyBadge: View {
 
     var size: BadgeSize = .medium
 
-    init(amount: Double?, size: BadgeSize = .medium) {
-        self.amount = amount
-        self.pennies = nil
-        self.size = size
-    }
-
     init(amount: Int64?, size: BadgeSize = .medium) {
         self.amount = nil
         self.pennies = amount

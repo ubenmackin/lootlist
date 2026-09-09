@@ -60,27 +60,6 @@ extension CacheService {
         }
     }
 
-    /// Overload of `tryFetch` accepting an explicit type, predicate, and sort descriptors.
-    func tryFetch<T: PersistentModel>(
-        _: T.Type,
-        predicate: Predicate<T>? = nil,
-        sortBy: [SortDescriptor<T>] = []
-    ) -> [T]? {
-        tryFetch(FetchDescriptor<T>(predicate: predicate, sortBy: sortBy))
-    }
-
-    /// Fetches every record of `T`, optionally scoped to a single family and sorted by `sortBy`.
-    func familyScopedFetch<T: FamilyScopedFetchable>(
-        _: T.Type,
-        family: String?,
-        sortBy: [SortDescriptor<T>] = []
-    ) -> [T] {
-        guard let family = guardFamily(family) else { return [] }
-        var descriptor = T.fetchDescriptor(familyRecordName: family)
-        descriptor.sortBy = sortBy
-        return fetch(descriptor)
-    }
-
     /// Generic FamilyScoped fetch helper — single predicate source for every
     /// family-scoped cache read. Reduces per-type boilerplate; future cached
     /// types get fetch for free by conforming to ``FamilyScopedFetchable``.
@@ -126,11 +105,6 @@ extension CacheService {
         fetch(QuestCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchQuest(identity: ScopedRecordIdentity) -> QuestCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchQuest(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchQuestCompletions(family: String?) -> [QuestCompletionCache] {
         guard let family = guardFamily(family) else { return [] }
         return fetchAll(QuestCompletionCache.self, family: family)
@@ -140,18 +114,8 @@ extension CacheService {
         fetch(QuestCompletionCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchQuestCompletion(identity: ScopedRecordIdentity) -> QuestCompletionCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchQuestCompletion(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchProfile(recordName: String, family: String) -> ProfileCache? {
         fetch(ProfileCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
-    }
-
-    func fetchProfile(identity: ScopedRecordIdentity) -> ProfileCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchProfile(recordName: identity.recordID.recordName, family: family)
     }
 
     func fetchProfiles(family: String?) -> [ProfileCache] {
@@ -168,11 +132,6 @@ extension CacheService {
         fetch(QuestTemplateCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchQuestTemplate(identity: ScopedRecordIdentity) -> QuestTemplateCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchQuestTemplate(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchFamily(recordName: String) -> FamilyCache? {
         fetch(FamilyCache.self, predicate: #Predicate { $0.recordName == recordName }).first
     }
@@ -185,45 +144,20 @@ extension CacheService {
         fetch(LedgerEntryCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchLedgerEntry(identity: ScopedRecordIdentity) -> LedgerEntryCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchLedgerEntry(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchAllowancePeriod(recordName: String, family: String) -> AllowancePeriodCache? {
         fetch(AllowancePeriodCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
-    }
-
-    func fetchAllowancePeriod(identity: ScopedRecordIdentity) -> AllowancePeriodCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchAllowancePeriod(recordName: identity.recordID.recordName, family: family)
     }
 
     func fetchAchievement(recordName: String, family: String) -> AchievementCache? {
         fetch(AchievementCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchAchievement(identity: ScopedRecordIdentity) -> AchievementCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchAchievement(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchProfileAchievement(recordName: String, family: String) -> ProfileAchievementCache? {
         fetch(ProfileAchievementCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchProfileAchievement(identity: ScopedRecordIdentity) -> ProfileAchievementCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchProfileAchievement(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchNotificationPreference(recordName: String, family: String) -> NotificationPreferenceCache? {
         fetch(NotificationPreferenceCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
-    }
-
-    func fetchNotificationPreference(identity: ScopedRecordIdentity) -> NotificationPreferenceCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchNotificationPreference(recordName: identity.recordID.recordName, family: family)
     }
 
     func fetchLedgerEntries(profileRecordName: String, family: String? = nil) -> [LedgerEntryCache] {
@@ -253,28 +187,6 @@ extension CacheService {
             predicate: #Predicate { entry in
                 entry.profileRecordName == profileRecordName
                     && entry.familyRecordName == familyRecordName
-                    && entry.date >= start
-                    && entry.date < end
-            },
-            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
-        )
-    }
-
-    /// WHY indexed window: family+profile+source+date rides the V10 composite index so source histories never scan.
-    /// WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan.
-    /// WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
-    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, source: String, start: Date, end: Date) -> [LedgerEntryCache] {
-        guard !familyRecordName.isEmpty, !profileRecordName.isEmpty, !source.isEmpty else {
-            Self.fetchLogger.warning("fetchLedgerEntries(source,dateRange) called without family/profile/source scope — returning empty (fail-closed)")
-            return []
-        }
-        guard start < end else { return [] }
-        return fetch(
-            LedgerEntryCache.self,
-            predicate: #Predicate { entry in
-                entry.profileRecordName == profileRecordName
-                    && entry.familyRecordName == familyRecordName
-                    && entry.source == source
                     && entry.date >= start
                     && entry.date < end
             },
@@ -416,11 +328,6 @@ extension CacheService {
         fetch(RewardEventCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
-    func fetchRewardEvent(identity: ScopedRecordIdentity) -> RewardEventCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchRewardEvent(recordName: identity.recordID.recordName, family: family)
-    }
-
     func fetchGoals(family: String?) -> [GoalCache] {
         guard let family = guardFamily(family) else { return [] }
         return fetchAll(GoalCache.self, family: family)
@@ -444,8 +351,118 @@ extension CacheService {
         fetch(GoalCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
+    /// WHY indexed month: family+profile+date rides the V10 composite index so month history never scans.
+    func fetchLedgerEntriesForMonth(profileRecordName: String, familyRecordName: String, month: Date) -> [LedgerEntryCache] {
+        let start = WeekMath.monthStart(for: month)
+        let end = WeekMath.monthEnd(for: month)
+        return fetchLedgerEntries(profileRecordName: profileRecordName, familyRecordName: familyRecordName, start: start, end: end)
+    }
+
+    /// WHY family-wide: month history without profile scope rides the family+date index so family totals never scan.
+    func fetchLedgerEntriesForMonth(familyRecordName: String, monthContaining: Date, fetchLimit: Int = 200) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty else { return [] }
+        let start = WeekMath.monthStart(for: monthContaining)
+        let end = WeekMath.monthEnd(for: monthContaining)
+        var descriptor = FetchDescriptor<LedgerEntryCache>(predicate: #Predicate {
+            $0.familyRecordName == familyRecordName && $0.date >= start && $0.date < end
+        })
+        descriptor.sortBy = [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        descriptor.fetchLimit = max(1, fetchLimit)
+        return fetch(descriptor)
+    }
+
+    /// WHY indexed window: recent history rides the V10 date index with a stable sort.
+    func fetchRecentLedgerEntries(profileRecordName: String, familyRecordName: String, limit: Int = 50) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty, !profileRecordName.isEmpty else { return [] }
+        var descriptor = FetchDescriptor<LedgerEntryCache>(predicate: #Predicate {
+            $0.profileRecordName == profileRecordName && $0.familyRecordName == familyRecordName
+        })
+        descriptor.sortBy = [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        descriptor.fetchLimit = max(1, limit)
+        return fetch(descriptor)
+    }
+
+    /// WHY family-wide: recent history with optional profile rides the family index so month views never scan.
+    func fetchRecentLedgerEntries(familyRecordName: String, profileRecordName: String? = nil, fetchLimit: Int = 50) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty else { return [] }
+        if let profileRecordName, !profileRecordName.isEmpty {
+            return fetchRecentLedgerEntries(profileRecordName: profileRecordName, familyRecordName: familyRecordName, limit: fetchLimit)
+        }
+        var descriptor = FetchDescriptor<LedgerEntryCache>(predicate: #Predicate {
+            $0.familyRecordName == familyRecordName
+        })
+        descriptor.sortBy = [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        descriptor.fetchLimit = max(1, fetchLimit)
+        return fetch(descriptor)
+    }
+
+    /// WHY indexed source: source+date rides the V10 composite index for filtered history.
+    func fetchLedgerEntries(profileRecordName: String?, familyRecordName: String, source: String, start: Date, end: Date) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty, start < end else { return [] }
+        let targetSource = source
+        if let profileRecordName, !profileRecordName.isEmpty {
+            return fetch(
+                LedgerEntryCache.self,
+                predicate: #Predicate { entry in
+                    entry.profileRecordName == profileRecordName
+                        && entry.familyRecordName == familyRecordName
+                        && entry.source == targetSource
+                        && entry.date >= start
+                        && entry.date < end
+                },
+                sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+            )
+        }
+        return fetch(
+            LedgerEntryCache.self,
+            predicate: #Predicate { entry in
+                entry.familyRecordName == familyRecordName
+                    && entry.source == targetSource
+                    && entry.date >= start
+                    && entry.date < end
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        )
+    }
+
+    /// WHY indexed source: source+date rides the V10 composite index for filtered history.
+    func fetchRecentLedgerEntries(profileRecordName: String, familyRecordName: String, source: String, limit: Int = 50) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty, !profileRecordName.isEmpty else { return [] }
+        let targetSource = source
+        var descriptor = FetchDescriptor<LedgerEntryCache>(predicate: #Predicate {
+            $0.profileRecordName == profileRecordName && $0.familyRecordName == familyRecordName && $0.source == targetSource
+        })
+        descriptor.sortBy = [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
+        descriptor.fetchLimit = max(1, limit)
+        return fetch(descriptor)
+    }
+
+    /// WHY single source: identity overloads keep fetch scoping behind the composite index.
+    func fetchQuest(identity: ScopedRecordIdentity) -> QuestCache? {
+        guard let family = identity.familyRecordName, !family.isEmpty else { return nil }
+        return fetchQuest(recordName: identity.recordName, family: family)
+    }
+
+    /// WHY single source: identity overloads keep fetch scoping behind the composite index.
+    func fetchProfile(identity: ScopedRecordIdentity) -> ProfileCache? {
+        guard let family = identity.familyRecordName, !family.isEmpty else { return nil }
+        return fetchProfile(recordName: identity.recordName, family: family)
+    }
+
+    /// WHY single source: identity overloads keep fetch scoping behind the composite index.
+    func fetchLedgerEntry(identity: ScopedRecordIdentity) -> LedgerEntryCache? {
+        guard let family = identity.familyRecordName, !family.isEmpty else { return nil }
+        return fetchLedgerEntry(recordName: identity.recordName, family: family)
+    }
+
+    /// WHY single source: identity overloads keep fetch scoping behind the composite index.
     func fetchGoal(identity: ScopedRecordIdentity) -> GoalCache? {
-        guard let family = identity.familyRecordName else { return nil }
-        return fetchGoal(recordName: identity.recordID.recordName, family: family)
+        guard let family = identity.familyRecordName, !family.isEmpty else { return nil }
+        return fetchGoal(recordName: identity.recordName, family: family)
+    }
+
+    /// WHY single source: scoped reads share the guard so isolation never drifts.
+    func familyScopedFetch<T: FamilyScopedFetchable>(_: T.Type, family: String) -> [T] {
+        fetchAll(T.self, family: family)
     }
 }

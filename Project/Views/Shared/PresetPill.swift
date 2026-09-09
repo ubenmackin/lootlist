@@ -7,14 +7,14 @@
 
 import SwiftUI
 
-public struct PresetPill: View {
-    public var text: String
-    public var isSelected: Bool
-    public var action: () -> Void
-    public var systemImage: String?
-    public var color: Color?
+struct PresetPill: View {
+    var text: String
+    var isSelected: Bool
+    var action: () -> Void
+    var systemImage: String?
+    var color: Color?
 
-    public init(
+    init(
         text: String,
         isSelected: Bool,
         action: @escaping () -> Void,
@@ -28,7 +28,7 @@ public struct PresetPill: View {
         self.color = color
     }
 
-    public var body: some View {
+    var body: some View {
         let fill = (color ?? Color.accentColor).opacity(isSelected ? 0.35 : 0.15)
         Button(action: action) {
             HStack(spacing: 4) {

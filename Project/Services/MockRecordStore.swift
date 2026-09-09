@@ -180,20 +180,8 @@ final class MockRecordStore {
     private(set) var deletedKeys: [CKRecord.ID] = []
     private(set) var savedRecords: [CKRecord] = []
 
-    var isEmpty: Bool {
-        storage.isEmpty
-    }
-
-    var count: Int {
-        storage.count
-    }
-
     var allRecords: [CKRecord] {
         Array(storage.values)
-    }
-
-    var allKeys: [CKRecord.ID] {
-        Array(storage.keys)
     }
 
     func clear() {
@@ -202,58 +190,12 @@ final class MockRecordStore {
         savedRecords.removeAll()
     }
 
-    func seed(_ models: [any CloudKitRecord], databaseScope _: CKDatabase.Scope? = nil) {
-        for model in models {
-            let record = model.toRecord()
-            storage[record.recordID] = record
-        }
-    }
-
     func setRecord(_ record: CKRecord, databaseScope _: CKDatabase.Scope) {
         storage[record.recordID] = record
     }
 
     func getRecord(recordID: CKRecord.ID, databaseScope _: CKDatabase.Scope? = nil) -> CKRecord? {
         storage[recordID]
-    }
-
-    func save<T: CloudKitRecord>(_ model: T, in zoneID: CKRecordZone.ID? = nil, activeZoneID: CKRecordZone.ID? = nil, databaseScope _: CKDatabase.Scope) throws -> T {
-        let source = model.toRecord()
-        let zone = zoneID ?? activeZoneID ?? CKRecordZone.default().zoneID
-        let targetID: CKRecord.ID = {
-            if source.recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
-                return source.recordID
-            }
-            return CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
-        }()
-        let record: CKRecord
-        if source.recordID == targetID {
-            record = source
-        } else {
-            record = CKRecord(recordType: T.recordType, recordID: targetID)
-            for key in source.allKeys() {
-                record[key] = source[key]
-            }
-        }
-        storage[targetID] = record
-        savedRecords.append(record)
-        return try T(record: record)
-    }
-
-    func fetch<T: CloudKitRecord>(_: T.Type, id: CKRecord.ID, activeZoneID: CKRecordZone.ID? = nil, databaseScope _: CKDatabase.Scope? = nil) throws -> T {
-        let targetID: CKRecord.ID = {
-            if id.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
-                return id
-            }
-            if let activeZoneID {
-                return CKRecord.ID(recordName: id.recordName, zoneID: activeZoneID)
-            }
-            return id
-        }()
-        guard let record = storage[targetID] else {
-            throw CloudKitServiceError.notFound(id.recordName)
-        }
-        return try T(record: record)
     }
 
     func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?,

@@ -60,8 +60,6 @@ enum AppConstants {
     enum CloudKit {
         static let maxRetries: Int = 3
         static let maxFetchPages: Int = 10000
-        static let batchQueryChunkSize: Int = 100
-        static let maxTrackedFailedRecords: Int = 100
         static let shareAbsenceThreshold: Int = 2
         static let backoffScheduleNanos: [UInt64] = [
             500_000_000,
@@ -73,21 +71,11 @@ enum AppConstants {
     enum Economy {
         static let earlyBirdHourCutoff: Int = 9
         static let prestigeTitleCycle: Int = 4
-        static let totalDefaultAchievementsCount: Int = 12
-        static let percentageBase: Double = 100.0
         static let previousWeekDayOffset: Int = -7
         static let payoutCutoffDayOffset: Int = 6
     }
 
     enum UserInterface {
         static let toastAutoDismissSeconds: Double = 7.0
-        static let toastAutoDismissNanos: UInt64 = 7_000_000_000
-        static let celebrationAutoDismissSeconds: UInt64 = 6
-        static let avatarJpegCompression: Double = 0.8
-    }
-
-    enum DailyLogin {
-        static let lastHeroProfileRecordNameKey: String = "dailyLoginLastHeroProfileRecordName"
-        static let resetWindowHours: Int = 24
     }
 }

@@ -18,8 +18,9 @@ protocol CacheServicing: AnyObject {
     func fetchLedgerEntries(profileRecordName: String, family: String?) -> [LedgerEntryCache]
     func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache]
     func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, start: Date, end: Date) -> [LedgerEntryCache]
-    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, source: String, start: Date, end: Date) -> [LedgerEntryCache]
-    func fetchTransfers(profileRecordName: String, familyRecordName: String, from fromRaw: String, to toRaw: String, dayBucket: Int) -> [LedgerEntryCache]
+    func fetchLedgerEntries(profileRecordName: String?, familyRecordName: String, source: String, start: Date, end: Date) -> [LedgerEntryCache]
+    func fetchLedgerEntriesForMonth(familyRecordName: String, monthContaining: Date, fetchLimit: Int) -> [LedgerEntryCache]
+    func fetchRecentLedgerEntries(familyRecordName: String, profileRecordName: String?, fetchLimit: Int) -> [LedgerEntryCache]
     func fetchLedgerEntry(recordName: String, family: String) -> LedgerEntryCache?
     func fetchProfiles(family: String?) -> [ProfileCache]
     func fetchProfile(recordName: String, family: String) -> ProfileCache?
@@ -27,7 +28,6 @@ protocol CacheServicing: AnyObject {
     func fetchQuestTemplates(family: String?) -> [QuestTemplateCache]
     func fetchGoals(family: String?) -> [GoalCache]
     func fetchGoals(profileRecordName: String, bucketKind: String, familyRecordName: String) -> [GoalCache]
-    func fetchGoal(recordName: String, family: String) -> GoalCache?
     func fetchFamily(recordName: String) -> FamilyCache?
     func fetchAllowancePeriod(recordName: String, family: String) -> AllowancePeriodCache?
     func fetchAllowancePeriods(profileRecordName: String, family: String?) -> [AllowancePeriodCache]
@@ -52,53 +52,35 @@ protocol CacheServicing: AnyObject {
 
 @MainActor
 extension CacheServicing {
-    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, in dateRange: Range<Date>) -> [LedgerEntryCache] {
-        fetchLedgerEntries(profileRecordName: profileRecordName, familyRecordName: familyRecordName, start: dateRange.lowerBound, end: dateRange.upperBound)
+    /// WHY default: lightweight test doubles keep family-wide reads without reimplementing indexes.
+    func fetchLedgerEntries(profileRecordName _: String?, familyRecordName _: String, source _: String, start _: Date, end _: Date) -> [LedgerEntryCache] {
+        []
     }
 
-    func fetchLedgerEntries(profileRecordName: String, familyRecordName: String, in dateInterval: DateInterval) -> [LedgerEntryCache] {
-        fetchLedgerEntries(profileRecordName: profileRecordName, familyRecordName: familyRecordName, start: dateInterval.start, end: dateInterval.end)
+    /// WHY default: family-wide month history falls back to empty so mocks never scan.
+    func fetchLedgerEntriesForMonth(familyRecordName _: String, monthContaining _: Date, fetchLimit _: Int) -> [LedgerEntryCache] {
+        []
     }
 
-    /// WHY no default: identity invalidation must stay zone-aware so callers never degrade to name-only deletes.
+    /// WHY default: family-wide recent history falls back to empty so mocks never scan.
+    func fetchRecentLedgerEntries(familyRecordName _: String, profileRecordName _: String?, fetchLimit _: Int) -> [LedgerEntryCache] {
+        []
+    }
+
     func upsertLedgerEntry(_ entry: LedgerEntry) async {
         await upsertLedgerEntry(entry, family: nil, isServerSync: false)
-    }
-
-    func upsertLedgerEntry(_ entry: LedgerEntry, family: String?) async {
-        await upsertLedgerEntry(entry, family: family, isServerSync: false)
     }
 
     func upsertGoal(_ goal: Goal) async {
         await upsertGoal(goal, family: nil, isServerSync: false)
     }
 
-    func upsertGoal(_ goal: Goal, family: String?) async {
-        await upsertGoal(goal, family: family, isServerSync: false)
-    }
-
     func upsertProfile(_ profile: Profile) async {
         await upsertProfile(profile, family: nil, isServerSync: false)
     }
 
-    func upsertProfile(_ profile: Profile, family: String?) async {
-        await upsertProfile(profile, family: family, isServerSync: false)
-    }
-
     func upsertAllowancePeriod(_ period: AllowancePeriod) async {
         await upsertAllowancePeriod(period, family: nil, isServerSync: false)
-    }
-
-    func upsertAllowancePeriod(_ period: AllowancePeriod, family: String?) async {
-        await upsertAllowancePeriod(period, family: family, isServerSync: false)
-    }
-
-    func upsertAllowancePeriod(_ period: AllowancePeriod, isServerSync: Bool) async {
-        await upsertAllowancePeriod(period, family: nil, isServerSync: isServerSync)
-    }
-
-    func batchUpsertLedgerEntriesAndGoals(ledgerEntries: [LedgerEntry], goals: [Goal]) async {
-        await batchUpsertLedgerEntriesAndGoals(ledgerEntries: ledgerEntries, goals: goals, familyRecordName: nil)
     }
 
     func upsertAchievement(_ achievement: Achievement) async {

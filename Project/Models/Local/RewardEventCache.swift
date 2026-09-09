@@ -80,10 +80,6 @@ final class RewardEventCache: FamilyScopedCache, CacheMergeable {
         applySystemFields(from: event, isServerSync: isServerSync)
     }
 
-    var formattedGoldAmount: String {
-        CurrencyFormatter.string(pennies: goldAmount)
-    }
-
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<RewardEventCache> {
         if let familyRecordName, !familyRecordName.isEmpty {
             return FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })

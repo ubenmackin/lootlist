@@ -48,45 +48,9 @@ struct ViewModelLifecycleModifier: ViewModifier {
     }
 }
 
-/// Appearance modifier managing lifecycle subscription and single-flight rebuild.
-struct SyncedViewModelLifecycleModifier: ViewModifier {
-    let ensure: @MainActor () -> Void
-    let subscribe: @MainActor () -> Void
-    let unsubscribe: @MainActor () -> Void
-    let sync: (@MainActor () async -> Void)?
-
-    func body(content: Content) -> some View {
-        content
-            .task { @MainActor in
-                ensure()
-                subscribe()
-                if let sync {
-                    await sync()
-                }
-            }
-            .onDisappear { unsubscribe() }
-    }
-}
-
 extension View {
     /// Replaces duplicated `onAppear` + `.task` ensure/rebuild boilerplate.
     func viewModelLifecycle(ensure: @MainActor @escaping () -> Void) -> some View {
         modifier(ViewModelLifecycleModifier(ensure: ensure))
-    }
-
-    /// For Views that need sync-event subscription. Keeps subscribe/unsubscribe
-    /// paired and ensures only a single rebuild per appearance.
-    func syncedViewModelLifecycle(
-        ensure: @MainActor @escaping () -> Void,
-        subscribe: @MainActor @escaping () -> Void,
-        unsubscribe: @MainActor @escaping () -> Void,
-        sync: (@MainActor () async -> Void)? = nil
-    ) -> some View {
-        modifier(SyncedViewModelLifecycleModifier(
-            ensure: ensure,
-            subscribe: subscribe,
-            unsubscribe: unsubscribe,
-            sync: sync
-        ))
     }
 }

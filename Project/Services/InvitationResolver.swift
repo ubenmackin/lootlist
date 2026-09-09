@@ -154,21 +154,4 @@ actor InvitationResolver {
     }
 
     // MARK: - Test support
-
-    /// Snapshot of cached tokens for inspection in tests.
-    var cachedTokens: [String: String] {
-        get async {
-            await identityTokenCache.cachedTokens()
-        }
-    }
-
-    /// Convenience async snapshot for explicit await call sites.
-    func cachedTokensSnapshot() async -> [String: String] {
-        await identityTokenCache.cachedTokens()
-    }
-
-    /// Snapshot of label counters for inspection in tests.
-    var labelCounters: [String: Int] {
-        identityLabelCounter
-    }
 }

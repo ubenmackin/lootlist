@@ -278,35 +278,14 @@ final class HeroBoardViewModel {
                     claimedRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
                 }
             case .lostToAnotherHero:
-                pendingClaims.withLock { _ = $0.remove(id) }
-                clearPending(id)
-                let message = "Another hero claimed this quest"
-                errorMessage = message
-                boardService.toastManager?.show(message: message, type: .info)
-                // Ensure stale pending state does not linger when toast is unavailable.
-                if boardService.toastManager == nil {
-                    errorMessage = message
-                }
+                handleLostClaim(id: id)
             }
         } catch BoardClaimError.lostToAnotherHero {
             // Optimistic UI rollback when claim lost to another hero.
-            pendingClaims.withLock { _ = $0.remove(id) }
-            clearPending(id)
-            let message = "Another hero claimed this quest"
-            errorMessage = message
-            boardService.toastManager?.show(message: message, type: .info)
-            if boardService.toastManager == nil {
-                errorMessage = message
-            }
+            handleLostClaim(id: id)
         } catch {
-            pendingClaims.withLock { _ = $0.remove(id) }
-            clearPending(id)
             let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            errorMessage = fallback
-            boardService.toastManager?.show(
-                message: fallback,
-                type: .error
-            )
+            handleFailure(id: id, message: fallback, isError: true) { pendingClaims.withLock { _ = $0.remove(id) } }
         }
     }
 
@@ -335,6 +314,22 @@ final class HeroBoardViewModel {
             $0.id == id
                 ? BoardRow(quest: $0.quest, claimantName: $0.claimantName, isClaimedByCurrentUser: $0.isClaimedByCurrentUser, isPending: false)
                 : $0
+        }
+    }
+
+    private func handleFailure(id: String, message: String, isError: Bool, cleanup: () -> Void) {
+        cleanup()
+        clearPending(id)
+        errorMessage = message
+        boardService.toastManager?.show(message: message, type: isError ? .error : .info)
+        if boardService.toastManager == nil {
+            errorMessage = message
+        }
+    }
+
+    private func handleLostClaim(id: String) {
+        handleFailure(id: id, message: "Another hero claimed this quest", isError: false) {
+            pendingClaims.withLock { _ = $0.remove(id) }
         }
     }
 
@@ -367,14 +362,8 @@ final class HeroBoardViewModel {
                 availableRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
             }
         } catch {
-            pendingRevokes.withLock { _ = $0.remove(id) }
-            clearPending(id)
             let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            errorMessage = fallback
-            boardService.toastManager?.show(
-                message: fallback,
-                type: .error
-            )
+            handleFailure(id: id, message: fallback, isError: true) { pendingRevokes.withLock { _ = $0.remove(id) } }
         }
     }
 }

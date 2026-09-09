@@ -65,10 +65,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         self.toastManager = toastManager
     }
 
-    func setToastManager(_ toastManager: ToastManager) {
-        self.toastManager = toastManager
-    }
-
     func setCoordinator(_ coordinator: CKSyncEngineCoordinator) {
         self.coordinator = coordinator
         self.conflictResolver.coordinator = coordinator
@@ -785,13 +781,5 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 private extension Logger {
     func warning(_ message: String, family: String, zone: String) {
         log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
-    }
-
-    func info(_ message: String, family: String, zone: String) {
-        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
-    }
-
-    func error(_ message: String, family: String, zone: String) {
-        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

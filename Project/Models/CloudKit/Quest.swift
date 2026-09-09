@@ -75,10 +75,6 @@ struct Quest: Identifiable, Equatable, Sendable {
         return "Quest \(templateID)"
     }
 
-    var displayDescription: String {
-        descriptionText ?? ""
-    }
-
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
@@ -197,9 +193,5 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.descriptionText = descriptionText
         self.claimedByProfileRecordName = claimedByProfileRecordName
         self.claimedAt = claimedAt
-    }
-
-    var formattedGoldReward: String {
-        CurrencyFormatter.string(pennies: goldReward)
     }
 }

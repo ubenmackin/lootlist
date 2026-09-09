@@ -238,12 +238,6 @@ extension FamilyService {
 
     // MARK: - Savings Split (3-Bucket)
 
-    @discardableResult
-    func updateSavingsSplit(profileCache: ProfileCache, spend: Int, short: Int, long: Int) async throws -> Profile {
-        guard let zoneID = appState.familyZoneID else { throw FamilyServiceError.unauthorized }
-        return try await updateSavingsSplit(profile: profileCache.toProfile(zoneID: zoneID), spend: spend, short: short, long: long)
-    }
-
     /// Updates 3-bucket split percentages for a hero profile, applying to future payouts.
     @discardableResult
     func updateSavingsSplit(profile: Profile, spend: Int, short: Int, long: Int) async throws -> Profile {
@@ -275,9 +269,5 @@ extension FamilyService {
 
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateSavingsSplit")
         return updated
-    }
-
-    private func resolvedIsOwner() -> Bool {
-        ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
     }
 }

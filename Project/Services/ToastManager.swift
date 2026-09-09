@@ -78,9 +78,6 @@ final class ToastManager {
     /// Currently presented toasts. Index `0` is the newest (topmost) banner.
     private(set) var toasts: [Toast] = []
 
-    /// Auto-dismiss delay for newly shown toasts.
-    private static let autoDismissDuration: UInt64 = AppConstants.UserInterface.toastAutoDismissNanos // 7 seconds
-
     /// Active auto-dismiss tasks keyed by toast id, so we can cancel them when a
     /// toast is dismissed manually before the timer elapses.
     private var autoDismissTasks: [UUID: Task<Void, Never>] = [:]
@@ -124,15 +121,6 @@ final class ToastManager {
         }
         toasts.remove(at: index)
         autoDismissTasks.removeValue(forKey: id)?.cancel()
-    }
-
-    /// Removes all presented toasts and cancels any pending auto-dismiss tasks.
-    func clear() {
-        toasts.removeAll()
-        for task in autoDismissTasks.values {
-            task.cancel()
-        }
-        autoDismissTasks.removeAll()
     }
 
     /// Schedules a non-blocking auto-dismiss. The sleep runs off the main thread

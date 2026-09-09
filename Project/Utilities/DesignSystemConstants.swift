@@ -103,8 +103,6 @@ enum DesignSystemConstants {
     }
 
     enum AvatarSize {
-        static let small: CGFloat = 50
-        static let medium: CGFloat = 64
         static let large: CGFloat = 120
     }
 

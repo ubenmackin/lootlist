@@ -25,11 +25,6 @@ struct InvitationLinkResolution: Sendable, Equatable, Hashable {
         guard let zoneName, let zoneOwnerName else { return nil }
         return CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
     }
-
-    var rootRecordID: CKRecord.ID? {
-        guard let rootRecordName, let zoneID else { return nil }
-        return CKRecord.ID(recordName: rootRecordName, zoneID: zoneID)
-    }
 }
 
 extension InvitationLinkResolution {

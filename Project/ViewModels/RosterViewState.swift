@@ -22,23 +22,4 @@ struct RosterViewState {
             .filter { $0.roleEnum?.isParent == true }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
-
-    /// Pure convenience matching the canonical cache-row tuple used across dashboard
-    /// metrics. Only `profiles` participates; the remaining arrays are ignored so
-    /// callers can thread the same tuple through all extracted types.
-    static func make(
-        profiles: [ProfileCache],
-        quests _: [QuestCache],
-        logs _: [QuestCompletionCache],
-        ledgers _: [LedgerEntryCache],
-        allowancePeriods _: [AllowancePeriodCache],
-        profileAchievements _: [ProfileAchievementCache]
-    ) -> RosterViewState {
-        RosterViewState(profiles: profiles)
-    }
-
-    /// Short-form pure helper for roster-only tests.
-    static func compute(from profiles: [ProfileCache]) -> RosterViewState {
-        RosterViewState(profiles: profiles)
-    }
 }

@@ -27,7 +27,6 @@ struct TrophyRoomView: View {
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
-
     private let profileRecordName: String?
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
@@ -69,8 +68,6 @@ struct TrophyRoomView: View {
                     content(for: viewModel)
                 } else {
                     ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .accessibilityHidden(true)
                 }
             }
             .navigationTitle("Hall of Heroes")
@@ -194,19 +191,6 @@ struct TrophyRoomView: View {
             .padding(.vertical)
         }
         .background(Color(DesignSystemConstants.Colors.background))
-    }
-
-    private var loadingPlaceholder: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "building.columns")
-                .font(.system(size: 56))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 120)
-            Text("Entering the Hall of Heroes…")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func trophyGrid(using viewModel: TrophyRoomViewModel) -> some View {

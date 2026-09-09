@@ -241,7 +241,6 @@ extension QuestManagerView {
                     selectedTemplateID: selectedTemplateID,
                     selectedAssignmentID: selectedAssignmentID,
                     inspectorNewKind: inspectorNewKind,
-                    familyRecordName: familyRecordName,
                     onClear: { clearInspectorSelection() }
                 )
             } else {
@@ -663,7 +662,6 @@ extension QuestManagerView {
         ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
             QuestManagerViewModel(
                 questService: questService,
-                familyService: familyService,
                 appState: appState
             )
         }, rebuild: { vm in rebuildViewModel(vm) })
@@ -733,25 +731,8 @@ extension QuestManagerView {
         return applySearch(toAssignments: base, vm: vm)
     }
 
-    private func filteredAssignmentsForCounts(vm: QuestManagerViewModel, heroRecordName: String?) -> [QuestCache] {
-        let base: [QuestCache] = if let heroRecordName {
-            vm.activeAssignments.filter { $0.assigneeRecordName == heroRecordName }
-        } else {
-            vm.activeAssignments
-        }
-        return applySearch(toAssignments: base, vm: vm)
-    }
-
     private func applySearch(toAssignments assignments: [QuestCache], vm: QuestManagerViewModel) -> [QuestCache] {
         applySearch(to: assignments, query: searchText, selectors: [{ $0.questName }, { self.heroName(for: $0.assigneeRecordName, vm: vm) }])
-    }
-
-    private func sortedTemplates(_ templates: [QuestTemplateCache]) -> [QuestTemplateCache] {
-        templates.sorted(using: templateSortOrder)
-    }
-
-    private func sortedAssignments(_ assignments: [QuestCache], vm _: QuestManagerViewModel) -> [QuestCache] {
-        assignments.sorted(using: assignmentSortOrder)
     }
 
     private func heroName(for recordName: String, vm: QuestManagerViewModel) -> String {

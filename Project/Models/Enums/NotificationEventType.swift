@@ -105,30 +105,13 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var defaultEnabledForHero: Bool {
-        switch self {
-        case .questAssigned,
-             .questMissed,
-             .questRejected,
-             .questCompleted,
-             .levelUp,
-             .goldEarned,
-             .trophyEarned,
-             .streakMilestone:
-            true
-        case .questNeedsReview,
-             .spendingLogged,
-             .spendDailyDigest:
-            false
-        }
+    /// WHY defaults: fresh installs enable relevant alerts so parents and heroes never miss lifecycle events.
+    var defaultEnabledForParent: Bool {
+        isRelevantForParent
     }
 
-    var defaultEnabledForParent: Bool {
-        switch self {
-        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .spendDailyDigest, .trophyEarned, .streakMilestone:
-            true
-        case .questAssigned, .questCompleted, .questRejected, .questMissed:
-            false
-        }
+    /// WHY defaults: hero devices default to their relevant subset so onboarding never spams.
+    var defaultEnabledForHero: Bool {
+        isRelevantForHero
     }
 }

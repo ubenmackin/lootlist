@@ -47,12 +47,6 @@ final class LedgerImportViewModel {
         LedgerImportService.blockingRows(in: stagedRows).count
     }
 
-    var totalAmount: Int64 {
-        includedRows.compactMap(\.amount).reduce(0, +)
-    }
-
-    /// Finalization stays blocked until every included row has a child
-    /// assignment and fully parseable fields — unassigned rows never guess.
     var canFinalize: Bool {
         !includedRows.isEmpty && blockedRowCount == 0 && !isFinalizing
     }
@@ -65,11 +59,6 @@ final class LedgerImportViewModel {
         if rows.isEmpty {
             errorMessage = "No transactions found in that file."
         }
-    }
-
-    func clearStaging() {
-        stagedRows = []
-        errorMessage = nil
     }
 
     func assign(rowID: String, to profileCache: ProfileCache?) {
@@ -146,10 +135,6 @@ final class LedgerImportViewModel {
     /// ViewModel rebuild observes cache changes without a parent-list refresh.
     func updateImportedCount(_ count: Int) {
         importedCount = count
-    }
-
-    func updateImportedCount(from ledgers: [LedgerEntryCache]) {
-        importedCount = ledgers.count
     }
 
     func loadingFailed(_ message: String) {

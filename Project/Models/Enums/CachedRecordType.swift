@@ -35,11 +35,6 @@ enum CachedRecordType: String, CaseIterable, Sendable {
         [.private, .shared]
     }
 
-    /// Convenience for the common case: required scope is the active zone's DB.
-    static func requiredScope(isZoneOwner: Bool) -> CKDatabase.Scope {
-        DatabaseScopeResolver.scope(isOwner: isZoneOwner)
-    }
-
     var ckRecordType: CKRecord.RecordType {
         switch self {
         case .profile: Profile.recordType

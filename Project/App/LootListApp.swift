@@ -59,10 +59,6 @@ struct LootListApp: App {
         dependencies.appSyncCoordinator
     }
 
-    private var dataMigrationsCoordinator: DataMigrationsCoordinator {
-        dependencies.dataMigrationsCoordinator
-    }
-
     private var cacheService: CacheService? {
         dependencies.cacheService
     }

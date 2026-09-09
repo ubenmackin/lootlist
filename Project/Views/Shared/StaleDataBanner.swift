@@ -19,15 +19,6 @@ struct StaleDataBanner: View {
     private let count: Int?
     private let isSyncing: Bool
 
-    /// Legacy initializer — always renders the banner. Caller controls
-    /// visibility via an external `isStale` predicate.
-    init(isSyncing: Bool = false) {
-        self.family = nil
-        self.type = nil
-        self.count = nil
-        self.isSyncing = isSyncing
-    }
-
     /// Scope-aware initializer — banner renders only when the cached count
     /// for `family`/`type`/`scope` is stale.
     init(family: String, type: CachedRecordType, count: Int, isSyncing: Bool = false) {

@@ -114,7 +114,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     @MainActor
-    private static func handleWeeklyPayoutBackgroundRefresh(task: BGAppRefreshTask) {
+    private static func handleBackgroundRefresh(
+        task: BGTask,
+        logPrefix: String,
+        work: @escaping @MainActor (AppDependencies) async -> Bool
+    ) {
         let taskIdentifier = task.identifier
         let completion = ExactlyOnceCompletion()
 
@@ -124,14 +128,21 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 return
             }
 
-            let success = await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
+            let success = await work(shared)
             completion.complete(task, success: success)
         }
 
         task.expirationHandler = {
-            logger.warning("Weekly payout BGAppRefreshTask \(taskIdentifier) expired prior to completion")
+            logger.warning("\(logPrefix) \(taskIdentifier) expired prior to completion")
             workTask.cancel()
             completion.complete(task, success: false)
+        }
+    }
+
+    @MainActor
+    private static func handleWeeklyPayoutBackgroundRefresh(task: BGAppRefreshTask) {
+        handleBackgroundRefresh(task: task, logPrefix: "Weekly payout BGAppRefreshTask") { shared in
+            await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
         }
     }
 
@@ -156,24 +167,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     @MainActor
     private static func handleSpendDigestBackgroundRefresh(task: BGAppRefreshTask) {
-        let taskIdentifier = task.identifier
-        let completion = ExactlyOnceCompletion()
-
-        let workTask = Task {
-            guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
-                completion.complete(task, success: false)
-                return
-            }
-
+        handleBackgroundRefresh(task: task, logPrefix: "Spend digest BGAppRefreshTask") { shared in
             let success = await shared.appSyncCoordinator.handleSpendDigestBackgroundRefresh()
             scheduleSpendDigestRefresh()
-            completion.complete(task, success: success)
-        }
-
-        task.expirationHandler = {
-            logger.warning("Spend digest BGAppRefreshTask \(taskIdentifier) expired prior to completion")
-            workTask.cancel()
-            completion.complete(task, success: false)
+            return success
         }
     }
 
@@ -201,23 +198,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     @MainActor
     private static func handleSyncProcessingTask(task: BGProcessingTask) {
         // WHY: terminated-push coverage — retries pending uploads when silent pushes are throttled or jetsam kills app before sync.
-        let taskIdentifier = task.identifier
-        let completion = ExactlyOnceCompletion()
-
-        let syncTask = Task {
-            guard let shared = Self.resolveDependencies(for: taskIdentifier) else {
-                completion.complete(task, success: false)
-                return
-            }
-
+        handleBackgroundRefresh(task: task, logPrefix: "Sync BGProcessingTask") { shared in
             await shared.lifecycleCoordinator.performManualSync()
-            completion.complete(task, success: true)
-        }
-
-        task.expirationHandler = {
-            logger.warning("Sync BGProcessingTask \(taskIdentifier) expired prior to completion")
-            syncTask.cancel()
-            completion.complete(task, success: false)
+            return true
         }
     }
 

@@ -58,10 +58,6 @@ enum CurrencyFormatter: Sendable {
         magnitude(pennies: pennies)
     }
 
-    static func magnitude(_ pennies: Int) -> String {
-        magnitude(pennies: Int64(pennies))
-    }
-
     static func signed(pennies: Int64) -> String {
         let body = magnitude(pennies: pennies)
         if pennies < 0 {
@@ -77,20 +73,12 @@ enum CurrencyFormatter: Sendable {
         signed(pennies: pennies)
     }
 
-    static func signed(_ pennies: Int) -> String {
-        signed(pennies: Int64(pennies))
-    }
-
     static func editingString(pennies: Int64) -> String {
         String(format: "%.2f", Double(pennies) / 100.0)
     }
 
     static func editingString(_ pennies: Int64) -> String {
         editingString(pennies: pennies)
-    }
-
-    static func editingString(_ pennies: Int) -> String {
-        editingString(pennies: Int64(pennies))
     }
 
     /// WHY round half up: dollar inputs quantize to whole pennies away from
@@ -108,17 +96,6 @@ enum CurrencyFormatter: Sendable {
 
     static func magnitude(_ amount: Double) -> String {
         string(abs(amount))
-    }
-
-    static func signed(_ amount: Double) -> String {
-        let body = magnitude(amount)
-        if amount < 0 {
-            return "−\(body)"
-        }
-        if amount > 0 {
-            return "+\(body)"
-        }
-        return body
     }
 
     static func presetString(_ preset: String) -> String {

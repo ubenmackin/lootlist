@@ -28,10 +28,6 @@ final class GemLedgerCache: FamilyScopedCache, CacheMergeable {
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
 
-    var isDebit: Bool {
-        amount < 0
-    }
-
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

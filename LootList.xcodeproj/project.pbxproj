@@ -244,9 +244,11 @@
 		8BA26EB6C2E6425B81C827FC /* QuestRarity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */; };
 		8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8761871EDB01C4A39B494AA3 /* Profile.swift */; };
 		8BF9C5B039B26C32E01F22BE /* TransferTestScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8760C1A1D33C956A393D158E /* TransferTestScaffold.swift */; };
+		8C0BA6981BE0092498705665 /* QuestLogFetchHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E76B844C43F14AC0A0E2DF /* QuestLogFetchHelper.swift */; };
 		8CF0F691C4BA65D9E7E41B30 /* HeroDetailInlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CB1B3F830D3D9B05BD16F8 /* HeroDetailInlineView.swift */; };
 		8CFA5C8F74CC69D17C998222 /* CurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */; };
 		8D96EC37B3D9D14409727627 /* FamilyServiceTests+OwnerAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */; };
+		8DD61D0DA325315C8E49CD71 /* ServiceInitHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7106F72452994A2C39EA249 /* ServiceInitHelper.swift */; };
 		8EF7931F2B14AB2B90388AEE /* HeroDashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD29C5382B850C0B63C0A7B /* HeroDashboardUITests.swift */; };
 		8F423B819E247D73BF293236 /* InterestServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18CEAF67B8C5FB11FF2E43D /* InterestServiceTests.swift */; };
 		8FB2335B7B25F734E393C66C /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3126E26209D8D54178D4E71A /* SwiftUI.framework */; };
@@ -761,6 +763,7 @@
 		888F4B414BCB903A20D25936 /* CacheService+Batches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Batches.swift"; sourceTree = "<group>"; };
 		8927C4361B88112B84836480 /* AvatarSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarSelectionView.swift; sourceTree = "<group>"; };
 		89AB9A4FCD7CD3B589F4D935 /* TreasuryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryUITests.swift; sourceTree = "<group>"; };
+		89E76B844C43F14AC0A0E2DF /* QuestLogFetchHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLogFetchHelper.swift; sourceTree = "<group>"; };
 		8A029B21BB9CA3C965490F84 /* XPServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPServiceTests.swift; sourceTree = "<group>"; };
 		8B15421668F757E0673E4665 /* LedgerImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportViewModel.swift; sourceTree = "<group>"; };
 		8B3E89C7232C29D009B9D064 /* NotificationPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreference.swift; sourceTree = "<group>"; };
@@ -904,6 +907,7 @@
 		E580BB884E3BE6CF6CB21A5B /* SectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionHeader.swift; sourceTree = "<group>"; };
 		E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutDayResolver.swift; sourceTree = "<group>"; };
 		E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryService.swift; sourceTree = "<group>"; };
+		E7106F72452994A2C39EA249 /* ServiceInitHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceInitHelper.swift; sourceTree = "<group>"; };
 		E71AC4B9376BAC604D6141A1 /* NotificationPreferenceCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreferenceCache.swift; sourceTree = "<group>"; };
 		E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualSpendingServiceTests.swift; sourceTree = "<group>"; };
 		E78E116DDA8E0F2C66D44DE3 /* CalendarScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScope.swift; sourceTree = "<group>"; };
@@ -1193,6 +1197,7 @@
 				BCE4E7ECCA18A283341804A6 /* QuestCompletionService.swift */,
 				304338B8D8D0CE2F4145DFC8 /* QuestCompletionService+QuestLogs.swift */,
 				F12E8593E9640590BE8BBFBB /* QuestCompletionService+Review.swift */,
+				89E76B844C43F14AC0A0E2DF /* QuestLogFetchHelper.swift */,
 				5501874816EDA14B20DE83F7 /* QuestRewardService.swift */,
 				793AE042C54685940F7C3EF1 /* QuestService.swift */,
 				6D31C4184B8F627D458937EC /* QuestService+Completions.swift */,
@@ -1696,6 +1701,7 @@
 				AC02A768138E56387949BEB1 /* Logger+Category.swift */,
 				E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */,
 				BEA32A99EF7AD83493CB7E19 /* SampleData.swift */,
+				E7106F72452994A2C39EA249 /* ServiceInitHelper.swift */,
 				FC7893018C0628EC0C02B355 /* SHA256+Hex.swift */,
 				FA6395742E36605DA45EA269 /* SpecificDaysHelper.swift */,
 				DC4C7A00E79EFCE482A921A6 /* StreakCalculator.swift */,
@@ -2176,6 +2182,7 @@
 				32BB82C61525B08CCC155A1E /* QuestDetailView.swift in Sources */,
 				6E41E280C0612846283E2003 /* QuestEntity.swift in Sources */,
 				F721603A971407793B8F9B3B /* QuestHelpSheetView.swift in Sources */,
+				8C0BA6981BE0092498705665 /* QuestLogFetchHelper.swift in Sources */,
 				06F3943C3946B8901996E6C2 /* QuestLogView.swift in Sources */,
 				7D2FBF807A8AE0F0F23DCBDA /* QuestLogViewModel.swift in Sources */,
 				283AE720887369B6CB7AB31E /* QuestManagerInspectorView.swift in Sources */,
@@ -2210,6 +2217,7 @@
 				E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */,
 				DB0A7BB32938897F61E0FE54 /* SectionHeader.swift in Sources */,
 				CEE615BF73574AC3316572F3 /* SerialMutationQueue.swift in Sources */,
+				8DD61D0DA325315C8E49CD71 /* ServiceInitHelper.swift in Sources */,
 				A0E0D37A83E4D649F38C0160 /* SessionStorage.swift in Sources */,
 				836ECF53B7FAA68C7FA2B0B4 /* SettingsGuildHeaderHostView.swift in Sources */,
 				96144A9CB6994435897CEAB9 /* SettingsRosterHostView.swift in Sources */,

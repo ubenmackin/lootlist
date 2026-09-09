@@ -48,10 +48,6 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         ApprovalMode(rawValue: approvalMode)
     }
 
-    var formattedGoldReward: String {
-        CurrencyFormatter.string(pennies: goldReward)
-    }
-
     init(recordName: String,
          familyRecordName: String,
          name: String,

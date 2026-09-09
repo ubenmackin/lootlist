@@ -463,26 +463,6 @@ enum RecordBridge {
         Goal.recordType: Goal.managedFieldKeys
     ]
 
-    static func logTransferSkewIfNeeded(localDate: Date, serverDate: Date) {
-        WeekMath.logTransferSkewIfNeeded(localDate: localDate, serverDate: serverDate)
-    }
-
-    static func checkTransferSkew(for record: CKRecord, localEntry: LedgerEntry) {
-        guard record.recordType == LedgerEntry.recordType, localEntry.sourceEnum == .transfer else { return }
-        let serverDate: Date? = record.creationDate ?? {
-            let data = record.encodedSystemFields
-            guard !data.isEmpty else { return nil }
-            do {
-                return try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data)?.creationDate
-            } catch {
-                logger.warning("CKRecord systemFields decode failed for \(record.recordID.recordName, privacy: .private): \(error, privacy: .private)")
-                return nil
-            }
-        }()
-        guard let serverDate else { return }
-        WeekMath.logTransferSkewIfNeeded(localDate: localEntry.date, serverDate: serverDate)
-    }
-
     private static func prepareRecord(_ record: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {
         if record.recordType != Family.recordType {
             if let familyRef = record["family"] as? CKRecord.Reference {
@@ -509,13 +489,5 @@ enum RecordBridge {
 private extension Logger {
     func warning(_ message: String, family: String, zone: String) {
         log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
-    }
-
-    func info(_ message: String, family: String, zone: String) {
-        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
-    }
-
-    func error(_ message: String, family: String, zone: String) {
-        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

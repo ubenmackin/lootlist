@@ -70,14 +70,6 @@ final class DailyLoginService {
         resolvedActiveProfile()?.dailyLoginStreakDays ?? 0
     }
 
-    var currentLastLoginDay: String {
-        resolvedActiveProfile()?.dailyLoginLastClaimDay ?? ""
-    }
-
-    var currentLastLoginHeroProfileRecordName: String {
-        appState?.currentProfile?.id.recordName ?? ""
-    }
-
     // MARK: - Profile resolution
 
     /// Resolves the active hero's profile from the cache (the CloudKit-mirrored

@@ -50,11 +50,6 @@ final class GemService {
         return entries.reduce(0) { $0 + $1.amount }
     }
 
-    func updateProfile(_ profile: Profile) async throws {
-        await cacheService?.upsertProfile(profile)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: profile.id, appState: appState, logger: logger, context: "GemService.updateProfile")
-    }
-
     // MARK: - Credit & Spend
 
     /// Credits gems using deterministic ledger IDs for idempotent cross-device syncing.

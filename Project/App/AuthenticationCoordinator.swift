@@ -338,15 +338,6 @@ final class AuthenticationCoordinator {
         }
     }
 
-    func resolveCurrentUserRecordID(cloudKit: any CloudKitServiceProtocol) async -> CKRecord.ID? {
-        guard let appState else {
-            let service = FamilyDiscoveryService()
-            return await service.resolveCurrentUserRecordID(cloudKit: cloudKit)
-        }
-        let service = appState.discoveryService ?? FamilyDiscoveryService()
-        return await service.resolveCurrentUserRecordID(cloudKit: cloudKit)
-    }
-
     static func activeSharedHeroProfiles(
         cloudKit: any CloudKitServiceProtocol,
         userRecordID: CKRecord.ID?,

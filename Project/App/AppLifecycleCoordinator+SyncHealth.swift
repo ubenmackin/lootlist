@@ -40,19 +40,4 @@ extension AppLifecycleCoordinator {
     var syncErrorText: String? {
         (syncCoordinator as? CKSyncEngineCoordinator)?.syncError
     }
-
-    /// WHY fail-closed: missing engine reads as no push so debug ages render Never.
-    var syncLastPushReceivedAt: Date? {
-        (syncCoordinator as? CKSyncEngineCoordinator)?.lastPushReceivedAt
-    }
-
-    /// WHY fail-closed: missing engine reads as inactive so debug chips render nil.
-    var isPrivateEngineActive: Bool {
-        (syncCoordinator as? CKSyncEngineCoordinator)?.activeEngine(isOwner: true) != nil
-    }
-
-    /// WHY fail-closed: missing engine reads as inactive so debug chips render nil.
-    var isSharedEngineActive: Bool {
-        (syncCoordinator as? CKSyncEngineCoordinator)?.activeEngine(isOwner: false) != nil
-    }
 }

@@ -11,7 +11,6 @@ import SwiftUI
 
 /// Read-only transaction history for a child profile, grouped by date into daily sections.
 struct ChildLedgerView: View {
-    private static let logger = Logger(category: "ChildLedgerView")
     /// WHY Sendable styles: per-cell labels reuse value types without shared mutable formatters.
     private static let shortTimeStyle = Date.FormatStyle(date: .omitted, time: .shortened)
 

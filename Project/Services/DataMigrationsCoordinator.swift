@@ -218,92 +218,6 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    static func questLedgerBackfillV1(
-        cloudKit: any CloudKitServiceProtocol,
-        cacheService _: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
-    ) -> MigrationStep {
-        MigrationStep(id: "QuestLedgerBackfillV1", version: 1) {
-            let logger = Logger(category: "DataMigrations")
-            guard let zoneID = cloudKit.activeFamilyZoneID else {
-                logger.info("No active family zone, skipping ledger backfill.")
-                return
-            }
-            // WHY ingest-only: one-shot server echo rides the single door without stamping freshness; versioned flag plus deterministic payout IDs keep re-runs idempotent.
-            let hydrateScope = migrationScope(appState: appState, cloudKit: cloudKit)
-            let periods = try await cloudKit.query(
-                AllowancePeriod.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID
-            )
-            let existingLedgers = try await cloudKit.query(
-                LedgerEntry.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID
-            )
-            for period in periods {
-                var paidAmount = period.paidAmount ?? period.totalEarned
-                guard paidAmount > 0 else { continue }
-                let entryRecordName: String
-                let descriptionPrefix: String
-                if period.status == .paid {
-                    entryRecordName = DeterministicRecordID.payout(periodRecordName: period.id.recordName)
-                    descriptionPrefix = "Quest earnings"
-                    let rtID = CKRecord.ID(recordName: DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName), zoneID: zoneID)
-                    let realTimeEntry = try await fetchRecordOrNil(
-                        LedgerEntry.self,
-                        id: rtID,
-                        cloudKit: cloudKit
-                    )
-                    if realTimeEntry != nil {
-                        continue
-                    }
-                    let weekEnd = WeekMath.weekRange(starting: period.weekOf).upperBound
-                    let depositBonusSum = existingLedgers
-                        .filter {
-                            $0.profile.recordID == period.profile.recordID &&
-                                $0.source != "quest" &&
-                                $0.amount > 0 &&
-                                $0.date >= period.weekOf &&
-                                $0.date < weekEnd
-                        }
-                        .reduce(0) { $0 + $1.amount }
-                    paidAmount = max(0, paidAmount - depositBonusSum)
-                    guard paidAmount > 0 else { continue }
-                } else {
-                    entryRecordName = DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName)
-                    descriptionPrefix = "Quest earnings — real-time"
-                }
-                let targetID = CKRecord.ID(recordName: entryRecordName, zoneID: zoneID)
-                let existing = try await fetchRecordOrNil(
-                    LedgerEntry.self,
-                    id: targetID,
-                    cloudKit: cloudKit
-                )
-                if existing != nil {
-                    continue
-                }
-                let formatter = DateFormatter()
-                formatter.dateStyle = .medium
-                formatter.timeStyle = .none
-                let entry = LedgerEntry(
-                    profile: period.profile,
-                    amount: abs(paidAmount),
-                    description: "\(descriptionPrefix) (week of \(formatter.string(from: period.weekOf)))",
-                    date: period.paidDate ?? period.weekOf,
-                    source: "quest",
-                    family: period.family,
-                    id: targetID
-                )
-                let saved = try await cloudKit.save(entry, in: zoneID, using: nil)
-                if let syncCoordinator, let hydrateScope {
-                    await syncCoordinator.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: hydrateScope, zoneID: zoneID)
-                }
-            }
-        }
-    }
-
     static func achievementMigrationV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService _: CacheService? = nil,
@@ -500,11 +414,9 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    /// Marker step for the V10 cache-schema bump. V10 is an index-only change
-    /// (LedgerEntryCache adds two composite indexes). No properties added/removed, no data backfill.
-    /// The store upgrade attempts lightweight with destructive-reset fallback in `CacheService` on failure;
-    /// the marker only records that the transition was observed per account+family.
-    /// Fail-open without an active zone mirrors V8.
+    /// WHY index-only: V10 adds ledger composite indexes with no property changes, so lightweight migration applies without reset.
+    /// Retains base `familyRecordName+recordName` and adds `family+profile+date` plus `family+profile+source+date`
+    /// for month and source-range history; no new models, no property changes, sparse optionals stay out of predicates.
     static func schemaV10LedgerIndexMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "SchemaV10LedgerIndexMarker", version: 10) {
             let logger = Logger(category: "DataMigrations")
@@ -512,7 +424,7 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone; nothing to record for schema V10.")
                 return
             }
-            logger.info("Schema V10 lightweight index migration handled by SwiftData container open.")
+            logger.info("Schema V10 ledger index migration handled by SwiftData lightweight migration.")
         }
     }
 
@@ -563,7 +475,93 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    /// WHY pennies: domain round-trip converges idempotently; versioned flag prevents reruns.
+    static func questLedgerBackfillV1(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService _: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil
+    ) -> MigrationStep {
+        // WHY ingest-only: one-shot ledger backfill rides direct save plus hydrate without stamping freshness; deterministic payout IDs keep re-runs idempotent.
+        MigrationStep(id: "QuestLedgerBackfillV1", version: 1) {
+            let logger = Logger(category: "DataMigrations")
+            guard let zoneID = cloudKit.activeFamilyZoneID else {
+                logger.info("No active family zone, skipping ledger backfill.")
+                return
+            }
+            let hydrateScope = migrationScope(appState: appState, cloudKit: cloudKit)
+            let periods = try await cloudKit.query(
+                AllowancePeriod.self,
+                predicate: NSPredicate(value: true),
+                in: zoneID
+            )
+            let existingLedgers = try await cloudKit.query(
+                LedgerEntry.self,
+                predicate: NSPredicate(value: true),
+                in: zoneID
+            )
+            for period in periods {
+                var paidAmount = period.paidAmount ?? period.totalEarned
+                guard paidAmount > 0 else { continue }
+                let entryRecordName: String
+                let descriptionPrefix: String
+                if period.status == .paid {
+                    entryRecordName = DeterministicRecordID.payout(periodRecordName: period.id.recordName)
+                    descriptionPrefix = "Quest earnings"
+                    let rtID = CKRecord.ID(recordName: DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName), zoneID: zoneID)
+                    let realTimeEntry = try await fetchRecordOrNil(
+                        LedgerEntry.self,
+                        id: rtID,
+                        cloudKit: cloudKit
+                    )
+                    if realTimeEntry != nil {
+                        continue
+                    }
+                    let weekEnd = WeekMath.weekRange(starting: period.weekOf).upperBound
+                    let depositBonusSum = existingLedgers
+                        .filter {
+                            $0.profile.recordID == period.profile.recordID &&
+                                $0.source != "quest" &&
+                                $0.amount > 0 &&
+                                $0.date >= period.weekOf &&
+                                $0.date < weekEnd
+                        }
+                        .reduce(0) { $0 + $1.amount }
+                    paidAmount = max(0, paidAmount - depositBonusSum)
+                    guard paidAmount > 0 else { continue }
+                } else {
+                    entryRecordName = DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName)
+                    descriptionPrefix = "Quest earnings — real-time"
+                }
+                let targetID = CKRecord.ID(recordName: entryRecordName, zoneID: zoneID)
+                let existing = try await fetchRecordOrNil(
+                    LedgerEntry.self,
+                    id: targetID,
+                    cloudKit: cloudKit
+                )
+                if existing != nil {
+                    continue
+                }
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .none
+                let entry = LedgerEntry(
+                    profile: period.profile,
+                    amount: abs(paidAmount),
+                    description: "\(descriptionPrefix) (week of \(formatter.string(from: period.weekOf)))",
+                    date: period.paidDate ?? period.weekOf,
+                    source: "quest",
+                    family: period.family,
+                    id: targetID
+                )
+                let saved = try await cloudKit.save(entry, in: zoneID, using: nil)
+                // WHY hydrate: backfilled rows converge in cache for the next CacheFirst hit.
+                if let syncCoordinator, let hydrateScope {
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: hydrateScope, zoneID: zoneID)
+                }
+            }
+        }
+    }
+
     static func currencyToPenniesV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService _: CacheService? = nil,
@@ -576,18 +574,11 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone, skipping currency to pennies migration.")
                 return
             }
-            // WHY fail-closed: unknown scope drops so tokens re-deliver instead of guessing a database.
             guard let scope = migrationScope(appState: appState, cloudKit: cloudKit) else { return }
             let isOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "DataMigrations.currencyToPenniesV1")
             var converted = 0
             var hadFailures = false
 
-            // WHY domain round-trip: init(record:) coerces legacy Double
-            // dollars via dollarsToPennies (round half up) while Int64 rows
-            // pass through unchanged, so re-saving converges idempotently.
-            // WHY save-all: the typed query erases Double-vs-Int encoding, so
-            // every row rewrites deterministically; values converge and the
-            // versioned flag keeps reruns from repeating the pass.
             let allowanceResult = await convertRecords(
                 AllowancePeriod.self,
                 cloudKit: cloudKit,
@@ -672,7 +663,6 @@ extension DataMigrationsCoordinator {
             for record in records {
                 do {
                     let saved = try await cloudKit.save(record, in: zoneID, using: nil)
-                    // WHY ingest: one-shot server echo rides the single door without stamping freshness; versioned flag guards single use.
                     await syncCoordinator?.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: scope, zoneID: zoneID)
                     syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                     converted += 1

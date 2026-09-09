@@ -37,10 +37,6 @@ enum UserRole: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var isOwner: Bool {
-        self == .guildMaster
-    }
-
     var genericRoleName: String {
         switch self {
         case .guildMaster, .ranger: "Parent"

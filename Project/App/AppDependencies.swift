@@ -67,10 +67,6 @@ final class AppDependencies {
     let cacheService: CacheService
     let syncCoordinator: CKSyncEngineCoordinator
     let networkMonitor: NetworkMonitor
-    /// Protocol-typed reachability for injected consumers; debug overlay and lifecycle debounce continue to use the concrete monitor.
-    var networkMonitoring: any NetworkMonitoring {
-        networkMonitor
-    }
 
     let conflictResolver: CKSyncConflictResolver
     let syncEngineDelegateHandler: CKSyncEngineDelegateHandler
@@ -439,7 +435,7 @@ final class AppDependencies {
             cloudKitService: ck, cacheService: cache, toastManager: toast,
             appState: app, syncCoordinator: syncCoord, soundManager: sound
         )
-        let lootDrop = LootDropService(gemService: gem, toastManager: toast, soundManager: sound)
+        let lootDrop = LootDropService(gemService: gem)
         quest.lootDropService = lootDrop
         let dailyLogin = DailyLoginService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         let bonusObjective = BonusObjectiveService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)

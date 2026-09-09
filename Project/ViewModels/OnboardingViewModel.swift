@@ -463,13 +463,18 @@ final class OnboardingViewModel {
         invitedRole = nil
     }
 
-    /// Clears prime dismissal on sign-out or family switch so the next identity starts unprimed.
-    /// WHY separate: successful onboarding preserves the just-written prime keys; only identity teardown clears them.
+    // MARK: - Notification Prime Navigation
+
+    /// WHY scoped clear: family switches drop the prime so the new household re-primes once.
     func clearPrimeForFamilySwitch() {
         clearNotificationPrimeSeen()
     }
 
-    // MARK: - Notification Prime Navigation
+    /// WHY teardown: identity teardown clears scoped and legacy primes so no family leaks the gate.
+    func clearNotificationPrimeSeen() {
+        DismissalStore.remove(scopedPrimeKey())
+        DismissalStore.remove(DismissalKeys.hasSeenNotificationPrime)
+    }
 
     private func scopedPrimeKey() -> String {
         DismissalKeys.scoped(
@@ -477,13 +482,6 @@ final class OnboardingViewModel {
             familyRecordName: builtFamily?.id.recordName ?? appState.family?.id.recordName,
             profileRecordName: builtProfile?.id.recordName ?? appState.currentProfile?.id.recordName
         )
-    }
-
-    private func clearNotificationPrimeSeen() {
-        // Clear both scoped and legacy keys so a family switch does not inherit prior dismissal.
-        let scoped = scopedPrimeKey()
-        DismissalStore.remove(scoped)
-        DismissalStore.remove(DismissalKeys.hasSeenNotificationPrime)
     }
 
     private func markNotificationPrimeSeenAndAdvance() {

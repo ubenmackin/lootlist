@@ -25,7 +25,7 @@ struct MyChoresView: View {
     @State private var submittingQuestIDs: Set<String> = []
     @State private var showCelebration: Bool = false
     @State private var pendingWithdrawal: PendingWithdrawal?
-    @State private var isMissedExpanded: Bool = false
+    @State private var isMissedExpanded = false
 
     struct PendingWithdrawal: Identifiable {
         let quest: QuestCache
@@ -98,10 +98,6 @@ struct MyChoresView: View {
 
     private var previousRange: Range<Date> {
         WeekMath.weekRange(starting: previousWeekStart)
-    }
-
-    private var myQuests: [QuestCache] {
-        profileQuests
     }
 
     private func isFullyCompleted(for quest: QuestCache) -> Bool {

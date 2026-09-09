@@ -50,17 +50,14 @@ final class FamilyShareReconciler {
         }
     }
 
+    /// Explicit teardown for owner lifecycle; cancels the sync observer.
     func stop() {
-        tearDown()
+        isStarted = false
+        observerTask.withLock { $0?.cancel(); $0 = nil }
     }
 
-    /// Explicit teardown for owner lifecycle; cancels the sync observer.
     func tearDown() {
-        isStarted = false
-        observerTask.withLock { task in
-            task?.cancel()
-            task = nil
-        }
+        stop()
     }
 
     /// Reconciles active non-owner profiles against the family's `CKShare` participant list.

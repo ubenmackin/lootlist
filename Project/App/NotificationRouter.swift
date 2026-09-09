@@ -57,15 +57,6 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
         }
     }
 
-    /// Nonisolated entry for `AppDependencies` cold-start hand-off that may be
-    /// called during container init coordination.
-    nonisolated func takePendingRouteNonisolated() -> NotificationRoute? {
-        pendingRoute.withLock { route in
-            defer { route = nil }
-            return route
-        }
-    }
-
     // MARK: - UNUserNotificationCenterDelegate
 
     func userNotificationCenter(

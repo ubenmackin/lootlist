@@ -17,7 +17,6 @@ struct QuestManagerInspectorView: View {
     let selectedTemplateID: Set<PersistentIdentifier>
     let selectedAssignmentID: Set<PersistentIdentifier>
     let inspectorNewKind: QuestManagerView.InspectorNewKind?
-    let familyRecordName: String?
     let onClear: () -> Void
 
     var body: some View {

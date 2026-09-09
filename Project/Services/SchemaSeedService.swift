@@ -23,7 +23,6 @@
 
         struct SeedReport: Sendable {
             let recordType: String
-            let recordName: String
         }
 
         private struct SeedProgress {
@@ -86,7 +85,7 @@
             }
             let saved = try await cloudKit.save(model, in: zoneID, using: nil)
             progress.savedIDs.append(saved.id)
-            progress.report.append(SeedReport(recordType: T.recordType, recordName: saved.id.recordName))
+            progress.report.append(SeedReport(recordType: T.recordType))
         }
 
         private func deleteBestEffort(_ ids: [CKRecord.ID], zoneID: CKRecordZone.ID) async {

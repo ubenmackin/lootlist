@@ -37,14 +37,6 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
         PayoutStatus(rawValue: status)
     }
 
-    var formattedTotalEarned: String {
-        CurrencyFormatter.string(pennies: totalEarned)
-    }
-
-    var formattedPaidAmount: String? {
-        paidAmount.map { CurrencyFormatter.string(pennies: $0) }
-    }
-
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

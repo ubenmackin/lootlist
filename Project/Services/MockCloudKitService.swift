@@ -62,7 +62,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     var recordCreators: [CKRecord.ID: String] = [:]
 
     var resolvedZoneID: CKRecordZone.ID {
-        activeFamilyZoneID ?? CKRecordZone.default().zoneID
+        activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "LootListZone", ownerName: CKCurrentUserDefaultName)
     }
 
     /// Test-only seeding helper. Deliberately NOT part of `CloudKitServiceProtocol`
@@ -79,10 +79,6 @@ class MockCloudKitService: CloudKitServiceProtocol {
             mockStore.setRecord(record, databaseScope: scope)
             recordCreators[record.recordID] = creatorUserRecordName
         }
-    }
-
-    var database: CKDatabase? {
-        nil
     }
 
     var privateDatabase: CKDatabase? {
@@ -243,11 +239,6 @@ class MockCloudKitService: CloudKitServiceProtocol {
         }()
         mockStore.delete(targetID, in: zoneID, activeZoneID: activeFamilyZoneID, databaseScope: scope)
         deletedRecordIDs.append(targetID)
-    }
-
-    func delete(_ entity: some CloudKitRecord, using db: CKDatabase? = nil) async throws {
-        let record = entity.toRecord()
-        try await delete(record.recordID, in: record.recordID.zoneID, using: db)
     }
 
     func ensureZoneExists(_: CKRecordZone.ID) async throws {}
