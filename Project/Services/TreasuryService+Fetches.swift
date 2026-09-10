@@ -12,6 +12,7 @@ import os
 // MARK: - Cache-First Fetches & Helpers
 
 extension TreasuryService {
+    /// WHY derivation-only: payout reconcile needs CloudKit; UI lists use @Query so rows render instantly offline.
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
         // WHY fail-closed: unknown scope serves cache only without guessing a database.
         guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
@@ -61,10 +62,12 @@ extension TreasuryService {
         }
     }
 
+    /// WHY derivation-only: derivation passthrough to LedgerService; UI balances use bucketBalances/totalBalance cache-only.
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         try await resolvedLedgerService.fetchLedgerEntries(profile: profile, in: dateRange)
     }
 
+    /// WHY derivation-only: payout math reconciles against CloudKit; UI quest lists use @Query cache-only.
     func fetchQuestLogs(profile: Profile,
                         weekStarting: Date,
                         weekEnding: Date) async throws -> [QuestCompletion]
@@ -112,6 +115,7 @@ extension TreasuryService {
             .filter { $0.completedBy.recordID.recordName == profile.id.recordName }
     }
 
+    /// WHY derivation-only: payout math reconciles against CloudKit; UI quest lists use @Query cache-only.
     func fetchAssignedQuests(profile: Profile,
                              family: Family,
                              weekOf: Date) async throws -> [Quest]
@@ -162,6 +166,7 @@ extension TreasuryService {
         }
     }
 
+    // WHY derivation-only: payout lookup reconciles against CloudKit; UI period reads use cached @Query rows.
     // WHY: Single-record filtered lookup with optional CloudKit fallback and bespoke nil-handling — intentionally inline, not a single-type CacheFirst list flow.
     func fetchAllowancePeriod(profile: Profile,
                               weekOf: Date) async throws -> AllowancePeriod?
@@ -223,6 +228,7 @@ extension TreasuryService {
         }
     }
 
+    /// WHY derivation-only: payout context resolves via cache then CloudKit; UI profiles use @Query cache-only.
     func resolveProfile(recordID: CKRecord.ID, familyRecordName: String) async throws -> Profile {
         if let cached = cacheService.fetchProfile(recordName: recordID.recordName, family: familyRecordName) {
             return cached.toProfile(zoneID: recordID.zoneID)
@@ -246,6 +252,7 @@ extension TreasuryService {
         return fetched
     }
 
+    /// WHY derivation-only: payout context resolves via cache then CloudKit; UI family reads use @Query cache-only.
     func resolveFamily(recordID: CKRecord.ID) async throws -> Family {
         if let cached = cacheService.fetchFamily(recordName: recordID.recordName) {
             return cached.toFamily(zoneID: recordID.zoneID)
@@ -255,6 +262,7 @@ extension TreasuryService {
 
     // MARK: - Gold Aggregation
 
+    /// WHY derivation-only: payout gold math reconciles against CloudKit; UI quest lists use @Query cache-only.
     func fetchQuestsForGold(family: Family, logs: [QuestCompletion]) async throws -> [Quest] {
         guard !logs.isEmpty else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
@@ -286,6 +294,7 @@ extension TreasuryService {
         )
     }
 
+    /// WHY derivation-only: stitch-missing patch hydrates via ingest so the next reconcile hits cache.
     private func fetchMissingQuestsForGold(
         missingNames: [String],
         family: Family,

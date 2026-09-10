@@ -144,7 +144,7 @@ extension AppLifecycleCoordinator {
     }
 
     // WHY: deferred quest expiry (paid-week incomplete would mis-expire) retries automatically on next reconcile — stale allowancePeriod freshness forces re-query, no extra retry logic.
-    func reconcileCacheFromCloudKit() async {
+    func reconcileCacheFromCloudKit(forceSnapshot: Bool = false) async {
         guard let appState,
               let family = appState.family,
               let zoneID = appState.familyZoneID
@@ -154,7 +154,21 @@ extension AppLifecycleCoordinator {
 
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let targetScope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: isOwner)
+        let familyRecordName = family.id.recordName
+        if await takeDeltaFastPath(
+            forceSnapshot: forceSnapshot,
+            appState: appState,
+            family: family,
+            zoneID: zoneID,
+            familyRecordName: familyRecordName,
+            targetScope: targetScope
+        ) {
+            return
+        }
+
+        let snapshotStart = Date()
         let snapshot = await fetchFamilySnapshot(family: family, zoneID: zoneID, isOwner: isOwner)
+        logger.info("Family snapshot fetched \(snapshot.inboundRecords.count) records in \(Date().timeIntervalSince(snapshotStart))s")
 
         guard !snapshot.isEmpty else {
             logger.warning(
@@ -165,80 +179,192 @@ extension AppLifecycleCoordinator {
             return
         }
 
-        let succeededTypes = Set(snapshot.validRecordNamesByType.keys)
-
-        if !isOwner, let backgroundCache = appState.backgroundCacheActor {
-            guard let outcome = await backgroundCache.reconcileParticipantSet(
-                records: snapshot.inboundRecords,
-                validRecordNamesByType: snapshot.validRecordNamesByType,
-                familyRecordName: family.id.recordName,
-                databaseScope: .shared,
-                zoneID: zoneID
-            )
-            else { return }
-
-            if !outcome.commitSucceeded {
-                logger.error(
-                    "Participant cache reconciliation commit failed; \(outcome.recordCount) record(s) left for the next pass",
-                    family: family.id.recordName,
-                    zone: zoneID.zoneName
-                )
-            } else {
-                if outcome.parseFailures > 0 {
-                    logger.warning(
-                        "Participant cache reconciliation dropped \(outcome.parseFailures) unparseable record(s)",
-                        family: family.id.recordName,
-                        zone: zoneID.zoneName
-                    )
-                }
-                // WHY: failed types stay stale so the next pass re-fetches only them while clean types render fresh.
-                // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
-                let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
-                let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
-                if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
-                    concrete.stampFreshness(for: cleanTypes, scopes: [.shared])
-                } else if let cacheService = appState.cacheService {
-                    // WHY: guarded stamps keep preview instances from promoting stale rows to fresh.
-                    cacheService.stampCacheWatermarks(for: cleanTypes, scope: .shared, familyRecordName: family.id.recordName)
-                }
-            }
-        } else if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
-            let outcome = await concrete.delegateHandler.handleIncomingRecordsDirectly(
-                snapshot.inboundRecords,
-                databaseScope: targetScope,
-                zoneID: zoneID
-            )
-            // WHY: a nil outcome means the ingest guard dropped the batch, so no type may stamp fresh.
-            if let outcome, outcome.didCommit {
-                // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
-                let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
-                let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
-                concrete.stampFreshness(for: cleanTypes, scopes: [targetScope])
-            }
-        } else if let sharedHandler = AppDependencies.shared?.syncEngineDelegateHandler {
-            // WHY single stack: shared handler keeps snapshot writes on ingest().
-            let outcome = await sharedHandler.handleIncomingRecordsDirectly(
-                snapshot.inboundRecords,
-                databaseScope: targetScope,
-                zoneID: zoneID
-            )
-            // WHY: a nil outcome means the ingest guard dropped the batch, so no type may stamp fresh.
-            if let outcome, outcome.didCommit {
-                // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
-                let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
-                let cleanTypes = succeededTypes.subtracting(outcome.failedTypes).intersection(outcome.committedTypes.union(emptyTypes))
-                if let cacheService = appState.cacheService {
-                    cacheService.stampCacheWatermarks(for: cleanTypes, scope: targetScope, familyRecordName: family.id.recordName)
-                }
-            }
+        guard await applySnapshot(snapshot, isOwner: isOwner, targetScope: targetScope, appState: appState, family: family, zoneID: zoneID) else {
+            return
         }
-        // Track push age for debug overlay — completion of the snapshot
-        // reconciliation pass represents a successful push-driven refresh.
+        noteSnapshotCompletion()
+        await enqueueUnsyncedLocalRecords(family: family, zoneID: zoneID)
+    }
+
+    private func takeDeltaFastPath(
+        forceSnapshot: Bool,
+        appState: AppState,
+        family: Family,
+        zoneID: CKRecordZone.ID,
+        familyRecordName: String,
+        targetScope: CKDatabase.Scope
+    ) async -> Bool {
+        guard !forceSnapshot else { return false }
+        guard !hasPendingBufferOverflow() else { return false }
+        guard syncGate.hasCompletedInitialBootstrap else { return false }
+        guard let cache = appState.cacheService else { return false }
+        // WHY delta-first: hydrated cache already reflects server state via engine deltas, so skip the snapshot query set.
+        guard isSnapshotSkippable(cache: cache, familyRecordName: familyRecordName, targetScope: targetScope) else {
+            return false
+        }
+        logger.info("Skipping full snapshot: cache authoritative")
+        noteSnapshotCompletion()
+        await enqueueUnsyncedLocalRecords(family: family, zoneID: zoneID)
+        return true
+    }
+
+    private func hasPendingBufferOverflow() -> Bool {
+        (syncCoordinator as? CKSyncEngineCoordinator)?.pendingBufferOverflowed ?? false
+    }
+
+    private func isSnapshotSkippable(cache: CacheService, familyRecordName: String, targetScope: CKDatabase.Scope) -> Bool {
+        !CachedRecordType.allCases.contains {
+            !cache.isCacheAuthoritative(familyRecordName: familyRecordName, type: $0, scope: targetScope)
+        }
+    }
+
+    private func noteSnapshotCompletion() {
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
             concrete.notePushReceived()
         }
+    }
 
-        await enqueueUnsyncedLocalRecords(family: family, zoneID: zoneID)
+    private func cleanTypes(
+        succeededTypes: Set<CachedRecordType>,
+        failedTypes: Set<CachedRecordType>,
+        committedTypes: Set<CachedRecordType>,
+        snapshot: FamilySnapshot
+    ) -> Set<CachedRecordType> {
+        // WHY committed-only: zero-row types stay stale unless the server snapshot was empty.
+        let emptyTypes = Set(snapshot.validRecordNamesByType.filter(\.value.isEmpty).keys)
+        return succeededTypes.subtracting(failedTypes).intersection(committedTypes.union(emptyTypes))
+    }
+
+    private func applySnapshot(
+        _ snapshot: FamilySnapshot,
+        isOwner: Bool,
+        targetScope: CKDatabase.Scope,
+        appState: AppState,
+        family: Family,
+        zoneID: CKRecordZone.ID
+    ) async -> Bool {
+        let succeededTypes = Set(snapshot.validRecordNamesByType.keys)
+        if !isOwner, let backgroundCache = appState.backgroundCacheActor {
+            return await applyParticipantSnapshot(snapshot, succeededTypes: succeededTypes, appState: appState, family: family, zoneID: zoneID, backgroundCache: backgroundCache)
+        }
+        if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
+            await applyOwnerSnapshot(concrete, snapshot: snapshot, succeededTypes: succeededTypes, targetScope: targetScope, zoneID: zoneID)
+            return true
+        }
+        if let sharedHandler = AppDependencies.shared?.syncEngineDelegateHandler {
+            // WHY single stack: shared handler keeps snapshot writes on ingest().
+            await applySharedSnapshot(
+                sharedHandler,
+                snapshot: snapshot,
+                succeededTypes: succeededTypes,
+                targetScope: targetScope,
+                appState: appState,
+                family: family,
+                zoneID: zoneID
+            )
+        }
+        return true
+    }
+
+    private func applyParticipantSnapshot(
+        _ snapshot: FamilySnapshot,
+        succeededTypes: Set<CachedRecordType>,
+        appState: AppState,
+        family: Family,
+        zoneID: CKRecordZone.ID,
+        backgroundCache: BackgroundCacheActor
+    ) async -> Bool {
+        guard let outcome = await backgroundCache.reconcileParticipantSet(
+            records: snapshot.inboundRecords,
+            validRecordNamesByType: snapshot.validRecordNamesByType,
+            familyRecordName: family.id.recordName,
+            databaseScope: .shared,
+            zoneID: zoneID
+        )
+        else { return false }
+
+        guard outcome.commitSucceeded else {
+            logger.error(
+                "Participant cache reconciliation commit failed; \(outcome.recordCount) record(s) left for the next pass",
+                family: family.id.recordName,
+                zone: zoneID.zoneName
+            )
+            return true
+        }
+        if outcome.parseFailures > 0 {
+            logger.warning(
+                "Participant cache reconciliation dropped \(outcome.parseFailures) unparseable record(s)",
+                family: family.id.recordName,
+                zone: zoneID.zoneName
+            )
+        }
+        // WHY: failed types stay stale so the next pass re-fetches only them while clean types render fresh.
+        let clean = cleanTypes(
+            succeededTypes: succeededTypes,
+            failedTypes: outcome.failedTypes,
+            committedTypes: outcome.committedTypes,
+            snapshot: snapshot
+        )
+        stampParticipantCleanTypes(clean, appState: appState, familyRecordName: family.id.recordName)
+        return true
+    }
+
+    private func stampParticipantCleanTypes(_ cleanTypes: Set<CachedRecordType>, appState: AppState, familyRecordName: String) {
+        if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
+            concrete.stampFreshness(for: cleanTypes, scopes: [.shared])
+        } else if let cacheService = appState.cacheService {
+            // WHY: guarded stamps keep preview instances from promoting stale rows to fresh.
+            cacheService.stampCacheWatermarks(for: cleanTypes, scope: .shared, familyRecordName: familyRecordName)
+        }
+    }
+
+    private func applyOwnerSnapshot(
+        _ concrete: CKSyncEngineCoordinator,
+        snapshot: FamilySnapshot,
+        succeededTypes: Set<CachedRecordType>,
+        targetScope: CKDatabase.Scope,
+        zoneID: CKRecordZone.ID
+    ) async {
+        let outcome = await concrete.delegateHandler.handleIncomingRecordsDirectly(
+            snapshot.inboundRecords,
+            databaseScope: targetScope,
+            zoneID: zoneID
+        )
+        // WHY: a nil outcome means the ingest guard dropped the batch, so no type may stamp fresh.
+        guard let outcome, outcome.didCommit else { return }
+        let clean = cleanTypes(
+            succeededTypes: succeededTypes,
+            failedTypes: outcome.failedTypes,
+            committedTypes: outcome.committedTypes,
+            snapshot: snapshot
+        )
+        concrete.stampFreshness(for: clean, scopes: [targetScope])
+    }
+
+    private func applySharedSnapshot(
+        _ sharedHandler: CKSyncEngineDelegateHandler,
+        snapshot: FamilySnapshot,
+        succeededTypes: Set<CachedRecordType>,
+        targetScope: CKDatabase.Scope,
+        appState: AppState,
+        family: Family,
+        zoneID: CKRecordZone.ID
+    ) async {
+        let outcome = await sharedHandler.handleIncomingRecordsDirectly(
+            snapshot.inboundRecords,
+            databaseScope: targetScope,
+            zoneID: zoneID
+        )
+        // WHY: a nil outcome means the ingest guard dropped the batch, so no type may stamp fresh.
+        guard let outcome, outcome.didCommit else { return }
+        let clean = cleanTypes(
+            succeededTypes: succeededTypes,
+            failedTypes: outcome.failedTypes,
+            committedTypes: outcome.committedTypes,
+            snapshot: snapshot
+        )
+        guard let cacheService = appState.cacheService else { return }
+        cacheService.stampCacheWatermarks(for: clean, scope: targetScope, familyRecordName: family.id.recordName)
     }
 
     /// Client→server re-enqueue for locally-created rows that missed their

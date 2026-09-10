@@ -33,12 +33,16 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
 
     // MARK: - State Key Resolution
 
-    /// Resolves stable family identifier scoping engine state (zone name or in-memory ID).
+    /// Resolves stable family identifier scoping engine state.
     private func stableFamilyRecordName() -> String? {
+        // WHY family-first: zone names can collide across families.
+        if let familyRecordName = appState?.family?.id.recordName, !familyRecordName.isEmpty {
+            return familyRecordName
+        }
         if let zoneName = cloudKitService.activeFamilyZoneID?.zoneName, !zoneName.isEmpty {
             return zoneName
         }
-        return appState?.family?.id.recordName
+        return nil
     }
 
     /// Builds UserDefaults state key per family and database scope.
@@ -397,8 +401,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     /// WHY device-local: the ledger is scoped per family and holds no authoritative domain data, only
     /// display-truth loss tracking that must survive jetsam.
     private func bufferOverflowLedgerKey() -> String? {
-        let familyRecordName = appState?.family?.id.recordName ?? stableFamilyRecordName()
-        guard let familyRecordName, !familyRecordName.isEmpty else { return nil }
+        guard let familyRecordName = stableFamilyRecordName(), !familyRecordName.isEmpty else { return nil }
         return "ck_buffer_overflow.\(familyRecordName)"
     }
 

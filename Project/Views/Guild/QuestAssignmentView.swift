@@ -20,6 +20,9 @@ struct QuestAssignmentView: View {
     @Environment(AppState.self) private var appState
 
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedAssignments: [QuestCache]
+    @Query private var cachedProfiles: [ProfileCache]
 
     private let familyRecordName: String?
     var onCancel: (() -> Void)?
@@ -31,11 +34,39 @@ struct QuestAssignmentView: View {
         self.onCancel = onCancel
 
         let targetFamily = familyRecordName ?? ""
-        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
-        // WHY stable sorts: secondary recordName keeps ordering deterministic across CloudKit merge reorders.
-        _cachedCompletions = Query(
-            filter: completionFilter,
-            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+        if targetFamily.isEmpty {
+            // WHY fail-closed: empty scope must return zero rows via indexed predicate, never an unscoped scan.
+            _cachedCompletions = Query(
+                filter: QuestCompletionCache.emptyPredicate(),
+                sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+            )
+        } else {
+            let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
+            // WHY stable sorts: secondary recordName keeps ordering deterministic across CloudKit merge reorders.
+            _cachedCompletions = Query(
+                filter: completionFilter,
+                sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+            )
+        }
+        if targetFamily.isEmpty {
+            // WHY fail-closed: empty scope must return zero rows via indexed predicate, never an unscoped scan.
+            _cachedTemplates = Query(
+                filter: QuestTemplateCache.emptyPredicate(),
+                sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+            )
+        } else {
+            _cachedTemplates = Query(
+                filter: QuestTemplateCache.familyPredicate(familyRecordName: targetFamily),
+                sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+            )
+        }
+        _cachedAssignments = Query(
+            filter: QuestCache.familyPredicate(familyRecordName: targetFamily),
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
+        )
+        _cachedProfiles = Query(
+            filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
     }
 
@@ -194,6 +225,15 @@ struct QuestAssignmentView: View {
             .onChange(of: cachedCompletions) { _, _ in
                 refreshEditLock()
             }
+            .onChange(of: cachedTemplates) { _, _ in
+                syncLiveSelections()
+            }
+            .onChange(of: cachedProfiles) { _, _ in
+                syncLiveSelections()
+            }
+            .onChange(of: cachedAssignments) { _, _ in
+                syncLiveSelections()
+            }
             .alert("Override Lock?", isPresented: $showOverrideAlert) {
                 Button("Cancel", role: .cancel) {}
                 Button("Override", role: .destructive) {
@@ -207,6 +247,41 @@ struct QuestAssignmentView: View {
         }
         // WHY: view identity tracks family so @Query predicate (init-captured) is recreated on scope switch.
         .id(familyRecordName ?? "")
+    }
+
+    // MARK: - Live cache slices (what the form actually shows)
+
+    private var liveTemplates: [QuestTemplateCache] {
+        // WHY live-first: @Query rows own the hot path; ViewModel arrays bridge pre-hydration gaps.
+        cachedTemplates.isEmpty ? viewModel.templates : cachedTemplates
+    }
+
+    private var liveHeroes: [ProfileCache] {
+        // WHY live-first: @Query rows own the hot path; ViewModel arrays bridge pre-hydration gaps.
+        let heroes = cachedProfiles.filter { $0.role == UserRole.hero.rawValue }
+        return heroes.isEmpty ? viewModel.heroes : heroes
+    }
+
+    private var liveAssignments: [QuestCache] {
+        // WHY live-first: @Query rows own the hot path; ViewModel arrays bridge pre-hydration gaps.
+        cachedAssignments.isEmpty ? viewModel.activeAssignments : cachedAssignments
+    }
+
+    private func syncLiveSelections() {
+        // WHY recordName re-resolve: live rows are distinct instances so selection tracks identity by key.
+        if let name = selectedTemplate?.recordName {
+            selectedTemplate = liveTemplates.first { $0.recordName == name } ?? selectedTemplate
+        } else if mode.isCreateMode {
+            selectedTemplate = liveTemplates.first { $0.isActive }
+        }
+        if let name = selectedHero?.recordName {
+            selectedHero = liveHeroes.first { $0.recordName == name } ?? selectedHero
+        } else {
+            selectedHero = selectedHero ?? liveHeroes.first
+        }
+        if case .edit = mode, editAssignee == nil, let quest = editQuestCache {
+            editAssignee = liveHeroes.first { $0.recordName == quest.assigneeRecordName }
+        }
     }
 
     // MARK: - Display mode (what the form actually shows)
@@ -435,13 +510,13 @@ struct QuestAssignmentView: View {
 
     @ViewBuilder
     private var heroPickerEdit: some View {
-        if viewModel.heroes.isEmpty {
+        if liveHeroes.isEmpty {
             Text("No heroes in the family.")
                 .foregroundStyle(.secondary)
         } else {
             Picker("Hero", selection: $editAssignee) {
                 Text("Choose…").tag(nil as ProfileCache?)
-                ForEach(viewModel.heroes) { hero in
+                ForEach(liveHeroes) { hero in
                     Text(hero.displayName).tag(hero as ProfileCache?)
                 }
             }
@@ -471,10 +546,10 @@ struct QuestAssignmentView: View {
         switch mode {
         case .fromTemplate:
             if selectedTemplate == nil {
-                selectedTemplate = viewModel.templates.first { $0.isActive }
+                selectedTemplate = liveTemplates.first { $0.isActive }
             }
             if selectedHero == nil {
-                selectedHero = viewModel.heroes.first
+                selectedHero = liveHeroes.first
             }
             userEditedQuestName = false
             // Pre-fill template name and All-or-Nothing
@@ -482,7 +557,7 @@ struct QuestAssignmentView: View {
             templateIsAllOrNothing = selectedTemplate?.isAllOrNothing ?? false
         case .quickCreate:
             if selectedHero == nil {
-                selectedHero = viewModel.heroes.first
+                selectedHero = liveHeroes.first
             }
         case let .edit(questRecordName):
             loadQuestForEditing(questRecordName: questRecordName)
@@ -490,7 +565,7 @@ struct QuestAssignmentView: View {
     }
 
     private func loadQuestForEditing(questRecordName: String) {
-        guard let quest = viewModel.activeAssignments.first(where: { $0.recordName == questRecordName }) else { return }
+        guard let quest = liveAssignments.first(where: { $0.recordName == questRecordName }) else { return }
         editQuestCache = quest
         // Edited quest name must not be clobbered by template selection
         userEditedQuestName = true
@@ -503,14 +578,14 @@ struct QuestAssignmentView: View {
         editIsAllOrNothing = quest.isAllOrNothing
         editApproval = quest.approvalModeEnum ?? .autoApprove
 
-        if let template = viewModel.templates.first(where: { $0.recordName == quest.templateRecordName }) {
+        if let template = liveTemplates.first(where: { $0.recordName == quest.templateRecordName }) {
             editSpecificDays = Set(template.specificDays ?? [])
         } else {
             editSpecificDays = []
         }
 
         // Resolve assignee from heroes list
-        editAssignee = viewModel.heroes.first { $0.recordName == quest.assigneeRecordName }
+        editAssignee = liveHeroes.first { $0.recordName == quest.assigneeRecordName }
 
         // Check if quest has logs (determines locked fields) synchronously from cache
         editHasLogs = cachedCompletions.contains { $0.questRecordName == quest.recordName }

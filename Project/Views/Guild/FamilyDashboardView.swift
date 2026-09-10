@@ -37,6 +37,9 @@ struct FamilyDashboardView: View {
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedGoals: [GoalCache]
+    @Query private var cachedGemLedgers: [GemLedgerCache]
+    @Query private var cachedRewardEvents: [RewardEventCache]
     @Query private var currentProfileRows: [ProfileCache]
     @Query private var cachedFamilies: [FamilyCache]
 
@@ -67,6 +70,9 @@ struct FamilyDashboardView: View {
         let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
         let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
+        let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
+        let gemLedgerFilter = GemLedgerCache.familyPredicate(familyRecordName: targetFamily)
+        let rewardEventFilter = RewardEventCache.familyPredicate(familyRecordName: targetFamily)
         let familyFilter = FamilyCache.recordPredicate(recordName: targetFamily)
         // WHY stable sorts: secondary recordName keeps ordering deterministic across CloudKit merge reorders.
         _cachedProfiles = Query(
@@ -100,6 +106,18 @@ struct FamilyDashboardView: View {
         _cachedTemplates = Query(
             filter: templateFilter,
             sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        _cachedGoals = Query(
+            filter: goalFilter,
+            sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
+        )
+        _cachedGemLedgers = Query(
+            filter: gemLedgerFilter,
+            sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+        )
+        _cachedRewardEvents = Query(
+            filter: rewardEventFilter,
+            sort: [SortDescriptor(\RewardEventCache.timestamp, order: .reverse), SortDescriptor(\RewardEventCache.recordName)]
         )
         // WHY single-row root lookup rides the recordName index; secondary sort never reorders.
         _cachedFamilies = Query(
@@ -222,6 +240,9 @@ struct FamilyDashboardView: View {
                 HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: child.displayName)
             }
         }
+        .onChange(of: cachedGoals) { _, _ in scheduleRebuild() }
+        .onChange(of: cachedGemLedgers) { _, _ in scheduleRebuild() }
+        .onChange(of: cachedRewardEvents) { _, _ in scheduleRebuild() }
     }
 
     // MARK: - Regular Split View
@@ -767,7 +788,7 @@ private extension FamilyDashboardView {
     }
 }
 
-/// WHY container/sections: FamilyDashboardView owns the 10 Queries, sections render value slices without touching the store.
+/// WHY container/sections: FamilyDashboardView owns the 13 Queries, sections render value slices without touching the store.
 struct FamilyDashboardStatCardsSection: View {
     let outflow: Int64
     let pendingCount: Int

@@ -320,6 +320,7 @@ final class BucketService {
 
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "BucketService.transfer")
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return entry
     }
 

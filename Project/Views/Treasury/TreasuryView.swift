@@ -30,6 +30,7 @@ struct TreasuryView: View {
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedGoals: [GoalCache]
     @Query private var currentProfileRows: [ProfileCache]
 
     /// Family record name used to push the family filter down to SwiftData.
@@ -46,8 +47,8 @@ struct TreasuryView: View {
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "TreasuryView")
-        // REGRESSION GUARD: TreasuryView is the exemplar for predicate pushdown — all four
-        // queries MUST remain family + profile scoped at the store layer
+        // REGRESSION GUARD: TreasuryView is the exemplar for predicate pushdown — all five
+        // profile-scoped queries MUST remain family + profile scoped at the store layer
         // (`familyRecordName == targetFamily && <profileField> == targetProfile`). Do not
         // regress to family-only predicates with in-memory `filter { profile == name }`; the
         // profile predicate must stay in the Cache helper for isolation and I/O efficiency.
@@ -58,6 +59,7 @@ struct TreasuryView: View {
         let questFilter = QuestCache.assignedPredicate(familyRecordName: targetFamily, assigneeRecordName: targetProfile)
         let allowanceFilter = AllowancePeriodCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
+        let goalFilter = GoalCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
@@ -77,6 +79,10 @@ struct TreasuryView: View {
         _cachedTemplates = Query(
             filter: templateFilter,
             sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        _cachedGoals = Query(
+            filter: goalFilter,
+            sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
         )
         // WHY: single-row scope keeps viewer identity cache-derived instead of session-derived.
         _currentProfileRows = Query(
@@ -119,6 +125,7 @@ struct TreasuryView: View {
                 cachedQuests: cachedQuests,
                 cachedAllowancePeriods: cachedAllowancePeriods,
                 cachedTemplates: cachedTemplates,
+                cachedGoals: cachedGoals,
                 scope: scope,
                 onCacheChanged: { rebuild() }
             )
@@ -361,6 +368,7 @@ private struct TreasuryCacheObservers: ViewModifier {
     let cachedQuests: [QuestCache]
     let cachedAllowancePeriods: [AllowancePeriodCache]
     let cachedTemplates: [QuestTemplateCache]
+    let cachedGoals: [GoalCache]
     let scope: CalendarScope
     let onCacheChanged: () -> Void
 
@@ -371,6 +379,7 @@ private struct TreasuryCacheObservers: ViewModifier {
             .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
             .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
             .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+            .onChange(of: cachedGoals) { _, _ in onCacheChanged() }
             .onChange(of: scope) { _, _ in onCacheChanged() }
     }
 }

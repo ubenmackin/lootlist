@@ -15,6 +15,7 @@ private let cacheFirstLogger = Logger(category: "CacheFirst")
 ///
 /// Single-point scope-aware freshness fix — every caller rides this helper so
 /// a scope-isolation change applies once.
+/// WHY derivation split: UI live reads use @Query plus bucketBalances/totalBalance cache-only; this helper serves derivation reconcile only.
 enum CacheFirst {
     /// WHY bundle: groups read-path closures so the helper stays under the lint parameter limit.
     struct Operations<T: CloudKitRecord, C: FamilyScopedCache> {
@@ -42,6 +43,7 @@ enum CacheFirst {
         }
     }
 
+    /// WHY derivation-only: payout and export reconcile against CloudKit; UI tiles use @Query plus bucketBalances/totalBalance cache-only.
     /// WHY single gate: authoritative cache renders instantly, transient failures fall back to stale.
     @MainActor
     static func cacheFirst<T: CloudKitRecord>(
@@ -69,6 +71,7 @@ enum CacheFirst {
 
         do {
             let queried = try await operations.query()
+            // WHY ingest-only: hydrate rides ingest with notifiesOnCompletion false so reconcile never notifies.
             await operations.hydrate(queried)
             if let sort = operations.sortedBy {
                 return queried.sorted(by: sort)
@@ -88,6 +91,7 @@ enum CacheFirst {
                 .warning("cacheFirst \(type.rawValue, privacy: .public) CloudKit query failed (transient network), falling back to stale cache: \(error, privacy: .private)")
             let fallback = operations.fetchCache(familyName)
             // Brand-new hero may not be marked fresh yet — return cached rows (even empty) on transient failure rather than throwing.
+            // WHY no stamp: empty cache stays non-authoritative until a clean ingest pass stamps freshness.
             let mapped = fallback.map(operations.map)
             if let sort = operations.sortedBy {
                 return mapped.sorted(by: sort)
@@ -117,6 +121,7 @@ enum CacheFirst {
         return Array(map.values).filter { needed.contains($0.id.recordName) }
     }
 
+    /// WHY derivation-only: payout gold math reconciles here; UI tiles use @Query plus bucketBalances/totalBalance cache-only.
     /// WHY single gate: stitched merge when fresh, direct missing fetch
     /// otherwise so brand-new-hero reads still resolve without cache writes.
     @MainActor
