@@ -182,9 +182,18 @@ struct HeroHomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                scrollContent
-            }
+            heroSurface
+        }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch; defensive filter in rebuild() is secondary guard.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+    }
+
+    // MARK: - Subviews
+
+    /// WHY split: keeping the presentation modifiers on their own expression lets the type-checker solve
+    /// the scroll surface and the observer chain independently instead of as one nested generic.
+    private var heroSurface: some View {
+        heroScrollSurface
             .background(Color(DesignSystemConstants.Colors.background))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
@@ -198,22 +207,12 @@ struct HeroHomeView: View {
             .sheet(item: $checklistSheetItem) { item in
                 checklistSheet(for: item)
             }
-            .task {
-                migrateDismissals()
-                ensureViewModel()
-            }
-            .onChange(of: cachedQuests) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedCompletions) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedTemplates) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                rebuildViewModel()
-            }
+    }
+
+    /// WHY split: lifecycle and query-change observers are grouped away from presentation modifiers so
+    /// neither chain has to be inferred together.
+    private var heroScrollSurface: some View {
+        heroObservedScroll
             .onChange(of: cachedAllowancePeriods) { _, _ in
                 rebuildViewModel()
             }
@@ -229,27 +228,35 @@ struct HeroHomeView: View {
             .onChange(of: cachedFamilies) { _, _ in
                 rebuildViewModel()
             }
-        }
-        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch; defensive filter in rebuild() is secondary guard.
-        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
-    // MARK: - Subviews
+    /// WHY split: the scroll view, its lifecycle hook, and the leading observers form one expression so
+    /// the remaining observer group on `heroScrollSurface` stays a shallow modifier chain.
+    private var heroObservedScroll: some View {
+        ScrollView {
+            scrollContent
+        }
+        .task {
+            migrateDismissals()
+            ensureViewModel()
+        }
+        .onChange(of: cachedQuests) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedCompletions) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedTemplates) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedProfiles) { _, _ in
+            rebuildViewModel()
+        }
+    }
 
     private var scrollContent: some View {
         VStack(spacing: DesignSystemConstants.Padding.standard) {
-            if shouldShowChecklist, let row = currentProfileRow {
-                let splitIsDefault = splitIsDefault(for: row)
-                HeroChecklistCardView(
-                    profileRow: row,
-                    pendingNotification: !effectiveHasSeenNotificationPrime,
-                    splitIsDefault: splitIsDefault,
-                    hasCompletedFirstQuest: hasCompletedFirstQuest,
-                    hasFirstGoal: hasFirstGoal,
-                    onAction: handleChecklistAction,
-                    hasDismissedHeroChecklist: scopedChecklistBinding
-                )
-            }
+            checklistCard
 
             DailyLoginBannerView(compactMode: true)
 
@@ -263,6 +270,24 @@ struct HeroHomeView: View {
         }
         .padding(.horizontal, DesignSystemConstants.Padding.standard)
         .padding(.bottom, DesignSystemConstants.Padding.standard - 4)
+    }
+
+    /// WHY split: isolates the checklist initializer's overload resolution and optional row unwrap from
+    /// the surrounding stack so neither expression compounds the other's inference.
+    @ViewBuilder
+    private var checklistCard: some View {
+        if shouldShowChecklist, let row = currentProfileRow {
+            let splitIsDefault = splitIsDefault(for: row)
+            HeroChecklistCardView(
+                profileRow: row,
+                pendingNotification: !effectiveHasSeenNotificationPrime,
+                splitIsDefault: splitIsDefault,
+                hasCompletedFirstQuest: hasCompletedFirstQuest,
+                hasFirstGoal: hasFirstGoal,
+                onAction: handleChecklistAction,
+                hasDismissedHeroChecklist: scopedChecklistBinding
+            )
+        }
     }
 
     @ViewBuilder
