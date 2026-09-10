@@ -14,19 +14,20 @@ import os
 extension QuestCompletionService {
     @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        guard let acting = appState.currentProfile,
-              acting.id == parent.id,
-              acting.role.isParent
-        else {
+        // WHY single gate: parent identity plus scope share one helper so unauthorized versus scope-violation never drifts.
+        do {
+            _ = try ActiveFamilyScopeGuard.requireMutationContext(
+                appState: appState,
+                familyRef: questLog.family,
+                zoneID: questLog.id.zoneID,
+                cloudKit: cloudKit,
+                requireParent: true,
+                expectedSelf: parent
+            )
+        } catch let error as FamilyServiceError {
             logger.warning("verify aborted: acting profile not parent for log \(questLog.id.recordName, privacy: .private)")
-            throw FamilyServiceError.unauthorized
+            throw error
         }
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
-            familyRef: questLog.family,
-            zoneID: questLog.id.zoneID,
-            appState: appState,
-            cloudKit: cloudKit
-        )
         let logName = questLog.id.recordName
         let insertedVerify = inFlightVerifications.withLock { $0.insert(logName).inserted }
         guard insertedVerify else {
@@ -60,19 +61,20 @@ extension QuestCompletionService {
 
     @discardableResult
     func reject(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        guard let acting = appState.currentProfile,
-              acting.id == parent.id,
-              acting.role.isParent
-        else {
+        // WHY single gate: parent identity plus scope share one helper so unauthorized versus scope-violation never drifts.
+        do {
+            _ = try ActiveFamilyScopeGuard.requireMutationContext(
+                appState: appState,
+                familyRef: questLog.family,
+                zoneID: questLog.id.zoneID,
+                cloudKit: cloudKit,
+                requireParent: true,
+                expectedSelf: parent
+            )
+        } catch let error as FamilyServiceError {
             logger.warning("reject aborted: acting profile not parent for log \(questLog.id.recordName, privacy: .private)")
-            throw FamilyServiceError.unauthorized
+            throw error
         }
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
-            familyRef: questLog.family,
-            zoneID: questLog.id.zoneID,
-            appState: appState,
-            cloudKit: cloudKit
-        )
         let logName = questLog.id.recordName
         let insertedReject = inFlightVerifications.withLock { $0.insert(logName).inserted }
         guard insertedReject else {

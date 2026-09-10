@@ -28,18 +28,46 @@ enum ServiceInitHelper {
         logger: Logger,
         serviceName: String
     ) -> any SyncEnqueuing {
-        if let resolvedCoord: any SyncEnqueuing = provided ?? AppDependencies.shared?.syncCoordinator {
-            return resolvedCoord
+        // WHY explicit-only: callers inject the owned coordinator; no locator fallback so init order never matters.
+        if let provided {
+            return provided
         } else {
             #if DEBUG
                 if TestEnvironment.isRunningUnitOrUITests {
                     logger.warning("\(serviceName) initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    logger.error("\(serviceName) initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
+                    return NoopSyncEnqueuing()
                 }
-                return NoopSyncEnqueuing()
+                // WHY trap-only-DEBUG: mis-wiring surfaces in development, Release stays launchable.
+                preconditionFailure("\(serviceName) requires a sync coordinator")
             #else
-                preconditionFailure("\(serviceName) requires a sync coordinator in production")
+                // WHY Noop-plus-fault: Release stays launchable while diagnostics capture mis-wiring.
+                logger.fault("\(serviceName) initialized without syncCoordinator; using Noop seam.")
+                return NoopSyncEnqueuing()
+            #endif
+        }
+    }
+
+    /// WHY explicit-only: import flow needs the same DEBUG-trap/Release-Noop contract without locator reach-in.
+    static func resolveSyncCoordinating(
+        provided: (any SyncEnqueuing & SyncCoordinating)?,
+        logger: Logger,
+        serviceName: String
+    ) -> any SyncEnqueuing & SyncCoordinating {
+        // WHY explicit-only: callers inject the owned coordinator; no locator fallback so init order never matters.
+        if let provided {
+            return provided
+        } else {
+            #if DEBUG
+                if TestEnvironment.isRunningUnitOrUITests {
+                    logger.warning("\(serviceName) initialized without syncCoordinator; using test Noop seam.")
+                    return NoopSyncEnqueuing()
+                }
+                // WHY trap-only-DEBUG: mis-wiring surfaces in development, Release stays launchable.
+                preconditionFailure("\(serviceName) requires a sync coordinator")
+            #else
+                // WHY Noop-plus-fault: Release stays launchable while diagnostics capture mis-wiring.
+                logger.fault("\(serviceName) initialized without syncCoordinator; using Noop seam.")
+                return NoopSyncEnqueuing()
             #endif
         }
     }

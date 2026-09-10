@@ -38,15 +38,26 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
     /// Cold-start tap retention buffer.
     private let pendingRoute = Mutex<NotificationRoute?>(nil)
 
-    /// Fallback for cold-start before AppDependencies is initialized.
-    private static let _coldStartFallback = NotificationRouter()
-
     // WHY: Explicit @MainActor annotation confirms compile-time isolation matching AppDependencies.shared;
     // UI callers (e.g. TabBarView) access synchronously on MainActor, while off-main callers must await.
-    /// Process-wide accessor forwarding to owned container instance when present.
+    /// Process-wide accessor forwarding to the single owned container instance.
     @MainActor
     static var shared: NotificationRouter {
-        AppDependencies.shared?.notificationRouter ?? _coldStartFallback
+        if let owned = AppDependencies.shared?.notificationRouter {
+            return owned
+        }
+        #if DEBUG
+            if TestEnvironment.isRunningUnitOrUITests {
+                logger.warning("NotificationRouter.shared accessed before container in tests; returning ephemeral with no retained route")
+                return NotificationRouter()
+            }
+            // WHY trap-only-DEBUG: mis-wiring surfaces in development, Release stays launchable.
+            preconditionFailure("NotificationRouter.shared requires AppDependencies")
+        #else
+            // WHY ephemeral-plus-fault: Release stays launchable while diagnostics capture mis-wiring.
+            logger.fault("NotificationRouter.shared accessed before container; returning ephemeral with no retained route")
+            return NotificationRouter()
+        #endif
     }
 
     /// Hands the retained cold-start route to the first consumer and clears it.
@@ -96,11 +107,11 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
 
     // MARK: - Routing
 
-    /// Posts a resolved route to subscribers and retains it as a fallback for
-    /// consumers that mount after the notification (cold start).
+    /// Posts a resolved route to subscribers and retains it for consumers
+    /// that mount after the notification (cold start).
     private func deliver(_ route: NotificationRoute) {
+        // WHY single path: retention covers late subscribers so posting with no observers stays harmless.
         pendingRoute.withLock { $0 = route }
-        guard AppDependencies.shared != nil else { return }
         NotificationCenter.default.post(name: .notificationRouteTriggered, object: route)
     }
 
@@ -139,9 +150,8 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
     /// Executes inline verification actions from quest-review notification category.
     private func performVerificationAction(_ action: String, questLogID: String) {
         guard let deps = AppDependencies.shared else {
-            // Dependencies are not built yet — the mutation cannot run, but the
-            // tap should still land on the pending-review list after launch.
-            pendingRoute.withLock { $0 = .pendingVerifications(heroRecordName: nil) }
+            // WHY single path: mutation cannot run yet, but tap still lands on pending-review list after launch.
+            deliver(.pendingVerifications(heroRecordName: nil))
             return
         }
 

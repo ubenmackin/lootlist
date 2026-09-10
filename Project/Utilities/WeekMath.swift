@@ -270,6 +270,12 @@ enum WeekMath {
         // Fail-closed: surface non-normalized storage bugs in DEBUG instead of masking with fallback.
         assert(Calendar.iso8601UTC.startOfDay(for: questWeekOf) == questWeekOf, "Quest.weekOf must be normalized to WeekMath.startOfWeek (UTC midnight)")
         assert(Calendar.iso8601UTC.startOfDay(for: range.lowerBound) == range.lowerBound, "WeekMath range lowerBound must be normalized startOfWeek")
+        guard Calendar.iso8601UTC.startOfDay(for: questWeekOf) == questWeekOf,
+              Calendar.iso8601UTC.startOfDay(for: range.lowerBound) == range.lowerBound
+        else {
+            logger.warning("Rejecting non-normalized week input")
+            return false
+        }
         return range.contains(questWeekOf)
     }
 }

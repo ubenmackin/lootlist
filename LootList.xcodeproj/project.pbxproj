@@ -377,6 +377,7 @@
 		CC74F3CA7EF28263EE0E89A5 /* QuestCompletionService+Review.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12E8593E9640590BE8BBFBB /* QuestCompletionService+Review.swift */; };
 		CCDDCA3B0C69344A4BEC71D4 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5DFE9263D114B8E70D29C8 /* ToastView.swift */; };
 		CD95D50EB2893EE79312C6DA /* XPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ACB50C5AFC8745DF880FC82 /* XPService.swift */; };
+		CD9B4628B64127E82F325562 /* BackgroundCacheActor+Unsynced.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33953E002E31800289A4D05D /* BackgroundCacheActor+Unsynced.swift */; };
 		CDE7EC07BD5A6C915C5D8FA5 /* ProcessPayoutButtonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA7F897D71A8B26BC5012B19 /* ProcessPayoutButtonView.swift */; };
 		CDF3B66C97E4BE042AB09CB4 /* ProfileViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43EE66D0D9D493BF47D10DA7 /* ProfileViewModelTests.swift */; };
 		CE36CF8D0672D0E9FE040F34 /* PayoutDetailSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FF7888FCB8BE6E54324BF3 /* PayoutDetailSheetView.swift */; };
@@ -598,6 +599,7 @@
 		31FF7888FCB8BE6E54324BF3 /* PayoutDetailSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutDetailSheetView.swift; sourceTree = "<group>"; };
 		334F0806849AF68243D2E6A6 /* LootListUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordBridgeTests.swift; sourceTree = "<group>"; };
+		33953E002E31800289A4D05D /* BackgroundCacheActor+Unsynced.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackgroundCacheActor+Unsynced.swift"; sourceTree = "<group>"; };
 		35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardViewModel.swift; sourceTree = "<group>"; };
 		36092757E94B117081454909 /* JourneyMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyMapView.swift; sourceTree = "<group>"; };
 		36E3CF9BA2A6EB9C5DDEEB6A /* SpendDigestServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendDigestServiceTests.swift; sourceTree = "<group>"; };
@@ -1134,6 +1136,7 @@
 				8DFF66AC8F6E1EA894180119 /* BackgroundCacheActor.swift */,
 				0A1340E21780794CFD5CA1E0 /* BackgroundCacheActor+Maintenance.swift */,
 				F74A4F7F6BED8FEC9092351F /* BackgroundCacheActor+SystemFields.swift */,
+				33953E002E31800289A4D05D /* BackgroundCacheActor+Unsynced.swift */,
 				2F4D55A65A228EFD564F4BBC /* BatchQuestFetcher.swift */,
 				F46685E47F7AB1256B295FAC /* BonusObjectiveService.swift */,
 				51E844D116A5F96DE5E85C1C /* BucketService.swift */,
@@ -1956,6 +1959,7 @@
 				F4716A152964A87FF439BA7C /* AvatarView.swift in Sources */,
 				E631DC9332F7895F52928787 /* BackgroundCacheActor+Maintenance.swift in Sources */,
 				A8583FA64C5CD3647605036F /* BackgroundCacheActor+SystemFields.swift in Sources */,
+				CD9B4628B64127E82F325562 /* BackgroundCacheActor+Unsynced.swift in Sources */,
 				D09F1FB036C47CA6702C67BB /* BackgroundCacheActor.swift in Sources */,
 				D0E34176AF5E13005EFE218E /* BalanceCardView.swift in Sources */,
 				5742740742847275A8446E5F /* BatchQuestFetcher.swift in Sources */,

@@ -52,6 +52,28 @@ struct SpendingLogRow: Identifiable, Equatable {
 @MainActor
 @Observable
 final class TreasuryViewModel {
+    /// Typed treasury failures surfaced alongside `errorMessage` so callers can
+    /// branch without parsing copy. Messages stay stable for existing views.
+    enum TreasuryError: Error, Equatable, Sendable, LocalizedError {
+        case missingDescription
+        case invalidAmount
+        case missingProfile
+        case logFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .missingDescription:
+                "Describe your spending first."
+            case .invalidAmount:
+                "Enter a positive amount."
+            case .missingProfile:
+                "No hero profile loaded."
+            case .logFailed:
+                "Could not log your spending. Please try again."
+            }
+        }
+    }
+
     private let logger = Logger(category: "Treasury")
 
     private let treasury: TreasuryService
@@ -75,6 +97,19 @@ final class TreasuryViewModel {
     private(set) var isLoading: Bool = false
 
     private(set) var errorMessage: String?
+
+    /// Typed counterpart to `errorMessage` for branchable error handling.
+    private(set) var lastError: TreasuryError?
+
+    private func setError(_ error: TreasuryError) {
+        lastError = error
+        errorMessage = error.localizedDescription
+    }
+
+    private func clearError() {
+        lastError = nil
+        errorMessage = nil
+    }
 
     /// WHY snapshot: coordinator-owned sync health rides the view model so inline footnotes render without CloudKit imports.
     private(set) var pendingUploadCount: Int = 0
@@ -251,17 +286,17 @@ final class TreasuryViewModel {
             in: .whitespacesAndNewlines
         )
         guard !trimmed.isEmpty else {
-            errorMessage = "Describe your spending first."
+            setError(.missingDescription)
             return false
         }
         guard amount > 0 else {
-            errorMessage = "Enter a positive amount."
+            setError(.invalidAmount)
             return false
         }
         guard let profile = appState.currentProfile,
               let family = appState.family
         else {
-            errorMessage = "No hero profile loaded."
+            setError(.missingProfile)
             return false
         }
         let familyRecordName = family.id.recordName
@@ -278,11 +313,11 @@ final class TreasuryViewModel {
                 location: locationValue,
                 date: date
             )
-            errorMessage = nil
+            clearError()
             return true
         } catch {
             logger.error("Failed to log spending: \(error, privacy: .private)")
-            errorMessage = "Could not log your spending. Please try again."
+            setError(.logFailed)
             return false
         }
     }
@@ -297,7 +332,7 @@ final class TreasuryViewModel {
         weeklyBreakdown = nil
         allowancePeriod = nil
         spendingLog = []
-        errorMessage = nil
+        clearError()
         isLoading = false
         pendingUploadCount = 0
         lastSyncedAt = nil

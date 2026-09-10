@@ -136,7 +136,7 @@ struct BucketServiceTests {
     func `bucket balances attribute only bucketKind tagged entries`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cache = try CacheService(inMemory: true)
-        let buckets = BucketService(cacheService: cache)
+        let buckets = BucketService(cacheService: cache, syncCoordinator: NoopSyncEnqueuing(), appState: AppState())
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
         )
@@ -174,7 +174,7 @@ struct BucketServiceTests {
 
     @Test
     func `bucket balances without a cache are empty`() {
-        let buckets = BucketService()
+        let buckets = BucketService(cacheService: CacheService.inMemoryFallback(), syncCoordinator: NoopSyncEnqueuing(), appState: AppState())
         #expect(buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1").isEmpty)
     }
 

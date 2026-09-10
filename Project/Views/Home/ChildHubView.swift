@@ -21,6 +21,7 @@ struct ChildHubView: View {
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(CacheService.self) private var cacheService: CacheService?
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -304,7 +305,8 @@ struct ChildHubView: View {
         let vm = ViewLifecycle.ensure(&viewModel, factory: {
             ChildHubViewModel(
                 appState: appState,
-                cacheService: cacheService ?? appState.cacheService
+                cacheService: (cacheService ?? appState.cacheService) as (any CacheServicing)?,
+                syncCoordinator: syncCoordinator as (any SyncEnqueuing)?
             )
         })
         let tvm = ViewLifecycle.ensure(&treasuryViewModel, factory: {

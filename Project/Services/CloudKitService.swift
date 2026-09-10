@@ -77,6 +77,69 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
     }
 }
 
+/// WHY single classifier: transient vs hard-auth stays consistent across retry and cache-first fallback.
+enum CloudKitErrorClassifier: Sendable {
+    /// WHY stale-only on transient: offline blips reuse cache, persistent errors surface.
+    static func isTransient(_ error: Error) -> Bool {
+        // WHY sign-in over stale: signed-out must prompt, never masquerade as offline.
+        if isHardAuth(error) {
+            return false
+        }
+        if let ckError = error as? CKError {
+            switch ckError.code {
+            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy, .resultsTruncated:
+                return true
+            default:
+                break
+            }
+            return isTimeout(error)
+        }
+        if isTimeout(error) {
+            return true
+        }
+        if let serviceError = error as? CloudKitServiceError {
+            switch serviceError {
+            case .networkUnavailable, .retryable, .exhaustedBudget:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
+
+    /// WHY fast sign-in: signed-out surfaces account prompt instead of retry timeout.
+    static func isHardAuth(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            switch ckError.code {
+            case .notAuthenticated, .managedAccountRestricted, .userDeletedZone:
+                return true
+            default:
+                return false
+            }
+        }
+        if let serviceError = error as? CloudKitServiceError {
+            if case .accountUnavailable = serviceError {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// WHY timeout bridge: CloudKit wraps URL timeouts as underlying errors.
+    private static func isTimeout(_ error: Error) -> Bool {
+        if let ckError = error as? CKError,
+           let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSURLErrorDomain,
+           underlying.code == NSURLErrorTimedOut
+        {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorTimedOut
+    }
+}
+
 @MainActor
 @Observable
 class CloudKitService: CloudKitServiceProtocol {
@@ -161,13 +224,13 @@ class CloudKitService: CloudKitServiceProtocol {
                 return try await operation()
             } catch let error as CKError {
                 let isNetwork = (error.code == .networkUnavailable || error.code == .networkFailure)
+                // WHY fail-closed auth: signed-out surfaces sign-in instead of retry timeout.
                 let retryableCodes: [CKError.Code] = [
                     .zoneBusy,
                     .serviceUnavailable,
                     .requestRateLimited,
                     .networkUnavailable,
-                    .networkFailure,
-                    .notAuthenticated
+                    .networkFailure
                 ]
 
                 guard retryableCodes.contains(error.code) else {

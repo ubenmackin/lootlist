@@ -68,6 +68,8 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
 
     @ObservationIgnored private var lastSendCompletedAt: Date?
     private static let sendCoalescingInterval: TimeInterval = 2
+    /// WHY bounded buffers: offline days with large ledgers must not grow pending queues without limit.
+    private static let maxBufferedIdentities = 2000
 
     var pendingUploadCount: Int {
         var count = 0
@@ -188,7 +190,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(identity.recordID)])
                 logger.info("Drained buffered save: \(identity.recordID.recordName, privacy: .private)")
             } else {
-                pendingEnqueueBuffer.withLock { $0.append(identity) }
+                restoreSaveIdentity(identity)
             }
         }
         let deletes = pendingDeleteBuffer.withLock { buffer -> [ScopedRecordIdentity] in
@@ -202,7 +204,61 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 engine.state.add(pendingRecordZoneChanges: [.deleteRecord(identity.recordID)])
                 logger.info("Drained buffered delete: \(identity.recordID.recordName, privacy: .private)")
             } else {
-                pendingDeleteBuffer.withLock { $0.append(identity) }
+                restoreDeleteIdentity(identity)
+            }
+        }
+    }
+
+    /// WHY dedupe+cap: offline bursts re-enqueue the same record repeatedly, so buffered saves stay unique and bounded.
+    private func bufferSaveIdentity(_ identity: ScopedRecordIdentity) {
+        pendingDeleteBuffer.withLock { $0.removeAll { $0.recordID == identity.recordID } }
+        pendingEnqueueBuffer.withLock { buffer in
+            buffer.removeAll { $0.recordID == identity.recordID }
+            buffer.append(identity)
+            if buffer.count > Self.maxBufferedIdentities {
+                let overflow = buffer.count - Self.maxBufferedIdentities
+                buffer.removeFirst(overflow)
+                logger.fault("Pending save buffer capped at \(Self.maxBufferedIdentities, privacy: .public) — dropped \(overflow, privacy: .public) oldest saves")
+            }
+        }
+    }
+
+    /// WHY dedupe+cap: delete retries must not duplicate or grow without bound while offline.
+    private func bufferDeleteIdentity(_ identity: ScopedRecordIdentity) {
+        pendingEnqueueBuffer.withLock { $0.removeAll { $0.recordID == identity.recordID } }
+        pendingDeleteBuffer.withLock { buffer in
+            buffer.removeAll { $0.recordID == identity.recordID }
+            buffer.append(identity)
+            if buffer.count > Self.maxBufferedIdentities {
+                let overflow = buffer.count - Self.maxBufferedIdentities
+                buffer.removeFirst(overflow)
+                logger.fault("Pending delete buffer capped at \(Self.maxBufferedIdentities, privacy: .public) — dropped \(overflow, privacy: .public) oldest deletes")
+            }
+        }
+    }
+
+    /// WHY no cross-clear: drain restore preserves intent, so saves and deletes re-queue independently.
+    private func restoreSaveIdentity(_ identity: ScopedRecordIdentity) {
+        pendingEnqueueBuffer.withLock { buffer in
+            guard !buffer.contains(where: { $0.recordID == identity.recordID }) else { return }
+            buffer.append(identity)
+            if buffer.count > Self.maxBufferedIdentities {
+                let overflow = buffer.count - Self.maxBufferedIdentities
+                buffer.removeFirst(overflow)
+                logger.fault("Pending save buffer capped at \(Self.maxBufferedIdentities, privacy: .public) — dropped \(overflow, privacy: .public) oldest saves")
+            }
+        }
+    }
+
+    /// WHY no cross-clear: drain restore preserves intent, so deletes survive alongside saves.
+    private func restoreDeleteIdentity(_ identity: ScopedRecordIdentity) {
+        pendingDeleteBuffer.withLock { buffer in
+            guard !buffer.contains(where: { $0.recordID == identity.recordID }) else { return }
+            buffer.append(identity)
+            if buffer.count > Self.maxBufferedIdentities {
+                let overflow = buffer.count - Self.maxBufferedIdentities
+                buffer.removeFirst(overflow)
+                logger.fault("Pending delete buffer capped at \(Self.maxBufferedIdentities, privacy: .public) — dropped \(overflow, privacy: .public) oldest deletes")
             }
         }
     }
@@ -225,7 +281,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 recordID: recordID,
                 familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
             )
-            pendingEnqueueBuffer.withLock { $0.append(identity) }
+            bufferSaveIdentity(identity)
             logger.warning("No active sync engine — buffering save for \(recordID.recordName, privacy: .private)")
             return
         }
@@ -283,7 +339,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 recordID: recordID,
                 familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
             )
-            pendingDeleteBuffer.withLock { $0.append(identity) }
+            bufferDeleteIdentity(identity)
             logger.warning("No active sync engine — buffering delete for \(recordID.recordName, privacy: .private)")
             return
         }

@@ -65,43 +65,22 @@ final class QuestRewardService {
         }
         let state = appState ?? AppState()
         // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
-        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
-        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
-            let xp = xpService ?? XPService(cloudKit: cloudKit)
-            self.init(
-                cloudKit: cloudKit,
-                cacheService: cache,
-                appState: state,
-                syncCoordinator: coord,
-                xpService: xp,
-                treasuryService: treasuryService,
-                lootDropService: lootDropService,
-                toastManager: toastManager
-            )
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    // WHY test seam: unit tests inject no engine, so cache-only coordination keeps reads deterministic.
-                    Self.staticLogger.warning("QuestRewardService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("QuestRewardService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                let xp = xpService ?? XPService(cloudKit: cloudKit)
-                self.init(
-                    cloudKit: cloudKit,
-                    cacheService: cache,
-                    appState: state,
-                    syncCoordinator: NoopSyncEnqueuing(),
-                    xpService: xp,
-                    treasuryService: treasuryService,
-                    lootDropService: lootDropService,
-                    toastManager: toastManager
-                )
-            #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("QuestRewardService requires a sync coordinator in production")
-            #endif
-        }
+        let coord = ServiceInitHelper.resolveSyncCoordinator(
+            provided: syncCoordinator,
+            logger: Self.staticLogger,
+            serviceName: "QuestRewardService"
+        )
+        let xp = xpService ?? XPService(cloudKit: cloudKit)
+        self.init(
+            cloudKit: cloudKit,
+            cacheService: cache,
+            appState: state,
+            syncCoordinator: coord,
+            xpService: xp,
+            treasuryService: treasuryService,
+            lootDropService: lootDropService,
+            toastManager: toastManager
+        )
     }
 
     // MARK: - Reward Application & XP Banking
@@ -217,7 +196,7 @@ final class QuestRewardService {
                 return 0
             }
         } catch {
-            if isTransientRewardError(error) {
+            if CloudKitErrorClassifier.isTransient(error) {
                 // Queue the phantom for later sync but defer XP/quest/stamp until claim succeeds.
                 await cacheService.upsertRewardEvent(rewardEvent)
                 enqueueRewardEvent(rewardEvent)
@@ -234,7 +213,7 @@ final class QuestRewardService {
         do {
             try await xpService.addXP(totalXP, to: hero)
         } catch {
-            if !isTransientRewardError(error) {
+            if !CloudKitErrorClassifier.isTransient(error) {
                 await cacheService.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
                 syncCoordinator.dequeueSave(recordID: rewardID)
                 await handleHardRollback(
@@ -330,7 +309,7 @@ final class QuestRewardService {
                 return 0
             }
         } catch {
-            if isTransientRewardError(error) {
+            if CloudKitErrorClassifier.isTransient(error) {
                 toastManager?.show(message: "Reward queued — will sync when online.", type: .info)
                 return creditedGold
             }
@@ -502,40 +481,5 @@ final class QuestRewardService {
             return hero.dailyLoginStreakDays
         }
         return StreakCalculator.computeStreak(from: heroLogs)
-    }
-
-    /// WHY optimistic queue: transient errors keep reward queued, hard errors roll back.
-    private func isTransientRewardError(_ error: Error) -> Bool {
-        if let ckError = error as? CKError {
-            switch ckError.code {
-            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy, .resultsTruncated:
-                return true
-            case .operationCancelled:
-                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
-                    return true
-                }
-                return false
-            default:
-                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
-                    return true
-                }
-                let nsErr = error as NSError
-                if nsErr.domain == NSURLErrorDomain, nsErr.code == NSURLErrorTimedOut {
-                    return true
-                }
-                return false
-            }
-        }
-        let nsErr = error as NSError
-        if nsErr.domain == NSURLErrorDomain, nsErr.code == NSURLErrorTimedOut {
-            return true
-        }
-        if let serviceError = error as? CloudKitServiceError {
-            switch serviceError {
-            case .networkUnavailable, .retryable, .exhaustedBudget: return true
-            default: return false
-            }
-        }
-        return false
     }
 }

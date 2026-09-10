@@ -514,7 +514,7 @@ struct HeroDashboardViewModelTests {
             appState.currentProfile = SampleData.heroProfile
             cache.context?.insert(ProfileCache(from: SampleData.heroProfile))
             _ = cache.saveContext()
-            viewModel = ChildHubViewModel(appState: appState, cacheService: cache)
+            viewModel = ChildHubViewModel(appState: appState, cacheService: cache, syncCoordinator: NoopSyncEnqueuing())
             profileRef = CKRecord.Reference(recordID: SampleData.hero1ID, action: .none)
             familyRef = CKRecord.Reference(recordID: SampleData.familyID, action: .none)
         }

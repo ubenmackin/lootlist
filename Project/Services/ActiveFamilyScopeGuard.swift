@@ -147,6 +147,91 @@ enum ActiveFamilyScopeGuard {
         )
     }
 
+    // MARK: - Mutation Context
+
+    /// WHY single gate: acting identity plus family scope share one check so unauthorized versus scope-violation never drifts.
+    @MainActor
+    static func requireMutationContext(
+        appState: AppState,
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID? = nil,
+        cloudKit: (any CloudKitServiceProtocol)? = nil,
+        requireParent: Bool = false,
+        expectedSelf: Profile? = nil
+    ) throws -> Profile {
+        guard let acting = appState.currentProfile else {
+            throw FamilyServiceError.unauthorized
+        }
+        if let expectedSelf, acting.id != expectedSelf.id {
+            throw FamilyServiceError.unauthorized
+        }
+        if requireParent, !acting.role.isParent {
+            throw FamilyServiceError.unauthorized
+        }
+        if let zoneID, let cloudKit {
+            try requireActiveFamilyScope(
+                familyRecordName: familyRecordName,
+                zoneID: zoneID,
+                appState: appState,
+                cloudKit: cloudKit
+            )
+        } else {
+            try requireActiveFamily(familyRecordName: familyRecordName, appState: appState)
+        }
+        return acting
+    }
+
+    /// WHY convenience: Family callers share the same acting plus scope gate without re-deriving names.
+    @MainActor
+    static func requireMutationContext(
+        appState: AppState,
+        family: Family,
+        cloudKit: (any CloudKitServiceProtocol)? = nil,
+        requireParent: Bool = false,
+        expectedSelf: Profile? = nil
+    ) throws -> Profile {
+        if let cloudKit {
+            // WHY auth-first: identity gates run before scope so unauthorized never masquerades as scope-violation.
+            guard let acting = appState.currentProfile else {
+                throw FamilyServiceError.unauthorized
+            }
+            if let expectedSelf, acting.id != expectedSelf.id {
+                throw FamilyServiceError.unauthorized
+            }
+            if requireParent, !acting.role.isParent {
+                throw FamilyServiceError.unauthorized
+            }
+            try requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+            return acting
+        }
+        return try requireMutationContext(
+            appState: appState,
+            familyRecordName: family.id.recordName,
+            requireParent: requireParent,
+            expectedSelf: expectedSelf
+        )
+    }
+
+    /// WHY convenience: Reference callers share the same acting plus scope gate without re-deriving names.
+    @MainActor
+    static func requireMutationContext(
+        appState: AppState,
+        familyRef: CKRecord.Reference,
+        zoneID: CKRecordZone.ID,
+        cloudKit: any CloudKitServiceProtocol,
+        requireParent: Bool = false,
+        expectedSelf: Profile? = nil
+    ) throws -> Profile {
+        try requireMutationContext(
+            appState: appState,
+            familyRecordName: familyRef.recordID.recordName,
+            zoneID: zoneID,
+            cloudKit: cloudKit,
+            requireParent: requireParent,
+            expectedSelf: expectedSelf
+        )
+    }
+
     // MARK: - Owner Anchor Resolution
 
     static func isUserRecordNameMatch(_ name1: String?, _ name2: String?) -> Bool {
@@ -447,5 +532,22 @@ enum ScopeViolation: Error, LocalizedError, Equatable {
         case .identityMismatch:
             "The profile and family identity could not be verified for this iCloud account."
         }
+    }
+}
+
+// MARK: - ToastReporting
+
+/// WHY single path: previews without a manager still surface the message via fallback so no failure is silent.
+@MainActor
+protocol ToastReporting: AnyObject {
+    var toastManager: ToastManager? { get }
+    func setReportMessage(_ message: String)
+    func report(message: String, type: ToastType)
+}
+
+extension ToastReporting {
+    func report(message: String, type: ToastType = .info) {
+        setReportMessage(message)
+        toastManager?.show(message: message, type: type)
     }
 }

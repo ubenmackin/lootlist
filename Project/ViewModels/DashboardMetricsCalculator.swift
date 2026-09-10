@@ -194,3 +194,398 @@ enum DashboardMetricsCalculator {
         BucketService.totalBalance(for: heroEntries, profileRecordName: profileRecordName)
     }
 }
+
+/// WHY value snapshots: live @Model rows never cross isolation, so the fingerprinter hashes Sendable copies.
+struct DashboardProfileSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let displayName: String
+    let role: String
+    let isActive: Bool
+    let payoutDay: String?
+    let payoutPolicy: String?
+    let avatarName: String?
+    let avatarEmoji: String?
+    let avatarClass: String?
+    let splitPercentSpend: Int
+    let splitPercentShort: Int
+    let splitPercentLong: Int
+
+    init(from row: ProfileCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        displayName = row.displayName
+        role = row.role
+        isActive = row.isActive
+        payoutDay = row.payoutDay
+        payoutPolicy = row.payoutPolicy
+        avatarName = row.avatarName
+        avatarEmoji = row.avatarEmoji
+        avatarClass = row.avatarClass
+        splitPercentSpend = row.splitPercentSpend
+        splitPercentShort = row.splitPercentShort
+        splitPercentLong = row.splitPercentLong
+    }
+}
+
+/// WHY value snapshot: quest rows hash without touching live storage off isolation.
+struct DashboardQuestSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let assigneeRecordName: String
+    let templateRecordName: String
+    let weekOf: Date
+    let questName: String
+    let isActive: Bool
+    let goldReward: Int64
+    let xpReward: Int
+    let targetCount: Int
+    let scheduleType: String
+    let isAllOrNothing: Bool
+    let claimedByProfileRecordName: String?
+    let claimedAt: Date?
+    let descriptionText: String?
+
+    init(from row: QuestCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        assigneeRecordName = row.assigneeRecordName
+        templateRecordName = row.templateRecordName
+        weekOf = row.weekOf
+        questName = row.questName
+        isActive = row.isActive
+        goldReward = row.goldReward
+        xpReward = row.xpReward
+        targetCount = row.targetCount
+        scheduleType = row.scheduleType
+        isAllOrNothing = row.isAllOrNothing
+        claimedByProfileRecordName = row.claimedByProfileRecordName
+        claimedAt = row.claimedAt
+        descriptionText = row.descriptionText
+    }
+}
+
+/// WHY value snapshot: completion routing fields alone bust the memo.
+struct DashboardCompletionSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let questRecordName: String
+    let completerRecordName: String
+    let weekOf: Date
+    let completedDate: Date
+    let verificationStatus: String
+    let approvalMode: String
+
+    init(from row: QuestCompletionCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        questRecordName = row.questRecordName
+        completerRecordName = row.completerRecordName
+        weekOf = row.weekOf
+        completedDate = row.completedDate
+        verificationStatus = row.verificationStatus
+        approvalMode = row.approvalMode
+    }
+}
+
+/// WHY value snapshot: only money fields feed balances.
+struct DashboardLedgerSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let profileRecordName: String
+    let amount: Int64
+    let source: String
+    let bucketKind: String?
+    let fromBucket: String?
+    let toBucket: String?
+    let date: Date
+
+    init(from row: LedgerEntryCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        profileRecordName = row.profileRecordName
+        amount = row.amount
+        source = row.source
+        bucketKind = row.bucketKind
+        fromBucket = row.fromBucket
+        toBucket = row.toBucket
+        date = row.date
+    }
+}
+
+/// WHY value snapshot: payout rows hash without live faults.
+struct DashboardPeriodSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let profileRecordName: String
+    let weekOf: Date
+    let status: String
+    let totalEarned: Int64
+    let questsCompleted: Int
+    let questsTotal: Int
+    let paidAmount: Int64?
+    let paidDate: Date?
+
+    init(from row: AllowancePeriodCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        profileRecordName = row.profileRecordName
+        weekOf = row.weekOf
+        status = row.status
+        totalEarned = row.totalEarned
+        questsCompleted = row.questsCompleted
+        questsTotal = row.questsTotal
+        paidAmount = row.paidAmount
+        paidDate = row.paidDate
+    }
+}
+
+/// WHY value snapshot: trophy rows hash without live faults.
+struct DashboardProfileAchievementSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let profileRecordName: String
+    let achievementRecordName: String
+    let earnedDate: Date
+
+    init(from row: ProfileAchievementCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        profileRecordName = row.profileRecordName
+        achievementRecordName = row.achievementRecordName
+        earnedDate = row.earnedDate
+    }
+}
+
+/// WHY value snapshot: achievement rows hash without live faults.
+struct DashboardAchievementSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let name: String
+    let requirementType: String
+    let requirementValue: Int
+
+    init(from row: AchievementCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        name = row.name
+        requirementType = row.requirementType
+        requirementValue = row.requirementValue
+    }
+}
+
+/// WHY value snapshot: only scheduling fields feed targets.
+struct DashboardTemplateSnapshot: Sendable, Hashable {
+    let recordName: String
+    let familyRecordName: String
+    let name: String
+    let goldReward: Int64
+    let xpReward: Int
+    let isActive: Bool
+    let targetCount: Int
+    let scheduleType: String
+    let specificDays: [String]?
+    let isAllOrNothing: Bool
+    let approvalMode: String
+
+    init(from row: QuestTemplateCache) {
+        recordName = row.recordName
+        familyRecordName = row.familyRecordName
+        name = row.name
+        goldReward = row.goldReward
+        xpReward = row.xpReward
+        isActive = row.isActive
+        targetCount = row.targetCount
+        scheduleType = row.scheduleType
+        specificDays = row.specificDays
+        isAllOrNothing = row.isAllOrNothing
+        approvalMode = row.approvalMode
+    }
+}
+
+/// Pure, isolation-free fingerprinting for dashboard memoization.
+/// WHY dedicated type: @Query refires on unrelated writes, so the container hashes value snapshots off isolation.
+enum DashboardMetricsFingerprinter {
+    /// Value snapshot bundle keeping `rebuildKey` within the `function_parameter_count` limit.
+    struct Inputs: Sendable {
+        let profiles: [DashboardProfileSnapshot]
+        let quests: [DashboardQuestSnapshot]
+        let logs: [DashboardCompletionSnapshot]
+        let ledgers: [DashboardLedgerSnapshot]
+        let allowancePeriods: [DashboardPeriodSnapshot]
+        let profileAchievements: [DashboardProfileAchievementSnapshot]
+        let achievements: [DashboardAchievementSnapshot]
+        let templates: [DashboardTemplateSnapshot]
+        let familyContext: DashboardMetricsCalculator.FamilyContext
+        let freshnessVersion: Int
+    }
+
+    static func rebuildKey(_ inputs: Inputs) -> Int {
+        var hasher = Hasher()
+        hasher.combine(fold(inputs.profiles.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.quests.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.logs.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.ledgers.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.allowancePeriods.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.profileAchievements.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.achievements.map { fingerprint(for: $0) }))
+        hasher.combine(fold(inputs.templates.map { fingerprint(for: $0) }))
+        hasher.combine(fingerprint(familyContext: inputs.familyContext, freshnessVersion: inputs.freshnessVersion))
+        return hasher.finalize()
+    }
+
+    /// WHY order-independent: XOR folding avoids sorting large tables while count disambiguates size changes.
+    static func fold(_ hashes: [Int]) -> Int {
+        var acc = hashes.count
+        for hash in hashes {
+            acc ^= hash
+        }
+        return acc
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardProfileSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.displayName)
+        hasher.combine(snapshot.role)
+        hasher.combine(snapshot.isActive)
+        hasher.combine(snapshot.payoutDay ?? "-")
+        hasher.combine(snapshot.payoutPolicy ?? "-")
+        hasher.combine(snapshot.avatarName ?? "-")
+        hasher.combine(snapshot.avatarEmoji ?? "-")
+        hasher.combine(snapshot.avatarClass ?? "-")
+        hasher.combine(snapshot.splitPercentSpend)
+        hasher.combine(snapshot.splitPercentShort)
+        hasher.combine(snapshot.splitPercentLong)
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardQuestSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.assigneeRecordName)
+        hasher.combine(snapshot.templateRecordName)
+        hasher.combine(Int(snapshot.weekOf.timeIntervalSince1970))
+        hasher.combine(snapshot.goldReward)
+        hasher.combine(snapshot.xpReward)
+        hasher.combine(snapshot.targetCount)
+        hasher.combine(snapshot.scheduleType)
+        hasher.combine(snapshot.isAllOrNothing)
+        hasher.combine(snapshot.isActive)
+        hasher.combine(snapshot.questName)
+        hasher.combine(snapshot.claimedByProfileRecordName ?? "-")
+        hasher.combine(snapshot.claimedAt.map { Int($0.timeIntervalSince1970) } ?? -1)
+        hasher.combine(snapshot.descriptionText ?? "-")
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardCompletionSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.questRecordName)
+        hasher.combine(snapshot.completerRecordName)
+        hasher.combine(Int(snapshot.weekOf.timeIntervalSince1970))
+        hasher.combine(Int(snapshot.completedDate.timeIntervalSince1970))
+        hasher.combine(snapshot.verificationStatus)
+        hasher.combine(snapshot.approvalMode)
+        // WHY metrics-only: verifier and credit markers never feed counts, so only routing fields bust.
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardLedgerSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.profileRecordName)
+        hasher.combine(snapshot.amount)
+        hasher.combine(snapshot.source)
+        hasher.combine(snapshot.bucketKind ?? "-")
+        hasher.combine(snapshot.fromBucket ?? "-")
+        hasher.combine(snapshot.toBucket ?? "-")
+        hasher.combine(Int(snapshot.date.timeIntervalSince1970))
+        // WHY metrics-only: description and location never feed balances, so only money fields bust.
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardPeriodSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.profileRecordName)
+        hasher.combine(Int(snapshot.weekOf.timeIntervalSince1970))
+        hasher.combine(snapshot.status)
+        hasher.combine(snapshot.totalEarned)
+        hasher.combine(snapshot.questsCompleted)
+        hasher.combine(snapshot.questsTotal)
+        hasher.combine(snapshot.paidAmount ?? -1)
+        hasher.combine(snapshot.paidDate.map { Int($0.timeIntervalSince1970) } ?? -1)
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardProfileAchievementSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.profileRecordName)
+        hasher.combine(snapshot.achievementRecordName)
+        hasher.combine(Int(snapshot.earnedDate.timeIntervalSince1970))
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardAchievementSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.name)
+        hasher.combine(snapshot.requirementType)
+        hasher.combine(snapshot.requirementValue)
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(for snapshot: DashboardTemplateSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(snapshot.recordName)
+        hasher.combine(snapshot.familyRecordName)
+        hasher.combine(snapshot.name)
+        hasher.combine(snapshot.goldReward)
+        hasher.combine(snapshot.xpReward)
+        hasher.combine(snapshot.isActive)
+        hasher.combine(snapshot.targetCount)
+        hasher.combine(snapshot.scheduleType)
+        if let specificDays = snapshot.specificDays {
+            // WHY order-independent: day sets compare equal regardless of stored order.
+            hasher.combine(fold(specificDays.map {
+                var dayHasher = Hasher()
+                dayHasher.combine($0)
+                return dayHasher.finalize()
+            }))
+        } else {
+            hasher.combine(fold([]))
+        }
+        hasher.combine(snapshot.isAllOrNothing)
+        hasher.combine(snapshot.approvalMode)
+        // WHY metrics-only: display fields never feed targets, so only scheduling fields bust.
+        return hasher.finalize()
+    }
+
+    /// WHY tiny hashes: one row types alone so the checker never solves a mega-interpolation.
+    static func fingerprint(familyContext: DashboardMetricsCalculator.FamilyContext, freshnessVersion: Int) -> Int {
+        var hasher = Hasher()
+        hasher.combine(familyContext.recordName ?? "-")
+        hasher.combine(familyContext.payoutDay.rawValue)
+        hasher.combine(familyContext.payoutPolicy?.rawValue ?? "-")
+        hasher.combine(freshnessVersion)
+        return hasher.finalize()
+    }
+}

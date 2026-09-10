@@ -22,6 +22,7 @@ struct FamilyDashboardView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var viewModel: FamilyDashboardViewModel?
+    @State private var syncHost: DashboardSyncHost?
     @State private var sharePresentation: CloudSharePresentation?
     @State private var selectedChildRecordName: String?
     @State private var showPendingInspector = false
@@ -363,7 +364,10 @@ struct FamilyDashboardView: View {
 
     private func handleRegularAppear() async {
         ensureViewModel()
-        viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+        ensureSyncHost()
+        if let vm = viewModel, let host = syncHost {
+            host.subscribe(viewModel: vm, coordinator: appSyncCoordinator)
+        }
         await lifecycleCoordinator?.performManualSync()
         await viewModel?.refresh()
         await viewModel?.refreshInvitations()
@@ -372,7 +376,10 @@ struct FamilyDashboardView: View {
 
     private func handleCompactAppear() async {
         ensureViewModel()
-        viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+        ensureSyncHost()
+        if let vm = viewModel, let host = syncHost {
+            host.subscribe(viewModel: vm, coordinator: appSyncCoordinator)
+        }
         await lifecycleCoordinator?.performManualSync()
         await viewModel?.refresh()
         await viewModel?.refreshInvitations()
@@ -387,7 +394,16 @@ struct FamilyDashboardView: View {
     private func handleSidebarDisappear() {
         rebuildTask?.cancel()
         rebuildTask = nil
-        viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
+        if let host = syncHost {
+            host.unsubscribe(coordinator: appSyncCoordinator)
+        }
+    }
+
+    @MainActor
+    private func ensureSyncHost() {
+        if syncHost == nil {
+            syncHost = DashboardSyncHost()
+        }
     }
 
     private var compactNavigationStack: some View {
@@ -456,9 +472,24 @@ struct FamilyDashboardView: View {
 
     @ViewBuilder
     private func regularDashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
-        statCardsRow(vm: vm, scrollProxy: scrollProxy)
+        FamilyDashboardStatCardsSection(
+            outflow: vm.familyOutflow,
+            pendingCount: pendingCount,
+            onJumpToPending: {
+                withAnimation {
+                    scrollProxy.scrollTo("pendingQueueAnchor", anchor: .top)
+                }
+                HapticsService.rigid()
+            }
+        )
         earningSparklineHeader
-        childAccountsSection(vm: vm)
+        FamilyDashboardChildAccountsSection(
+            cards: vm.childAccountCards,
+            isGuildMaster: viewerIsGuildMaster,
+            showRolePicker: $showRolePicker,
+            onHeightChange: { maxChildCardHeight = $0 },
+            cardContent: { card in childAccountCardContainer(card: card, vm: vm) }
+        )
         HStack(alignment: .top, spacing: 16) {
             weeklySummarySection(summary: vm.weekSummary)
                 .frame(maxWidth: .infinity)
@@ -471,8 +502,23 @@ struct FamilyDashboardView: View {
 
     @ViewBuilder
     private func compactDashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
-        statCardsRow(vm: vm, scrollProxy: scrollProxy)
-        childAccountsSection(vm: vm)
+        FamilyDashboardStatCardsSection(
+            outflow: vm.familyOutflow,
+            pendingCount: pendingCount,
+            onJumpToPending: {
+                withAnimation {
+                    scrollProxy.scrollTo("pendingQueueAnchor", anchor: .top)
+                }
+                HapticsService.rigid()
+            }
+        )
+        FamilyDashboardChildAccountsSection(
+            cards: vm.childAccountCards,
+            isGuildMaster: viewerIsGuildMaster,
+            showRolePicker: $showRolePicker,
+            onHeightChange: { maxChildCardHeight = $0 },
+            cardContent: { card in childAccountCardContainer(card: card, vm: vm) }
+        )
         pendingApprovalQueueSection()
         weeklySummarySection(summary: vm.weekSummary)
     }
@@ -522,40 +568,9 @@ struct FamilyDashboardView: View {
     }
 }
 
-// MARK: - Sections (consolidated here for file-scope isolation)
+// MARK: - Sections (container owns Queries, sections render value slices)
 
 private extension FamilyDashboardView {
-    // MARK: - Stat Cards
-
-    func statCardsRow(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
-        HStack(spacing: DesignSystemConstants.Padding.medium) {
-            StatCard(
-                title: "FAMILY OUTFLOW",
-                value: CurrencyFormatter.string(vm.familyOutflow),
-                icon: "banknote.fill",
-                tint: Color(DesignSystemConstants.Colors.primaryGreen),
-                accessibilityID: "dashboard.outflowCard"
-            )
-
-            Button {
-                withAnimation {
-                    scrollProxy.scrollTo("pendingQueueAnchor", anchor: .top)
-                }
-                HapticsService.rigid()
-            } label: {
-                StatCard(
-                    title: "PENDING REVIEW",
-                    value: "\(pendingCount)",
-                    icon: "hourglass",
-                    tint: Color(DesignSystemConstants.Colors.pendingAmber),
-                    accessibilityID: "dashboard.pendingReviewCard"
-                )
-            }
-            .buttonStyle(.plain)
-            .hoverEffect(.highlight)
-        }
-    }
-
     // MARK: - Earning Sparkline
 
     @ViewBuilder
@@ -576,37 +591,7 @@ private extension FamilyDashboardView {
         )
     }
 
-    // MARK: - Child Accounts Grid
-
-    private func childAccountsSection(vm: FamilyDashboardViewModel) -> some View {
-        VStack(spacing: 12) {
-            SectionHeader("CHILD ACCOUNTS") {
-                if viewerIsGuildMaster {
-                    DashboardInviteButton(showRolePicker: $showRolePicker)
-                }
-            }
-
-            if vm.childAccountCards.isEmpty {
-                DashboardEmptyChildrenCard(isGuildMaster: viewerIsGuildMaster)
-            } else {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.adaptive(minimum: 260, maximum: 360), spacing: 14)
-                    ],
-                    spacing: 14
-                ) {
-                    ForEach(vm.childAccountCards) { card in
-                        childAccountCardContainer(card: card, vm: vm)
-                    }
-                }
-                .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
-                    if newHeight > 0, maxChildCardHeight != newHeight {
-                        maxChildCardHeight = newHeight
-                    }
-                }
-            }
-        }
-    }
+    // MARK: - Child Account Cards (container-owned Query slices fan out here)
 
     @ViewBuilder
     private func childAccountCardContainer(card: ChildAccountCard, vm _: FamilyDashboardViewModel) -> some View {
@@ -779,5 +764,75 @@ private extension FamilyDashboardView {
             return
         }
         sharePresentation = presentation
+    }
+}
+
+/// WHY container/sections: FamilyDashboardView owns the 10 Queries, sections render value slices without touching the store.
+struct FamilyDashboardStatCardsSection: View {
+    let outflow: Int64
+    let pendingCount: Int
+    let onJumpToPending: () -> Void
+
+    var body: some View {
+        HStack(spacing: DesignSystemConstants.Padding.medium) {
+            StatCard(
+                title: "FAMILY OUTFLOW",
+                value: CurrencyFormatter.string(outflow),
+                icon: "banknote.fill",
+                tint: Color(DesignSystemConstants.Colors.primaryGreen),
+                accessibilityID: "dashboard.outflowCard"
+            )
+
+            Button(action: onJumpToPending) {
+                StatCard(
+                    title: "PENDING REVIEW",
+                    value: "\(pendingCount)",
+                    icon: "hourglass",
+                    tint: Color(DesignSystemConstants.Colors.pendingAmber),
+                    accessibilityID: "dashboard.pendingReviewCard"
+                )
+            }
+            .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+        }
+    }
+}
+
+/// WHY value slices: cards and flags arrive as values so grid ordering never re-queries the store.
+struct FamilyDashboardChildAccountsSection<CardContent: View>: View {
+    let cards: [ChildAccountCard]
+    let isGuildMaster: Bool
+    @Binding var showRolePicker: Bool
+    let onHeightChange: (CGFloat) -> Void
+    @ViewBuilder let cardContent: (ChildAccountCard) -> CardContent
+
+    var body: some View {
+        VStack(spacing: 12) {
+            SectionHeader("CHILD ACCOUNTS") {
+                if isGuildMaster {
+                    DashboardInviteButton(showRolePicker: $showRolePicker)
+                }
+            }
+
+            if cards.isEmpty {
+                DashboardEmptyChildrenCard(isGuildMaster: isGuildMaster)
+            } else {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.adaptive(minimum: 260, maximum: 360), spacing: 14)
+                    ],
+                    spacing: 14
+                ) {
+                    ForEach(cards) { card in
+                        cardContent(card)
+                    }
+                }
+                .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
+                    if newHeight > 0 {
+                        onHeightChange(newHeight)
+                    }
+                }
+            }
+        }
     }
 }

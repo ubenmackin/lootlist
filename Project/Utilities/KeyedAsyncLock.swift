@@ -19,7 +19,7 @@ actor KeyedAsyncLock {
 
     private var waiters: [String: [WaiterEntry]] = [:]
 
-    func withLock<T: Sendable>(key: String, _ body: @MainActor () async throws -> T) async throws -> T {
+    func withLock<T: Sendable>(key: String, _ body: @Sendable @MainActor () async throws -> T) async throws -> T {
         var acquired = false
         defer {
             if acquired {

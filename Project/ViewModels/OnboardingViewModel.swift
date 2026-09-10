@@ -42,6 +42,43 @@ struct DetectedHero {
 @MainActor
 @Observable
 final class OnboardingViewModel {
+    /// Typed onboarding failures surfaced alongside `error` so callers can
+    /// branch without parsing copy. Messages stay stable for existing views.
+    enum OnboardingError: Error, Equatable, Sendable, LocalizedError {
+        case missingGuildName
+        case missingFounderName
+        case missingJoinerName
+        case missingInvite
+        case inviteInvalid
+        case joinFailed
+        case linkReadFailed
+        case familyCreateFailed
+        case profileSetupFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .missingGuildName:
+                "Your guild needs a name, Guild Master."
+            case .missingFounderName:
+                "Pick a name before founding your guild."
+            case .missingJoinerName:
+                "Pick a name before joining your party."
+            case .missingInvite:
+                "Join your family's invitation before setting up your hero."
+            case .inviteInvalid:
+                "This invitation link is invalid or has expired. Please ask the Guild Master for a new invite link."
+            case .joinFailed:
+                "Could not join the family. Please try again."
+            case .linkReadFailed:
+                "Could not read that share link. Please try again."
+            case .familyCreateFailed:
+                "Could not create your guild. Please try again."
+            case .profileSetupFailed:
+                "Could not set up your hero profile. Please try again."
+            }
+        }
+    }
+
     private let logger = Logger(category: "Onboarding")
 
     var userIntent: UserIntent?
@@ -66,6 +103,19 @@ final class OnboardingViewModel {
     }
 
     var error: String?
+
+    /// Typed counterpart to `error` for branchable error handling.
+    private(set) var lastError: OnboardingError?
+
+    private func setError(_ error: OnboardingError) {
+        lastError = error
+        self.error = error.localizedDescription
+    }
+
+    private func clearError() {
+        lastError = nil
+        error = nil
+    }
 
     var isLoading: Bool = false
 
@@ -98,6 +148,21 @@ final class OnboardingViewModel {
     /// Retained enable path for notification priming so prime writes ride the service instead of UserDefaults.
     private let notificationService: NotificationService?
 
+    /// Double-join guard. URL + accept-share arrivals spawn concurrent tasks that would double-accept without serialization.
+    /// WHY plain flag: the view model is MainActor-isolated, so synchronous claim/release never suspends and needs no lock.
+    @ObservationIgnored
+    private var joinInProgress = false
+
+    private func claimJoin() -> Bool {
+        guard !joinInProgress else { return false }
+        joinInProgress = true
+        return true
+    }
+
+    private func releaseJoin() {
+        joinInProgress = false
+    }
+
     private(set) var builtFamily: Family?
 
     private(set) var builtProfile: Profile?
@@ -117,14 +182,25 @@ final class OnboardingViewModel {
         case .createFamily:
             push(.familyCreation)
         case .joinFamily:
+            // WHY atomic claim before navigation: concurrent invite tasks racing here must not double-push or double-accept.
+            guard claimJoin() else { return }
             checkForExistingHero()
             push(.familyJoin)
             Task { [weak self] in
-                await self?.joinFamilyViaAcceptedShare()
+                await self?.runAdvanceJoin()
             }
         case nil:
             break
         }
+    }
+
+    /// Serialized join for the intent path. Releases the claim from `advanceFromIntentSelection`; failure leaves routing clear for retry.
+    private func runAdvanceJoin() async {
+        defer { releaseJoin() }
+        guard userIntent == .joinFamily, !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        _ = await performJoinFamilyViaAcceptedShare()
     }
 
     /// Initiates a background scan of shared zones for an existing active profile matching current user.
@@ -182,14 +258,20 @@ final class OnboardingViewModel {
     /// WHY explicit routing: property observers must not trigger network navigation; caller must invoke this.
     func handlePendingInviteIfNeeded() {
         guard !hasAutoRoutedForInvite, !isLoading, let resolution = pendingShareMetadata else { return }
+        // WHY atomic claim before navigation: URL + accept-share double arrival must not double-route or double-accept.
+        guard claimJoin() else { return }
         // Decode role for display — FamilyService decodes server-side as well, UI is copy only.
         invitedRole = UserRole.fromShareTitle(resolution.title ?? "")
         // Do not override an active creation flow.
         if path.contains(.familyCreation) {
+            releaseJoin()
             return
         }
         // Only auto-route from Welcome (empty) or from RoleSelection without creation.
-        guard path.isEmpty || path == [.roleSelection] else { return }
+        guard path.isEmpty || path == [.roleSelection] else {
+            releaseJoin()
+            return
+        }
         // WHY atomic claim before yield: isLoading set before suspension prevents concurrent second trigger (didSet+LootListApp double-route) from passing guard.
         hasAutoRoutedForInvite = true
         isLoading = true
@@ -208,14 +290,18 @@ final class OnboardingViewModel {
     }
 
     private func joinFamilyViaAcceptedShareClaimed() async {
-        defer { isLoading = false }
-        // Reuse the same join logic but isLoading already claimed; reset hasAutoRoutedForInvite on failure so retry is possible.
+        defer {
+            isLoading = false
+            releaseJoin()
+        }
+        // Single serialized entry with the intent path; failure clears auto-route so retry can re-route.
         let success = await performJoinFamilyViaAcceptedShare()
         if !success {
             hasAutoRoutedForInvite = false
         }
     }
 
+    /// Single serialized join entry for intent, auto-route, and view-retry paths. Callers hold the join claim.
     private func performJoinFamilyViaAcceptedShare() async -> Bool {
         guard userIntent == .joinFamily, let resolution = pendingShareMetadata else { return false }
         joinProgressStatus = "Accepting family invitation..."
@@ -242,10 +328,10 @@ final class OnboardingViewModel {
             return true
         } catch {
             logger.error("Joining family via accepted share failed: \(error, privacy: .private)")
-            if let friendly = friendlyInviteAcceptError(error) {
-                self.error = friendly
+            if friendlyInviteAcceptError(error) != nil {
+                setError(.inviteInvalid)
             } else {
-                self.error = genericJoinerErrorFallback
+                setError(.joinFailed)
             }
             return false
         }
@@ -258,16 +344,16 @@ final class OnboardingViewModel {
 
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            error = "Your guild needs a name, Guild Master."
+            setError(.missingGuildName)
             return
         }
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            error = "Pick a name before founding your guild."
+            setError(.missingFounderName)
             return
         }
 
-        error = nil
+        clearError()
 
         do {
             let result = try await familyService.createFamilyWithOnboarding(
@@ -289,14 +375,15 @@ final class OnboardingViewModel {
             }
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to create family: \(familyError.localizedDescription, privacy: .private)")
-            self.error = "Could not create your guild. Please try again."
+            setError(.familyCreateFailed)
         } catch {
             logger.error("Failed to create family: \(error, privacy: .private)")
-            self.error = "Could not create your guild. Please try again."
+            setError(.familyCreateFailed)
         }
     }
 
     /// Consumes pending share metadata to join family, resolving role from share title.
+    /// Serialized with the auto-route path via the join claim; concurrent arrivals skip while the winner owns UI.
     func joinFamilyViaAcceptedShare() async {
         let intent = String(describing: self.userIntent)
         let hasMetadata = self.pendingShareMetadata != nil
@@ -304,7 +391,7 @@ final class OnboardingViewModel {
             "Joining family via accepted share called. userIntent=\(intent), hasMetadata=\(hasMetadata), isLoading=\(self.isLoading)"
         )
         guard userIntent == .joinFamily,
-              let resolution = pendingShareMetadata,
+              pendingShareMetadata != nil,
               !isLoading
         else {
             logger.info(
@@ -312,41 +399,22 @@ final class OnboardingViewModel {
             )
             return
         }
+        // WHY atomic claim: FamilyJoinView onChange races auto-route double arrival; loser skips while winner owns UI.
+        guard claimJoin() else {
+            logger.info("Join already in progress. Skipping duplicate join request.")
+            return
+        }
         isLoading = true
-        joinProgressStatus = "Accepting family invitation..."
-        joinProgressFraction = 0.25
         defer {
             isLoading = false
-            joinProgressStatus = nil
-            joinProgressFraction = nil
+            releaseJoin()
         }
 
         logger.info("Calling familyService.joinFamilyViaAcceptedShare...")
-        do {
-            let result = try await familyService.joinFamilyViaAcceptedShare(
-                resolution: resolution,
-                displayName: displayName,
-                avatarClass: avatarClass,
-                progressHandler: { [weak self] status, fraction in
-                    self?.joinProgressStatus = status
-                    self?.joinProgressFraction = fraction
-                }
-            )
-            logger.info("Joined family '\(result.family.name, privacy: .private)' as profile '\(result.profile.displayName, privacy: .private)'")
-            builtFamily = result.family
-            builtProfile = result.profile
-            didReuseActiveProfile = result.didReuseActiveProfile
-            pendingShareMetadata = nil
-            push(.avatarSelection)
-        } catch {
-            logger.error("Joining family via accepted share failed: \(error, privacy: .private)")
-            if let friendly = friendlyInviteAcceptError(error) {
-                self.error = friendly
-            } else {
-                // Non-invalid-invitation failure: surface a static generic
-                // message rather than the raw CloudKit error text.
-                self.error = genericJoinerErrorFallback
-            }
+        // WHY single entry: progress stays weak and error copy stays in one place so retry behaves identically.
+        let success = await performJoinFamilyViaAcceptedShare()
+        if success, let family = builtFamily, let profile = builtProfile {
+            logger.info("Joined family '\(family.name, privacy: .private)' as profile '\(profile.displayName, privacy: .private)'")
         }
     }
 
@@ -366,7 +434,11 @@ final class OnboardingViewModel {
                 joinProgressStatus = nil
                 joinProgressFraction = nil
                 logger.error("Resolving share metadata failed: \(error, privacy: .private)")
-                self.error = friendlyInviteAcceptError(error) ?? "Could not read that share link. Please try again."
+                if friendlyInviteAcceptError(error) != nil {
+                    setError(.inviteInvalid)
+                } else {
+                    setError(.linkReadFailed)
+                }
             }
         }
     #endif
@@ -378,17 +450,17 @@ final class OnboardingViewModel {
         defer { isLoading = false }
 
         guard let profile = builtProfile else {
-            error = "Join your family's invitation before setting up your hero."
+            setError(.missingInvite)
             return
         }
 
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            error = "Pick a name before joining your party."
+            setError(.missingJoinerName)
             return
         }
 
-        error = nil
+        clearError()
         appState.currentProfile = profile
 
         guard !didReuseActiveProfile else {
@@ -424,10 +496,10 @@ final class OnboardingViewModel {
             }
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to finalize joined profile: \(familyError.localizedDescription, privacy: .private)")
-            self.error = "Could not set up your hero profile. Please try again."
+            setError(.profileSetupFailed)
         } catch {
             logger.error("Failed to finalize joined profile: \(error, privacy: .private)")
-            self.error = genericJoinerErrorFallback
+            setError(.joinFailed)
         }
     }
 
@@ -451,7 +523,7 @@ final class OnboardingViewModel {
         customAvatarImageData = nil
         avatarEmoji = nil
         familyName = ""
-        error = nil
+        clearError()
         isLoading = false
         path = []
         builtFamily = nil

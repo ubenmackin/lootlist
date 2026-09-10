@@ -50,7 +50,6 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
 @MainActor
 @Observable
 final class GoalService {
-    private static let staticLogger = Logger(category: "GoalService")
     private let logger = Logger(category: "GoalService")
 
     private let cloudKit: any CloudKitServiceProtocol
@@ -75,6 +74,8 @@ final class GoalService {
         self.achievementService = achievementService
         self.celebrationManager = celebrationManager
     }
+
+    private static let staticLogger = Logger(category: "GoalService")
 
     /// Test convenience that supplies in-memory cache and no-op coordinator when callers omit dependencies.
     @_disfavoredOverload
