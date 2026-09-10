@@ -57,10 +57,12 @@ final class LedgerService {
 
     // MARK: - Cached Reads
 
+    /// WHY cache-only: history lists render from SwiftData with zero CloudKit wait.
     func cachedLedgerEntries(profileRecordName: String, familyRecordName: String) -> [LedgerEntryCache] {
         cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyRecordName)
     }
 
+    /// WHY cache-only: single-row lookups render from SwiftData with zero CloudKit wait.
     func cachedLedgerEntry(recordName: String, familyRecordName: String) -> LedgerEntryCache? {
         cacheService.fetchLedgerEntry(recordName: recordName, family: familyRecordName)
     }
@@ -383,6 +385,7 @@ final class LedgerService {
 
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.logManual")
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return entry
     }
 
@@ -478,6 +481,7 @@ final class LedgerService {
             await cacheService.upsertLedgerEntry(entry)
         }
         ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(syncCoordinator, ids: entries.map(\.id), appState: appState, logger: logger, context: "LedgerService.deposit")
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
 
         // WHY: save-bucket portions cascade into FIFO goals so bucket totals and
         // goal progress stay consistent; surplus past all goals rests in the bucket.
@@ -559,6 +563,7 @@ final class LedgerService {
 
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.withdraw")
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return entry
     }
 
@@ -595,6 +600,7 @@ final class LedgerService {
     func persist(_ entry: LedgerEntry, context: String) async {
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: context)
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
     }
 
     func persist(_ entries: [LedgerEntry], context: String) async {
@@ -602,5 +608,6 @@ final class LedgerService {
             await cacheService.upsertLedgerEntry(entry)
         }
         ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(syncCoordinator, ids: entries.map(\.id), appState: appState, logger: logger, context: context)
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
     }
 }

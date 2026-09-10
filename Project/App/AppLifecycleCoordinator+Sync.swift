@@ -50,7 +50,7 @@ extension AppLifecycleCoordinator {
         {
             concrete.initializeEngines()
         }
-        await executeCoreSyncSequence()
+        await executeCoreSyncSequence(forceSnapshot: true)
         await evaluateTrophiesCatchup()
         logger.info("Manual sync completed")
     }
@@ -91,7 +91,7 @@ extension AppLifecycleCoordinator {
             return
         }
 
-        await reconcileCacheFromCloudKit()
+        await reconcileCacheFromCloudKit(forceSnapshot: true)
 
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let db = cloudKitService.database(isOwner: isOwner)
@@ -147,13 +147,15 @@ extension AppLifecycleCoordinator {
     }
 
     /// Shared fetch-send-schedule-reconcile pass for foreground, manual, and push syncs.
-    private func executeCoreSyncSequence() async {
+    private func executeCoreSyncSequence(forceSnapshot: Bool = false) async {
+        let start = Date()
         await syncCoordinator?.fetchChanges()
         await syncCoordinator?.sendPendingChanges()
         // WHY: terminated-push coverage complements push-driven sync — schedule
         // BGProcessingTask retry so pendingRecordZoneChanges still upload after
         // jetsam or throttled silent push.
         AppDelegate.scheduleSyncProcessingTask()
-        await reconcileCacheFromCloudKit()
+        await reconcileCacheFromCloudKit(forceSnapshot: forceSnapshot)
+        logger.info("Core sync sequence completed in \(Date().timeIntervalSince(start))s forceSnapshot=\(forceSnapshot)")
     }
 }

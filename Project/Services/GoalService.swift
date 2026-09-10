@@ -281,6 +281,7 @@ final class GoalService {
 
         await cacheService.upsertGoal(updatedGoal)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updatedGoal.id, appState: appState, logger: logger, context: "GoalService.archiveGoal")
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
 
         logger.info("Archived goal \"\(goal.name, privacy: .private)\"")
 
@@ -525,6 +526,7 @@ final class GoalService {
             converged.isArchived = true
             await cacheService.upsertGoal(converged)
             ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: converged.id, appState: appState, logger: logger, context: "GoalService.markPurchased")
+            Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
             return converged
         }
         // WHY archive gate: purchase is only valid on open goals, so an archived goal must not mint a second debit.
@@ -566,6 +568,7 @@ final class GoalService {
             logger: logger,
             context: "GoalService.markPurchased"
         )
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
 
         triggerGoalCompletionFeedback(goalName: goal.name, profile: goal.profile, family: family)
 
@@ -700,6 +703,7 @@ final class GoalService {
                 logger: logger,
                 context: "GoalService.contributeToBucket"
             )
+            Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         }
 
         for completed in completedGoals {

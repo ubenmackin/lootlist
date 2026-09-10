@@ -194,7 +194,8 @@ final class QuestManagerViewModel {
 
         // If quest has logs, only name and descriptionText may change
         if !input.allowLockedFieldsOverride {
-            let logs = try await questService.fetchQuestLogs(forQuest: quest)
+            // WHY cache-only: edit lock must hold offline without network cost.
+            let logs = questService.cachedQuestLogs(forQuest: quest)
             if !logs.isEmpty {
                 let fieldsChanged = quest.goldReward != input.goldReward
                     || quest.xpReward != input.xpReward
