@@ -15,18 +15,25 @@ struct DailyLoginBannerView: View {
     @Environment(CelebrationManager.self) private var celebrationManager
     @Environment(AppState.self) private var appState
 
+    /// Reactive profile row passed from the parent view's @Query scope.
+    let profileRow: ProfileCache?
+
     /// Renders a compact one-line pill once today's reward is claimed.
     let compactMode: Bool
 
     @State private var isPulsing = false
     @State private var isClaiming = false
 
-    init(compactMode: Bool = true) {
+    init(profileRow: ProfileCache? = nil, compactMode: Bool = true) {
+        self.profileRow = profileRow
         self.compactMode = compactMode
     }
 
     private var status: DailyLoginStatus {
-        dailyLoginService.checkDailyLoginStatus(heroProfileRecordName: appState.currentProfile?.id.recordName ?? "")
+        if let profileRow {
+            return dailyLoginService.checkDailyLoginStatus(profile: profileRow)
+        }
+        return dailyLoginService.checkDailyLoginStatus(heroProfileRecordName: appState.currentProfile?.id.recordName ?? "")
     }
 
     private var shouldRenderCompactPill: Bool {
@@ -105,7 +112,6 @@ struct DailyLoginBannerView: View {
 
     private func dayState(for day: Int) -> (isClaimed: Bool, isCurrent: Bool) {
         let currentCycleDay = dailyLoginService.currentCycleDay
-        let status = dailyLoginService.checkDailyLoginStatus(heroProfileRecordName: appState.currentProfile?.id.recordName ?? "")
         let isClaimedToday = (status == .claimedToday)
 
         if isClaimedToday {

@@ -222,21 +222,8 @@ final class HeroBoardViewModel {
         do {
             switch try await boardService.claim(quest, by: hero) {
             case .claimed:
-                if let index = availableRows.firstIndex(where: { $0.id == row.id }) {
-                    var claimedDomain = quest
-                    claimedDomain.claimedByProfileRecordName = hero.id.recordName
-                    claimedDomain.claimedAt = Date()
-                    // WHY value copy: optimistic UI snapshots the domain so live storage never dirties.
-                    let updatedRow = BoardRow(
-                        quest: BoardQuestSnapshot(from: claimedDomain),
-                        claimantName: hero.displayName,
-                        isClaimedByCurrentUser: true,
-                        isPending: true
-                    )
-                    availableRows.remove(at: index)
-                    claimedRows.append(updatedRow)
-                    claimedRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
-                }
+                // WHY reactive: claim persists to cache; @Query rebuild settles pending.
+                break
             case .lostToAnotherHero:
                 handleLostClaim(id: id)
             }
@@ -303,21 +290,7 @@ final class HeroBoardViewModel {
         let quest = boardService.domainQuest(from: row.quest, zoneID: zoneID)
         do {
             try await boardService.revoke(quest)
-            if let index = claimedRows.firstIndex(where: { $0.id == row.id }) {
-                var revokedDomain = quest
-                revokedDomain.claimedByProfileRecordName = nil
-                revokedDomain.claimedAt = nil
-                // WHY value copy: optimistic UI snapshots the domain so live storage never dirties.
-                let updatedRow = BoardRow(
-                    quest: BoardQuestSnapshot(from: revokedDomain),
-                    claimantName: nil,
-                    isClaimedByCurrentUser: false,
-                    isPending: true
-                )
-                claimedRows.remove(at: index)
-                availableRows.append(updatedRow)
-                availableRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
-            }
+            // WHY reactive: revoke persists to cache; @Query rebuild settles pending.
         } catch {
             let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             handleFailure(id: id, message: fallback, isError: true) { _ = pendingRevokes.remove(id) }

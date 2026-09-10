@@ -24,6 +24,8 @@ struct ProfileView: View {
 
     @Environment(FamilyService.self) private var familyService
 
+    @Environment(AchievementService.self) private var achievementService
+
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -185,9 +187,8 @@ struct ProfileView: View {
     }
 
     private func recomputeCharacterFromCache() {
-        appState.updateCurrentProfileFromCache()
         viewModel.recomputeCharacterFromCache(
-            profile: appState.currentProfile,
+            profileCache: currentProfileRow,
             completions: cachedCompletions,
             ledgers: cachedLedgers,
             quests: cachedQuests,
@@ -469,6 +470,9 @@ struct ProfileView: View {
 
                 NavigationLink {
                     TrophyRoomView(
+                        achievementService: achievementService,
+                        xpService: xpService,
+                        appState: appState,
                         familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName,
                         profileRecordName: profileRecordName ?? currentProfileRow?.recordName
                     )
@@ -707,10 +711,37 @@ final class ProfileViewModel {
     }
 
     func recomputeCharacterFromCache(
+        profileCache: ProfileCache?,
+        completions: [QuestCompletionCache],
+        ledgers: [LedgerEntryCache],
+        quests questsCache: [QuestCache],
+        profileAchievements: [ProfileAchievementCache],
+        achievements: [AchievementCache],
+        payoutDay: PayoutDay,
+        freshnessVersion: Int = 0
+    ) {
+        guard let profileCache else {
+            reset()
+            return
+        }
+        recomputeCharacter(
+            profileRecordName: profileCache.recordName,
+            completions: completions,
+            ledgers: ledgers,
+            quests: questsCache,
+            profileAchievements: profileAchievements,
+            achievements: achievements,
+            payoutDay: payoutDay,
+            freshnessVersion: freshnessVersion
+        )
+    }
+
+    /// Adapter for unit test harnesses passing domain `Profile`.
+    func recomputeCharacterFromCache(
         profile: Profile?,
         completions: [QuestCompletionCache],
         ledgers: [LedgerEntryCache],
-        quests _: [QuestCache],
+        quests questsCache: [QuestCache],
         profileAchievements: [ProfileAchievementCache],
         achievements: [AchievementCache],
         payoutDay: PayoutDay,
@@ -720,7 +751,29 @@ final class ProfileViewModel {
             reset()
             return
         }
-        let profileName = profile.id.recordName
+        recomputeCharacter(
+            profileRecordName: profile.id.recordName,
+            completions: completions,
+            ledgers: ledgers,
+            quests: questsCache,
+            profileAchievements: profileAchievements,
+            achievements: achievements,
+            payoutDay: payoutDay,
+            freshnessVersion: freshnessVersion
+        )
+    }
+
+    private func recomputeCharacter(
+        profileRecordName: String,
+        completions: [QuestCompletionCache],
+        ledgers: [LedgerEntryCache],
+        quests _: [QuestCache],
+        profileAchievements: [ProfileAchievementCache],
+        achievements: [AchievementCache],
+        payoutDay: PayoutDay,
+        freshnessVersion: Int
+    ) {
+        let profileName = profileRecordName
 
         let heroCompletions = completions.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroCompletions)

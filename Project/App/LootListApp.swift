@@ -181,10 +181,15 @@ struct LootListApp: App {
                     await lifecycleCoordinator.performFamilyZoneChange()
                 }
                 .task(id: scenePhase) {
-                    guard scenePhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    await lifecycleCoordinator.performForegroundSync()
-                    await appSyncCoordinator.handleForegroundActive()
-                    AppDelegate.scheduleSpendDigestRefresh()
+                    guard !TestEnvironment.isRunningUnitOrUITests else { return }
+                    if scenePhase == .active {
+                        await lifecycleCoordinator.performForegroundSync()
+                        await appSyncCoordinator.handleForegroundActive()
+                        AppDelegate.scheduleSpendDigestRefresh()
+                    } else if scenePhase == .background {
+                        _ = cacheService?.saveContext()
+                        WidgetDataBridge.reloadTimelines()
+                    }
                 }
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors

@@ -8,18 +8,30 @@
 import SwiftData
 import SwiftUI
 
+@MainActor
 struct HeroBoardView: View {
-    @Environment(AppState.self) private var appState
-    @Environment(QuestService.self) private var questService
+    private let appState: AppState
+    private let questService: QuestService
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
 
-    @State private var viewModel: HeroBoardViewModel?
+    @State private var viewModel: HeroBoardViewModel
     @State private var isSubmitting = false
 
-    init(familyRecordName: String? = nil) {
+    init(
+        questService: QuestService,
+        appState: AppState,
+        familyRecordName: String? = nil
+    ) {
+        self.questService = questService
+        self.appState = appState
+        self._viewModel = State(initialValue: HeroBoardViewModel(
+            boardService: HeroBoardService(questService: questService),
+            appState: appState
+        ))
+
         let targetFamily = familyRecordName ?? ""
         let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
@@ -41,44 +53,27 @@ struct HeroBoardView: View {
     }
 
     var body: some View {
-        Group {
-            if let vm = viewModel {
-                boardContent(vm: vm)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        boardContent(vm: viewModel)
+            .background(Color(DesignSystemConstants.Colors.background))
+            .navigationTitle("Hero Board")
+            .navigationBarTitleDisplayMode(.large)
+            .onAppear { rebuildViewModel() }
+            .refreshable {
+                rebuildViewModel()
             }
-        }
-        .background(Color(DesignSystemConstants.Colors.background))
-        .navigationTitle("Hero Board")
-        .navigationBarTitleDisplayMode(.large)
-        .viewModelLifecycle { ensureViewModel() }
-        .refreshable {
-            rebuildViewModel()
-        }
-        .onChange(of: cachedQuests) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedProfiles) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedCompletions) { _, _ in
-            rebuildViewModel()
-        }
+            .onChange(of: cachedQuests) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedProfiles) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedCompletions) { _, _ in
+                rebuildViewModel()
+            }
     }
 
-    private func ensureViewModel() {
-        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
-            HeroBoardViewModel(
-                boardService: HeroBoardService(questService: questService),
-                appState: appState
-            )
-        }, rebuild: { vm in rebuildViewModel(vm) })
-    }
-
-    private func rebuildViewModel(_ vm: HeroBoardViewModel? = nil) {
-        guard let targetVM = vm ?? viewModel else { return }
-        targetVM.rebuildLists(quests: cachedQuests, profiles: cachedProfiles, completions: cachedCompletions)
+    private func rebuildViewModel() {
+        viewModel.rebuildLists(quests: cachedQuests, profiles: cachedProfiles, completions: cachedCompletions)
     }
 
     private func boardContent(vm: HeroBoardViewModel) -> some View {

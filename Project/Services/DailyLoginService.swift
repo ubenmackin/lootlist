@@ -124,19 +124,29 @@ final class DailyLoginService {
         return cacheService?.fetchGemLedger(recordName: id.recordName, family: familyRecordName)
     }
 
-    /// WHY suffix-array: `daily-{day}` and the `-v2` re-mint for legacy UTC collisions share one ID+freshness check.
-    private func isLedgerClaimedToday(eventKey: String, profile: Profile, familyRecordName: String) -> Bool {
-        guard let ledger = dailyLedger(eventKey: eventKey, profile: profile, familyRecordName: familyRecordName) else {
+    private func dailyLedgerRecordName(profileRecordName: String, eventKey: String) -> String {
+        let zoneID = appState?.familyZoneID ?? appState?.family?.id.zoneID ?? appState?.currentProfile?.id.zoneID ?? CKRecordZone.default().zoneID
+        return GemLedger.deterministicRecordID(profileRecordName: profileRecordName, eventKey: eventKey, source: "dailyLogin", zoneID: zoneID).recordName
+    }
+
+    private func dailyLedger(eventKey: String, profileRecordName: String, familyRecordName: String) -> GemLedgerCache? {
+        let recordName = dailyLedgerRecordName(profileRecordName: profileRecordName, eventKey: eventKey)
+        return cacheService?.fetchGemLedger(recordName: recordName, family: familyRecordName)
+    }
+
+    private func isLedgerClaimedToday(eventKey: String, profileRecordName: String, familyRecordName: String) -> Bool {
+        guard let ledger = dailyLedger(eventKey: eventKey, profileRecordName: profileRecordName, familyRecordName: familyRecordName) else {
             return false
         }
         return WeekMath.isToday(ledger.createdAt, calendar: calendar)
     }
 
+    /// WHY suffix-array: `daily-{day}` and the `-v2` re-mint for legacy UTC collisions share one ID+freshness check.
     /// Checks if a daily reward has genuinely been claimed today, accounting for
     /// legacy UTC claims that may have stamped today's date on a prior calendar day.
-    private func hasClaimedToday(profile: Profile) -> Bool {
+    private func hasClaimedToday(recordName: String, familyRecordName: String, lastClaimDay: String?) -> Bool {
         let today = todayString()
-        guard profile.dailyLoginLastClaimDay == today else {
+        guard lastClaimDay == today else {
             return false
         }
 
@@ -144,15 +154,13 @@ final class DailyLoginService {
             return true
         }
 
-        let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
-
         let eventKeys = ["", "-v2"].map { "daily-\(today)\($0)" }
-        if eventKeys.contains(where: { isLedgerClaimedToday(eventKey: $0, profile: profile, familyRecordName: familyRecordName) }) {
+        if eventKeys.contains(where: { isLedgerClaimedToday(eventKey: $0, profileRecordName: recordName, familyRecordName: familyRecordName) }) {
             return true
         }
 
         let allLedgers = cacheService.fetchGemLedgers(
-            profileRecordName: profile.id.recordName,
+            profileRecordName: recordName,
             family: familyRecordName
         )
         let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
@@ -166,25 +174,22 @@ final class DailyLoginService {
         return true
     }
 
-    /// Cross-device claim guard: the last-claim day is read from the CloudKit-backed
-    /// `Profile.dailyLoginLastClaimDay`, so a reward claimed on device A is honored on device B after
-    func checkDailyLoginStatus(heroProfileRecordName: String) -> DailyLoginStatus {
-        // Fail closed for a caller-supplied profile that is not the authenticated active profile.
-        guard let profile = resolvedActiveProfile(),
-              profile.id.recordName == heroProfileRecordName
-        else { return .claimedToday }
-
-        if hasClaimedToday(profile: profile) {
-            return .claimedToday
-        }
-
-        let today = todayString()
+    private func hasClaimedToday(profile: Profile) -> Bool {
         let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
-        if isLedgerClaimedToday(eventKey: "daily-\(today)", profile: profile, familyRecordName: familyRecordName) {
+        return hasClaimedToday(recordName: profile.id.recordName, familyRecordName: familyRecordName, lastClaimDay: profile.dailyLoginLastClaimDay)
+    }
+
+    private func hasClaimedToday(profile: ProfileCache) -> Bool {
+        hasClaimedToday(recordName: profile.recordName, familyRecordName: profile.familyRecordName, lastClaimDay: profile.dailyLoginLastClaimDay)
+    }
+
+    private func evaluateStatus(recordName: String, familyRecordName: String, lastClaimDay: String?) -> DailyLoginStatus {
+        let today = todayString()
+        if isLedgerClaimedToday(eventKey: "daily-\(today)", profileRecordName: recordName, familyRecordName: familyRecordName) {
             return .claimedToday
         }
 
-        guard let lastClaim = profile.dailyLoginLastClaimDay,
+        guard let lastClaim = lastClaimDay,
               let lastDate = dateFromString(lastClaim)
         else {
             return .available
@@ -200,6 +205,38 @@ final class DailyLoginService {
         }
 
         return .streakBroken
+    }
+
+    /// Cross-device claim guard: the last-claim day is read from the CloudKit-backed
+    /// `Profile.dailyLoginLastClaimDay`, so a reward claimed on device A is honored on device B after
+    func checkDailyLoginStatus(heroProfileRecordName: String) -> DailyLoginStatus {
+        // Fail closed for a caller-supplied profile that is not the authenticated active profile.
+        guard let profile = resolvedActiveProfile(),
+              profile.id.recordName == heroProfileRecordName
+        else { return .claimedToday }
+
+        if hasClaimedToday(profile: profile) {
+            return .claimedToday
+        }
+        let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
+        return evaluateStatus(recordName: profile.id.recordName, familyRecordName: familyRecordName, lastClaimDay: profile.dailyLoginLastClaimDay)
+    }
+
+    func checkDailyLoginStatus(profile: ProfileCache) -> DailyLoginStatus {
+        // WHY fail-closed: untrusted rows never read as available without active-profile and scope match.
+        guard let appState, let active = appState.currentProfile, active.id.recordName == profile.recordName else { return .claimedToday }
+        let zoneID = appState.resolvedFamilyZoneID()
+        let domain = profile.toProfile(zoneID: zoneID)
+        do {
+            try ActiveFamilyScopeGuard.requireAuthenticatedActiveProfile(domain, appState: appState)
+            try ActiveFamilyScopeGuard.requireActiveFamilyScope(familyRef: domain.family, zoneID: domain.id.zoneID, appState: appState, cloudKit: cloudKitService)
+        } catch {
+            return .claimedToday
+        }
+        if hasClaimedToday(profile: profile) {
+            return .claimedToday
+        }
+        return evaluateStatus(recordName: profile.recordName, familyRecordName: profile.familyRecordName, lastClaimDay: profile.dailyLoginLastClaimDay)
     }
 
     // MARK: - Claim

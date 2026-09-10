@@ -367,7 +367,11 @@ struct MyChoresView: View {
             }
             .navigationDestination(for: String.self) { destination in
                 if destination == "heroBoard" {
-                    HeroBoardView(familyRecordName: familyRecordName)
+                    HeroBoardView(
+                        questService: questService,
+                        appState: appState,
+                        familyRecordName: familyRecordName
+                    )
                 }
             }
             .refreshable {

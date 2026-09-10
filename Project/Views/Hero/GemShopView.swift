@@ -68,10 +68,6 @@ struct GemShopView: View {
         )
     }
 
-    private var currentProfile: Profile? {
-        appState.currentProfile
-    }
-
     /// Queried cache row for the active hero profile; nil when identity or
     /// family scope has no synced row yet, keeping rendering fail-closed.
     private var currentProfileRow: ProfileCache? {
@@ -79,12 +75,12 @@ struct GemShopView: View {
     }
 
     private var gemBalance: Int? {
-        guard let targetRecordName = currentProfileRow?.recordName ?? currentProfile?.id.recordName else { return nil }
+        guard let targetRecordName = currentProfileRow?.recordName ?? appState.currentProfile?.id.recordName else { return nil }
         if let cached = HubQueryProvider.cachedGemTotal(ledgers: cachedGemLedgers, profileName: targetRecordName) {
             return cached
         }
         // WHY cold-miss only: @Query rows own the hot path; the service read covers first-launch cache gaps.
-        let family = currentProfileRow?.familyRecordName ?? familyRecordName ?? currentProfile?.family.recordID.recordName ?? appState.family?.id.recordName
+        let family = currentProfileRow?.familyRecordName ?? familyRecordName ?? appState.currentProfile?.family.recordID.recordName ?? appState.family?.id.recordName
         guard let family, !family.isEmpty else { return nil }
         do {
             return try gemService.balance(for: targetRecordName, familyRecordName: family)
@@ -215,9 +211,9 @@ struct GemShopView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let profile = currentProfile {
-                let spec = avatarService.renderSpec(for: profile)
-                let equipped = equipmentService.equippedItems(for: profile)
+            if let profileCache = currentProfileRow {
+                let spec = avatarService.renderSpec(for: profileCache)
+                let equipped = equipmentService.equippedItems(for: profileCache)
 
                 ZStack {
                     // Aura Background Glow
@@ -256,7 +252,7 @@ struct GemShopView: View {
                             }
                         }
 
-                        Text(profile.displayName)
+                        Text(profileCache.displayName)
                             .font(.headline.weight(.bold))
 
                         Text(spec.levelTitle)
@@ -267,10 +263,16 @@ struct GemShopView: View {
                 .padding(.vertical, DesignSystemConstants.Padding.medium)
 
                 // Equipped Gear Pills
-                if !equipped.isEmpty {
+                if !equipped.isEmpty, let profile = appState.currentProfile {
                     equippedPillsRow(equipped: equipped, profile: profile)
-                } else {
+                } else if equipped.isEmpty {
                     Text("No cosmetics equipped. Pick gear below to customize your hero!")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 4)
+                } else {
+                    Text("Equipped gear will appear here once your hero session loads.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -453,10 +455,10 @@ struct GemShopView: View {
 
     @ViewBuilder
     private func itemCard(item: ShopItem) -> some View {
-        if let profile = currentProfile {
-            let isOwned = equipmentService.isOwned(item: item, profile: profile)
-            let isEquipped = equipmentService.isEquipped(item: item, profile: profile)
-            let isLocked = profile.level < item.requiredLevel
+        if let profileCache = currentProfileRow, let profile = appState.currentProfile {
+            let isOwned = equipmentService.isOwned(item: item, profileCache: profileCache)
+            let isEquipped = equipmentService.isEquipped(item: item, profileCache: profileCache)
+            let isLocked = profileCache.level < item.requiredLevel
             let canAfford = gemBalance.map { $0 >= item.gemPrice } ?? false
 
             VStack(alignment: .leading, spacing: 10) {
@@ -645,7 +647,7 @@ struct GemShopView: View {
     // MARK: - Purchase Action
 
     private func executePurchase(_ item: ShopItem) {
-        guard let profile = currentProfile else { return }
+        guard let profile = appState.currentProfile else { return }
         isPurchasing = true
 
         Task {

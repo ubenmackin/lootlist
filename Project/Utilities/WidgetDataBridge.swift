@@ -166,7 +166,13 @@ public enum WidgetDataBridge {
         case .reloadNow:
             reloadTimelines()
         case let .scheduleTrailing(delay):
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            Task {
+                let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
+                do {
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                } catch {
+                    return
+                }
                 bridgeState.withLock { state in
                     state.lastReloadAt = Date()
                     state.pendingTrailingReload = false
@@ -178,7 +184,7 @@ public enum WidgetDataBridge {
         }
     }
 
-    private static func reloadTimelines() {
+    public static func reloadTimelines() {
         #if canImport(WidgetKit)
             WidgetCenter.shared.reloadAllTimelines()
         #endif
