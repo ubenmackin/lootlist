@@ -21,8 +21,11 @@ extension AppLifecycleCoordinator {
             lastSyncedAt: coordinator.lastSyncedAt,
             syncError: coordinator.syncError,
             lastPushReceivedAt: coordinator.lastPushReceivedAt,
+            lastChangeReceivedAt: coordinator.lastChangeReceivedAt,
             isPrivateEngineActive: coordinator.activeEngine(isOwner: true) != nil,
-            isSharedEngineActive: coordinator.activeEngine(isOwner: false) != nil
+            isSharedEngineActive: coordinator.activeEngine(isOwner: false) != nil,
+            pendingBufferOverflowed: coordinator.pendingBufferOverflowed,
+            pendingBufferDroppedCount: coordinator.pendingBufferDroppedCount
         )
     }
 

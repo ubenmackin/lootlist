@@ -11,17 +11,101 @@ import os
 import SwiftData
 
 extension BackgroundCacheActor {
-    // MARK: - Unsynced re-enqueue (off-main fetch)
+    // MARK: - Pending re-enqueue (off-main fetch)
 
-    /// Fetches recordNames for locally-created rows that have never synced
-    /// (changeTag == nil/empty). Runs on the background ModelContext under
-    /// SerialMutationQueue so reconciliation and payout mutations cannot
-    /// interleave the scan. Predicate pushdown keeps family tables indexed;
-    /// results are sorted by recordName for deterministic enqueue ordering.
-    func fetchUnsyncedRecordIDs(familyRecordName: String, zoneID: CKRecordZone.ID) async -> [CKRecord.ID] {
+    /// Result of the overflow-aware pending scan.
+    struct PendingRecordScan: Sendable {
+        /// Never-synced rows plus tracked overflow saves whose cache row still exists.
+        let recordIDsToEnqueue: [CKRecord.ID]
+        /// Tracked overflow deletes still owed to CloudKit; they must be handed to an active engine as deletes.
+        let deleteRecordIDsToEnqueue: [CKRecord.ID]
+        /// Tracked overflow deletes superseded by a newer write for the same identity — the newer write wins,
+        /// so the delete must be dropped from recovery rather than re-issued.
+        let supersededDeleteRecordIDs: Set<CKRecord.ID>
+        /// Tracked overflow saves with no cache row — locally deleted, so a dropped save is moot.
+        let confirmedDeletedRecordIDs: Set<CKRecord.ID>
+    }
+
+    /// WHY overflow-aware: the never-synced scan only returns rows with a nil/empty changeTag, so an evicted
+    /// save for an already-synced row (non-nil changeTag) would look resolved. This scan also probes the
+    /// tracked overflow identities, returning their rows for re-enqueue and treating only an absent row as
+    /// resolved. Tracked deletes are never resolved by cache-row absence — that is a delete's normal state —
+    /// so they return as deletes to hand back to an active engine. A tracked delete with a pending never-synced
+    /// save for the same identity is superseded instead of re-issued, since the newer save wins. Runs on the
+    /// background ModelContext under SerialMutationQueue like the never-synced scan.
+    func fetchPendingRecordIDs(
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID,
+        trackedDroppedIdentities: [BufferOverflowIdentity]
+    ) async -> PendingRecordScan {
         await mutationQueue.write {
-            await self.collectUnsyncedRecordIDs(familyRecordName: familyRecordName, zoneID: zoneID)
+            await self.collectPendingRecordScan(
+                familyRecordName: familyRecordName,
+                zoneID: zoneID,
+                trackedDroppedIdentities: trackedDroppedIdentities
+            )
         }
+    }
+
+    private func collectPendingRecordScan(
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID,
+        trackedDroppedIdentities: [BufferOverflowIdentity]
+    ) async -> PendingRecordScan {
+        let grouped = collectPendingNames(familyRecordName: familyRecordName)
+        var names = Set(grouped.values.flatMap(\.self))
+        var deleteNames: Set<String> = []
+        var supersededDeletes: Set<CKRecord.ID> = []
+        var confirmedDeleted: Set<CKRecord.ID> = []
+        for tracked in trackedDroppedIdentities where !tracked.recordName.isEmpty {
+            switch tracked.operation {
+            case .delete:
+                // WHY pending-save supersedes: a never-synced row for this identity is a newer local write,
+                // so re-issuing the delete would destroy the re-created record. A server re-hydration carries
+                // a changeTag and is absent here, so a pending delete is still honored for it.
+                if names.contains(tracked.recordName) {
+                    supersededDeletes.insert(CKRecord.ID(recordName: tracked.recordName, zoneID: zoneID))
+                    continue
+                }
+                // WHY delete-specific: a delete's cache row is already gone, so absence is not recovery.
+                deleteNames.insert(tracked.recordName)
+            case .save:
+                // WHY skip-known: a never-synced row is already pending, so only probe rows the changeTag scan cannot see.
+                guard !names.contains(tracked.recordName) else { continue }
+                if trackedRecordExists(name: tracked.recordName, familyRecordName: familyRecordName) {
+                    names.insert(tracked.recordName)
+                } else {
+                    confirmedDeleted.insert(CKRecord.ID(recordName: tracked.recordName, zoneID: zoneID))
+                }
+            }
+        }
+        // Deterministic ordering so the paging cap slices a stable prefix.
+        let ids = names
+            .map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+            .sorted { $0.recordName < $1.recordName }
+        let deleteIDs = deleteNames
+            .map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+            .sorted { $0.recordName < $1.recordName }
+        return PendingRecordScan(
+            recordIDsToEnqueue: ids,
+            deleteRecordIDsToEnqueue: deleteIDs,
+            supersededDeleteRecordIDs: supersededDeletes,
+            confirmedDeletedRecordIDs: confirmedDeleted
+        )
+    }
+
+    /// WHY indexed probe: each tracked name resolves through recordName+family so no family table is scanned.
+    /// WHY CachedRecordType-driven: the per-type dispatch lives in one table, so a new cache type cannot be
+    /// forgotten here.
+    private func trackedRecordExists(name: String, familyRecordName: String) -> Bool {
+        for type in CachedRecordType.allCases where type.recordExists(
+            in: modelContext,
+            recordName: name,
+            familyRecordName: familyRecordName
+        ) {
+            return true
+        }
+        return false
     }
 
     private func pendingQuestNames(familyRecordName: String) -> Set<String> {
@@ -189,20 +273,5 @@ extension BackgroundCacheActor {
         store(.rewardEvent, pendingRewardEventNames(familyRecordName: familyRecordName))
         store(.family, pendingFamilyNames(familyRecordName: familyRecordName))
         return pending
-    }
-
-    private func collectUnsyncedRecordIDs(familyRecordName: String, zoneID: CKRecordZone.ID) async -> [CKRecord.ID] {
-        let grouped = collectPendingNames(familyRecordName: familyRecordName)
-        var ids: [CKRecord.ID] = []
-        // WHY pre-size: offline days batch 1500 ledgers, so reserve once to avoid reallocation churn.
-        ids.reserveCapacity(grouped.values.reduce(0) { $0 + $1.count })
-        for names in grouped.values {
-            for name in names {
-                ids.append(CKRecord.ID(recordName: name, zoneID: zoneID))
-            }
-        }
-        // Deterministic ordering so paging cap is stable across passes.
-        ids.sort { $0.recordName < $1.recordName }
-        return ids
     }
 }

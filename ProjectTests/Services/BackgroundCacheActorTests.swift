@@ -886,7 +886,13 @@ struct BackgroundCacheActorTests {
         #expect(names.contains("transfer-pending"))
         #expect(!names.contains("stale-synced"))
 
-        let unsynced = await actor.fetchUnsyncedRecordIDs(familyRecordName: "fam", zoneID: zoneID)
+        let unsynced = await (
+            actor.fetchPendingRecordIDs(
+                familyRecordName: "fam",
+                zoneID: zoneID,
+                trackedDroppedIdentities: []
+            )
+        ).recordIDsToEnqueue
         let unsyncedNames = Set(unsynced.map(\.recordName))
         #expect(unsyncedNames.contains("transfer-pending"))
         #expect(!unsyncedNames.contains("stale-synced"))

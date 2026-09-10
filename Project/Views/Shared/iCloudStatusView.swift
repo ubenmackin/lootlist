@@ -167,6 +167,10 @@ struct iCloudStatusView: View {
         if syncHealth.isSyncing {
             return "Syncing"
         }
+        // WHY visible loss: dropped queued writes need a fresh pass, so the status names the refresh.
+        if syncHealth.pendingBufferOverflowed {
+            return "Needs Refresh"
+        }
         if syncHealth.pendingUploadCount > 0 {
             return "Pending Uploads"
         }
@@ -180,7 +184,7 @@ struct iCloudStatusView: View {
         switch syncStatusLabel {
         case "Failed": Color(DesignSystemConstants.Colors.dangerRed)
         case "Syncing": Color(DesignSystemConstants.Colors.accentBlue)
-        case "Pending Uploads", "Pending": Color(DesignSystemConstants.Colors.pendingAmber)
+        case "Pending Uploads", "Pending", "Needs Refresh": Color(DesignSystemConstants.Colors.pendingAmber)
         case "Synced": Color(DesignSystemConstants.Colors.primaryGreen)
         default: .secondary
         }
@@ -191,6 +195,20 @@ struct iCloudStatusView: View {
             return "Never synced"
         }
         return lastSyncedAt.formatted(.relative(presentation: .named))
+    }
+
+    /// WHY engine-only: this row reports engine-delivered changes; reconciliation-only passes surface through the debug push/reconcile row instead.
+    private var lastChangeReceivedText: String {
+        guard let date = syncHealth.lastChangeReceivedAt else {
+            return "Never"
+        }
+        return date.formatted(.relative(presentation: .named))
+    }
+
+    /// WHY remaining-loss: the count reflects unresolved dropped writes, so partial recovery shows the remaining loss, never a cumulative tally.
+    private var overflowCountText: String {
+        guard syncHealth.pendingBufferDroppedCount > 0 else { return "Dropped" }
+        return "\(syncHealth.pendingBufferDroppedCount) dropped"
     }
 
     // MARK: - Debug Helpers
@@ -290,6 +308,21 @@ struct iCloudStatusView: View {
             }
             .accessibilityIdentifier("icloudStatus.pendingUploads")
 
+            // WHY prod-safe signal: bounded queues drop oldest on cap, so parents see that the next sync re-hydrates.
+            if syncHealth.pendingBufferOverflowed {
+                HStack {
+                    Text("Offline Changes Dropped")
+                    Spacer()
+                    Text(overflowCountText)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                }
+                .accessibilityIdentifier("icloudStatus.bufferOverflow")
+                Text("Some offline changes couldn't be queued. The next sync refreshes from iCloud.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack {
                 Text("Last Synced")
                 Spacer()
@@ -298,6 +331,16 @@ struct iCloudStatusView: View {
                     .foregroundStyle(.secondary)
             }
             .accessibilityIdentifier("icloudStatus.lastSynced")
+
+            // WHY display-truth: engine-delivered changes commit with no full pass, so change age complements full-sync age without promoting freshness.
+            HStack {
+                Text("Last Change Received")
+                Spacer()
+                Text(lastChangeReceivedText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityIdentifier("icloudStatus.lastChangeReceived")
         }
     }
 
@@ -305,6 +348,7 @@ struct iCloudStatusView: View {
         switch syncStatusLabel {
         case "Failed": "xmark.circle.fill"
         case "Syncing": "arrow.triangle.2.circlepath"
+        case "Needs Refresh": "exclamationmark.triangle.fill"
         case "Pending Uploads": "arrow.up.circle.fill"
         case "Pending": "clock.fill"
         case "Synced": "checkmark.circle.fill"

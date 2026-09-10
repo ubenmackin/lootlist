@@ -178,24 +178,32 @@ actor BackgroundCacheActor {
         _ items: [M.DomainModel],
         type _: M.Type,
         familyRecordName: String?,
-        isServerSync: Bool
+        isServerSync: Bool,
+        explicitScope: CKDatabase.Scope? = nil
     ) async where M.DomainModel: DomainSystemFields {
         guard !items.isEmpty else { return }
         if let familyRecordName {
-            _ = await performUpsert(M.self, items, familyRecordName: familyRecordName, isServerSync: isServerSync, logLabel: "upsertDomainModels")
+            _ = await performUpsert(M.self, items, familyRecordName: familyRecordName, isServerSync: isServerSync, explicitScope: explicitScope, logLabel: "upsertDomainModels")
             saveContext()
             return
         }
         // Families are unscoped roots; every other type splits by its own
         // family scope so each group commits independently.
         if M.self == FamilyCache.self {
-            _ = await performUpsert(M.self, items, familyRecordName: nil, isServerSync: isServerSync, logLabel: "upsertDomainModels")
+            _ = await performUpsert(M.self, items, familyRecordName: nil, isServerSync: isServerSync, explicitScope: explicitScope, logLabel: "upsertDomainModels")
             saveContext()
             return
         }
         let grouped = groupedByFamily(M.self, items: items)
         for (family, group) in grouped {
-            _ = await performUpsert(M.self, group, familyRecordName: family.isEmpty ? nil : family, isServerSync: isServerSync, logLabel: "upsertDomainModels")
+            _ = await performUpsert(
+                M.self,
+                group,
+                familyRecordName: family.isEmpty ? nil : family,
+                isServerSync: isServerSync,
+                explicitScope: explicitScope,
+                logLabel: "upsertDomainModels"
+            )
             saveContext()
         }
     }
@@ -204,9 +212,10 @@ actor BackgroundCacheActor {
         _ item: M.DomainModel,
         type: M.Type,
         familyRecordName: String?,
-        isServerSync: Bool
+        isServerSync: Bool,
+        explicitScope: CKDatabase.Scope? = nil
     ) async where M.DomainModel: DomainSystemFields {
-        await upsertDomainModels([item], type: type, familyRecordName: familyRecordName, isServerSync: isServerSync)
+        await upsertDomainModels([item], type: type, familyRecordName: familyRecordName, isServerSync: isServerSync, explicitScope: explicitScope)
     }
 
     // MARK: - Atomic gem credit
@@ -314,7 +323,7 @@ actor BackgroundCacheActor {
         return ok
     }
 
-    // fetchUnsyncedRecordIDs and pending scan helpers moved to BackgroundCacheActor+Unsynced.swift
+    // Pending re-enqueue scan helpers live in BackgroundCacheActor+Unsynced.swift
 
     private struct ParsedBatch: Sendable {
         var families: [Family] = []
@@ -397,14 +406,14 @@ actor BackgroundCacheActor {
     }
 
     @discardableResult
-    func batchUpsertParsedRecords(_ records: [ParsedRecord]) async -> Bool {
+    func batchUpsertParsedRecords(_ records: [ParsedRecord], databaseScope: CKDatabase.Scope? = nil) async -> Bool {
         var batch = ParsedBatch()
         for record in records {
             batch.append(record)
         }
         let capturedBatch = batch
         return await mutationQueue.write {
-            await self.commitParsedBatch(capturedBatch)
+            await self.commitParsedBatch(capturedBatch, databaseScope: databaseScope)
         }
     }
 
@@ -455,6 +464,7 @@ actor BackgroundCacheActor {
                 capturedBatch,
                 validRecordNamesByType: validRecordNamesByType,
                 familyRecordName: familyRecordName,
+                databaseScope: databaseScope,
                 zoneID: zoneID
             )
         }
@@ -471,11 +481,12 @@ actor BackgroundCacheActor {
         _ batch: ParsedBatch,
         validRecordNamesByType: [CachedRecordType: Set<String>],
         familyRecordName: String,
+        databaseScope: CKDatabase.Scope,
         zoneID: CKRecordZone.ID
     ) async -> Bool {
         var success = true
-        success = await commitCoreEntitiesDeferred(batch) && success
-        success = await commitSecondaryEntitiesDeferred(batch) && success
+        success = await commitCoreEntitiesDeferred(batch, databaseScope: databaseScope) && success
+        success = await commitSecondaryEntitiesDeferred(batch, databaseScope: databaseScope) && success
         guard success else {
             // WHY fail-closed: partial reconciliation must not commit or @Query observes half-ingested state.
             modelContext.rollback()
@@ -500,10 +511,10 @@ actor BackgroundCacheActor {
 
     /// Accumulates all inserts/updates and saves the ModelContext exactly once — the single
     /// saveContext() that triggers SwiftData change notifications for @Query views.
-    private func commitParsedBatch(_ batch: ParsedBatch) async -> Bool {
+    private func commitParsedBatch(_ batch: ParsedBatch, databaseScope: CKDatabase.Scope?) async -> Bool {
         var success = true
-        success = await commitCoreEntitiesDeferred(batch) && success
-        success = await commitSecondaryEntitiesDeferred(batch) && success
+        success = await commitCoreEntitiesDeferred(batch, databaseScope: databaseScope) && success
+        success = await commitSecondaryEntitiesDeferred(batch, databaseScope: databaseScope) && success
         guard success else {
             // WHY fail-closed: partial batch must not commit or @Query observes half-ingested state.
             modelContext.rollback()
@@ -518,53 +529,53 @@ actor BackgroundCacheActor {
         return true
     }
 
-    private func commitCoreEntitiesDeferred(_ batch: ParsedBatch) async -> Bool {
+    private func commitCoreEntitiesDeferred(_ batch: ParsedBatch, databaseScope: CKDatabase.Scope?) async -> Bool {
         var success = true
         if !batch.families.isEmpty {
-            success = await batchUpsertWithoutSave(FamilyCache.self, batch.families, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(FamilyCache.self, batch.families, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.profiles.isEmpty {
-            success = await batchUpsertWithoutSave(ProfileCache.self, batch.profiles, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(ProfileCache.self, batch.profiles, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.quests.isEmpty {
-            success = await batchUpsertWithoutSave(QuestCache.self, batch.quests, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(QuestCache.self, batch.quests, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.templates.isEmpty {
-            success = await batchUpsertWithoutSave(QuestTemplateCache.self, batch.templates, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(QuestTemplateCache.self, batch.templates, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.completions.isEmpty {
-            success = await batchUpsertWithoutSave(QuestCompletionCache.self, batch.completions, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(QuestCompletionCache.self, batch.completions, familyRecordName: nil, explicitScope: databaseScope) && success
             success = await reconcileStoredRewardEventsWithoutSave(for: batch.completions) && success
         }
         return success
     }
 
-    private func commitSecondaryEntitiesDeferred(_ batch: ParsedBatch) async -> Bool {
+    private func commitSecondaryEntitiesDeferred(_ batch: ParsedBatch, databaseScope: CKDatabase.Scope?) async -> Bool {
         var success = true
         if !batch.ledgerEntries.isEmpty {
-            success = await batchUpsertWithoutSave(LedgerEntryCache.self, batch.ledgerEntries, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(LedgerEntryCache.self, batch.ledgerEntries, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.periods.isEmpty {
-            success = await batchUpsertWithoutSave(AllowancePeriodCache.self, batch.periods, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(AllowancePeriodCache.self, batch.periods, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.achievements.isEmpty {
-            success = await batchUpsertWithoutSave(AchievementCache.self, batch.achievements, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(AchievementCache.self, batch.achievements, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.profileAchievements.isEmpty {
-            success = await batchUpsertWithoutSave(ProfileAchievementCache.self, batch.profileAchievements, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(ProfileAchievementCache.self, batch.profileAchievements, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.notificationPrefs.isEmpty {
-            success = await batchUpsertWithoutSave(NotificationPreferenceCache.self, batch.notificationPrefs, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(NotificationPreferenceCache.self, batch.notificationPrefs, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.gemLedgers.isEmpty {
-            success = await batchUpsertWithoutSave(GemLedgerCache.self, batch.gemLedgers, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(GemLedgerCache.self, batch.gemLedgers, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         if !batch.rewardEvents.isEmpty {
-            success = await batchUpsertWithoutSave(RewardEventCache.self, batch.rewardEvents, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(RewardEventCache.self, batch.rewardEvents, familyRecordName: nil, explicitScope: databaseScope) && success
             success = await reconcileRewardEventsWithoutSave(batch.rewardEvents) && success
         }
         if !batch.goals.isEmpty {
-            success = await batchUpsertWithoutSave(GoalCache.self, batch.goals, familyRecordName: nil) && success
+            success = await batchUpsertWithoutSave(GoalCache.self, batch.goals, familyRecordName: nil, explicitScope: databaseScope) && success
         }
         return success
     }
@@ -576,6 +587,7 @@ actor BackgroundCacheActor {
         _ items: [T.DomainModel],
         familyRecordName: String?,
         isServerSync: Bool = true,
+        explicitScope: CKDatabase.Scope? = nil,
         logLabel: String
     ) async -> Bool where T.DomainModel: DomainSystemFields {
         if let familyRecordName {
@@ -608,6 +620,7 @@ actor BackgroundCacheActor {
                         continue
                     }
                     target.update(from: item, isServerSync: isServerSync)
+                    target.applyExplicitDatabaseScope(explicitScope, from: item)
                 } else {
                     let newRow = T(from: item)
                     if newRow.familyRecordName != familyRecordName,
@@ -623,6 +636,7 @@ actor BackgroundCacheActor {
                         )
                         continue
                     }
+                    newRow.applyExplicitDatabaseScope(explicitScope, from: item)
                     modelContext.insert(newRow)
                 }
             }
@@ -647,8 +661,11 @@ actor BackgroundCacheActor {
                         continue
                     }
                     target.update(from: item, isServerSync: isServerSync)
+                    target.applyExplicitDatabaseScope(explicitScope, from: item)
                 } else {
-                    modelContext.insert(T(from: item))
+                    let newRow = T(from: item)
+                    newRow.applyExplicitDatabaseScope(explicitScope, from: item)
+                    modelContext.insert(newRow)
                 }
             }
             return true
@@ -656,7 +673,14 @@ actor BackgroundCacheActor {
         let grouped = groupedByFamily(T.self, items: items)
         var success = true
         for (family, group) in grouped {
-            success = await performUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family, isServerSync: isServerSync, logLabel: logLabel) && success
+            success = await performUpsert(
+                T.self,
+                group,
+                familyRecordName: family.isEmpty ? nil : family,
+                isServerSync: isServerSync,
+                explicitScope: explicitScope,
+                logLabel: logLabel
+            ) && success
         }
         return success
     }
@@ -668,9 +692,10 @@ actor BackgroundCacheActor {
         _: T.Type,
         _ items: [T.DomainModel],
         familyRecordName: String?,
-        isServerSync: Bool = true
+        isServerSync: Bool = true,
+        explicitScope: CKDatabase.Scope? = nil
     ) async -> Bool where T.DomainModel: DomainSystemFields {
-        await performUpsert(T.self, items, familyRecordName: familyRecordName, isServerSync: isServerSync, logLabel: "batchUpsertWithoutSave")
+        await performUpsert(T.self, items, familyRecordName: familyRecordName, isServerSync: isServerSync, explicitScope: explicitScope, logLabel: "batchUpsertWithoutSave")
     }
 
     private func reconcileRewardEventsWithoutSave(_ events: [RewardEvent]) async -> Bool {

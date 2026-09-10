@@ -68,7 +68,11 @@ final class CKSyncConflictResolver {
 
         switch ckError.code {
         case .serverRecordChanged:
-            return await handleServerRecordChanged(ckError: ckError, originalRecord: record)
+            return await handleServerRecordChanged(
+                ckError: ckError,
+                originalRecord: record,
+                databaseScope: fallbackScope(databaseScope: databaseScope)
+            )
 
         case .unknownItem, .zoneNotFound:
             // Family derivation: appState → record's family reference → parent record → zoneName fallback.
@@ -156,7 +160,8 @@ final class CKSyncConflictResolver {
 
     private func handleServerRecordChanged(
         ckError: CKError,
-        originalRecord: CKRecord
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
     ) async -> CKRecord? {
         guard let serverRecordRaw = ckError.serverRecord else {
             logger.warning("serverRecordChanged error missing serverRecord")
@@ -167,30 +172,38 @@ final class CKSyncConflictResolver {
 
         logger.info("Resolving serverRecordChanged conflict for \(serverRecord.recordType) id=\(serverRecord.recordID.recordName, privacy: .private)")
 
-        if let coreResult = await coreConflictResult(serverRecord: serverRecord, originalRecord: originalRecord) {
+        if let coreResult = await coreConflictResult(serverRecord: serverRecord, originalRecord: originalRecord, databaseScope: databaseScope) {
             return coreResult
         }
 
-        await handleSecondaryServerWins(serverRecord: serverRecord, originalRecord: originalRecord)
+        await handleSecondaryServerWins(serverRecord: serverRecord, originalRecord: originalRecord, databaseScope: databaseScope)
         return nil
     }
 
-    private func coreConflictResult(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
+    private func coreConflictResult(
+        serverRecord: CKRecord,
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
+    ) async -> CKRecord? {
         switch serverRecord.recordType {
         case Quest.recordType:
-            await resolveQuestConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+            await resolveQuestConflict(serverRecord: serverRecord, originalRecord: originalRecord, databaseScope: databaseScope)
         case Profile.recordType:
-            await resolveProfileConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+            await resolveProfileConflict(serverRecord: serverRecord, originalRecord: originalRecord, databaseScope: databaseScope)
         case QuestCompletion.recordType:
-            await resolveQuestCompletionConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+            await resolveQuestCompletionConflict(serverRecord: serverRecord, originalRecord: originalRecord, databaseScope: databaseScope)
         case AllowancePeriod.recordType:
-            await resolveAllowancePeriodConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+            await resolveAllowancePeriodConflict(serverRecord: serverRecord, originalRecord: originalRecord, databaseScope: databaseScope)
         default:
             nil
         }
     }
 
-    private func handleSecondaryServerWins(serverRecord: CKRecord, originalRecord: CKRecord) async {
+    private func handleSecondaryServerWins(
+        serverRecord: CKRecord,
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
+    ) async {
         // WHY: Server-wins discards optimistic mutation; surface revert instead of silent flip.
         let parsedRecord = ParsedRecord.parse(record: serverRecord)
         let secondaryType = CachedRecordType.recordType(for: serverRecord.recordType)
@@ -209,7 +222,7 @@ final class CKSyncConflictResolver {
         case .ignoredSystemRecord:
             logger.debug("Ignored system record in conflict resolver: type=\(serverRecord.recordType, privacy: .public)")
         default:
-            await commitSecondaryParsedRecord(parsedRecord)
+            await commitSecondaryParsedRecord(parsedRecord, databaseScope: databaseScope)
             surfaceSecondaryRevertIfNeeded(
                 secondaryType: secondaryType,
                 secondaryFamily: secondaryFamily,
@@ -220,9 +233,9 @@ final class CKSyncConflictResolver {
         }
     }
 
-    private func commitSecondaryParsedRecord(_ parsedRecord: ParsedRecord) async {
+    private func commitSecondaryParsedRecord(_ parsedRecord: ParsedRecord, databaseScope: CKDatabase.Scope?) async {
         if let backgroundCache {
-            await backgroundCache.batchUpsertParsedRecords([parsedRecord])
+            await backgroundCache.batchUpsertParsedRecords([parsedRecord], databaseScope: databaseScope)
             return
         }
         guard let cacheService else { return }
@@ -301,7 +314,11 @@ final class CKSyncConflictResolver {
     /// Hero Board claim fields (`claimedByProfileRecordName`, `claimedAt`) are intentionally server-wins
     /// (not in `clientWinsFields`): the loser's ingest adopts the winner's claim and ViewModel
     /// surfaces "Another hero claimed this quest" via settlePendingClaims.
-    private func resolveQuestConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
+    private func resolveQuestConflict(
+        serverRecord: CKRecord,
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
+    ) async -> CKRecord? {
         let serverBanked = serverRecord["xpBanked"] as? Int ?? 0
         let clientBanked = originalRecord["xpBanked"] as? Int ?? 0
         let rawMergedBanked = max(serverBanked, clientBanked)
@@ -325,7 +342,7 @@ final class CKSyncConflictResolver {
             logger.error("Merged Quest failed to re-parse (\(mergedQuest.id.recordName, privacy: .private)); committing via main-context upsert instead")
             await cacheService?.upsertQuest(mergedQuest, isServerSync: true)
         } else if let backgroundCache {
-            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
+            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
         } else {
             await cacheService?.upsertQuest(mergedQuest, isServerSync: true)
         }
@@ -338,7 +355,11 @@ final class CKSyncConflictResolver {
     /// FROZEN — Profile XP additive merge per ARCHITECTURE.md §2. Computes offline delta earned on this
     /// device (`clientXP - lastSyncedXP`) and merges as `max(serverXP + max(clientXP - lastSyncedXP, 0),
     /// max(serverXP, clientXP))` with lastSyncedXP advance on isServerSync, ensuring concurrent
-    private func resolveProfileConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
+    private func resolveProfileConflict(
+        serverRecord: CKRecord,
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
+    ) async -> CKRecord? {
         let serverXP = serverRecord["xp"] as? Int ?? 0
         let clientXP = originalRecord["xp"] as? Int ?? 0
 
@@ -435,7 +456,7 @@ final class CKSyncConflictResolver {
             logger.error("Merged Profile failed to re-parse (\(mergedProfile.id.recordName, privacy: .private)); committing via main-context upsert instead")
             await cacheService?.upsertProfile(mergedProfile, isServerSync: true)
         } else if let backgroundCache {
-            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
+            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
         } else {
             await cacheService?.upsertProfile(mergedProfile, isServerSync: true)
         }
@@ -457,7 +478,11 @@ final class CKSyncConflictResolver {
     /// has credited the completion, the non-nil marker is preserved so a re-delivered completion can
     /// never be re-minted for rewards. Must not be changed without architecture review; prevents
     /// double-minting across concurrent devices.
-    private func resolveQuestCompletionConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
+    private func resolveQuestCompletionConflict(
+        serverRecord: CKRecord,
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
+    ) async -> CKRecord? {
         let clientCredited = originalRecord["xpCredited"] as? Int
 
         var merged: QuestCompletion
@@ -480,7 +505,7 @@ final class CKSyncConflictResolver {
             logger.error("Merged QuestCompletion failed to re-parse (\(merged.id.recordName, privacy: .private)); committing via main-context upsert instead")
             await cacheService?.upsertQuestCompletion(merged, isServerSync: true)
         } else if let backgroundCache {
-            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
+            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
         } else {
             await cacheService?.upsertQuestCompletion(merged, isServerSync: true)
         }
@@ -494,7 +519,11 @@ final class CKSyncConflictResolver {
     /// period (deterministic `period-{family}-{profile}-{week}` recordName) race through
     /// `getOrCreateAllowancePeriod →` monotonic rank paid(2) > payoutPending(1) > active(0), max amounts
     /// (totalEarned/questsCompleted/paidAmount) plus server-preferred paidDate (server ?? client),
-    private func resolveAllowancePeriodConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
+    private func resolveAllowancePeriodConflict(
+        serverRecord: CKRecord,
+        originalRecord: CKRecord,
+        databaseScope: CKDatabase.Scope?
+    ) async -> CKRecord? {
         let serverPaidAmount = serverRecord.penniesOptional(forKey: "paidAmount")
         let clientPaidAmount = originalRecord.penniesOptional(forKey: "paidAmount")
         let mergedPaidAmount: Int64? = {
@@ -544,7 +573,7 @@ final class CKSyncConflictResolver {
             logger.error("Merged AllowancePeriod failed to re-parse (\(merged.id.recordName, privacy: .private)); committing via main-context upsert instead")
             await cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
         } else if let backgroundCache {
-            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
+            await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
         } else {
             await cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
         }

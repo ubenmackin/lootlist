@@ -158,7 +158,13 @@ struct TreasuryViewModelTransferHardeningTests {
             return
         }
         let background = BackgroundCacheActor(container: container)
-        let unsynced = await background.fetchUnsyncedRecordIDs(familyRecordName: "fam1", zoneID: scaffold.zoneID)
+        let unsynced = await (
+            background.fetchPendingRecordIDs(
+                familyRecordName: "fam1",
+                zoneID: scaffold.zoneID,
+                trackedDroppedIdentities: []
+            )
+        ).recordIDsToEnqueue
         #expect(unsynced.map(\.recordName).contains(transferName))
     }
 
