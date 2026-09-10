@@ -9,13 +9,14 @@ import os
 import SwiftData
 import SwiftUI
 
+@MainActor
 struct TrophyRoomView: View {
     private static let logger = Logger(category: "TrophyRoom")
-    @State private var viewModel: TrophyRoomViewModel?
+    @State private var viewModel: TrophyRoomViewModel
 
-    @Environment(AchievementService.self) private var achievementService
-    @Environment(XPService.self) private var xpService
-    @Environment(AppState.self) private var appState
+    private let achievementService: AchievementService
+    private let xpService: XPService
+    private let appState: AppState
     @Environment(CacheService.self) private var cacheService: CacheService?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
@@ -29,9 +30,23 @@ struct TrophyRoomView: View {
     private let familyRecordName: String?
     private let profileRecordName: String?
 
-    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
+    init(
+        achievementService: AchievementService,
+        xpService: XPService,
+        appState: AppState,
+        familyRecordName: String? = nil,
+        profileRecordName: String? = nil
+    ) {
+        self.achievementService = achievementService
+        self.xpService = xpService
+        self.appState = appState
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
+        self._viewModel = State(initialValue: TrophyRoomViewModel(
+            achievementService: achievementService,
+            xpService: xpService,
+            appState: appState
+        ))
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
@@ -63,28 +78,18 @@ struct TrophyRoomView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let viewModel {
-                    content(for: viewModel)
-                } else {
-                    ProgressView()
+            content(for: viewModel)
+                .navigationTitle("Hall of Heroes")
+                .navigationBarTitleDisplayMode(.large)
+                .refreshable {
+                    await lifecycleCoordinator?.performManualSync()
+                    rebuild()
                 }
-            }
-            .navigationTitle("Hall of Heroes")
-            .navigationBarTitleDisplayMode(.large)
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                rebuild()
-            }
+        }
+        .onAppear {
+            rebuild()
         }
         .task {
-            if viewModel == nil {
-                viewModel = TrophyRoomViewModel(
-                    achievementService: achievementService,
-                    xpService: xpService,
-                    appState: appState
-                )
-            }
             rebuild()
             if familyRecordName == nil, appState.family != nil {
                 Self.logger.warning("TrophyRoomView initialized with nil familyRecordName while authenticated — queries scoped to empty string will return zero rows")
@@ -122,7 +127,7 @@ struct TrophyRoomView: View {
             }
         }
 
-        viewModel?.rebuildLists(earned: earned, allAchievements: achievements, profileCaches: currentProfileRows)
+        viewModel.rebuildLists(earned: earned, allAchievements: achievements, profileCaches: currentProfileRows)
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {

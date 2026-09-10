@@ -258,7 +258,7 @@ struct HeroHomeView: View {
         VStack(spacing: DesignSystemConstants.Padding.standard) {
             checklistCard
 
-            DailyLoginBannerView(compactMode: true)
+            DailyLoginBannerView(profileRow: currentProfileRow, compactMode: true)
 
             playerCard
 

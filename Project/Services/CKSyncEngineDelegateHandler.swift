@@ -184,7 +184,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 RecordBridge.record(for: identity, cacheService: cacheService)
             }
             if record == nil {
-                // If confirmed locally deleted, convert pending save to a delete.
+                // WHY propagate delete: confirmed miss means the tombstone must reach the server.
                 let locallyDeleted = await MainActor.run {
                     RecordBridge.confirmedLocalDeletion(for: identity, cacheService: cacheService)
                 }
@@ -194,7 +194,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                         syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
                         self.coordinator?.clearRetryState(for: recordID)
                     }
-                    self.logger.warning("nextRecordZoneChangeBatch removed dangling pending save for \(recordID.recordName, privacy: .private) — enqueued delete")
+                    self.logger.warning("nextRecordZoneChangeBatch converted dangling pending save to delete for \(recordID.recordName, privacy: .private) — record absent locally")
                 } else {
                     // WHY retain-and-retry: `locallyDeleted == false` is ambiguous — the row may
                     // still be present (transient bridge validation) or the fetch may have thrown

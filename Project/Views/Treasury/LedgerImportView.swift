@@ -13,16 +13,17 @@ import UniformTypeIdentifiers
 /// Parent-only staging sheet for CSV transaction imports. Rows are editable
 /// until the explicit "Import N Transactions" confirmation; nothing touches
 /// the ledger before that button fires.
+@MainActor
 struct LedgerImportView: View {
     private static let logger = Logger(category: "LedgerImportView")
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var appState
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     private let importService: LedgerImportService
+    private let appState: AppState
     private let familyRecordName: String?
 
-    @State private var viewModel: LedgerImportViewModel?
+    @State private var viewModel: LedgerImportViewModel
     @State private var isShowingFilePicker: Bool = false
 
     /// WHY @Query for post-import count: observing LedgerEntryCache directly
@@ -31,9 +32,16 @@ struct LedgerImportView: View {
     /// refresh. The count updates the moment finalize's upsert commits.
     @Query private var importedLedgers: [LedgerEntryCache]
 
-    init(importService: LedgerImportService, familyRecordName: String?) {
+    init(importService: LedgerImportService, appState: AppState, familyRecordName: String?) {
         self.importService = importService
+        self.appState = appState
         self.familyRecordName = familyRecordName
+        self._viewModel = State(initialValue: LedgerImportViewModel(
+            importService: importService,
+            appState: appState,
+            familyRecordName: familyRecordName
+        ))
+
         let targetFamily = familyRecordName ?? ""
         // Filter by family and deterministic import ID prefix `import-` so only
         // rows created by CSV import are counted, not manual or quest entries.
@@ -46,43 +54,29 @@ struct LedgerImportView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let vm = viewModel {
-                    content(viewModel: vm)
-                } else {
-                    ProgressView()
+            content(viewModel: viewModel)
+                .navigationTitle("Import Transactions")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
                 }
-            }
-            .navigationTitle("Import Transactions")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
         }
         .task {
-            if viewModel == nil {
-                let vm = LedgerImportViewModel(
-                    importService: importService,
-                    appState: appState,
-                    familyRecordName: familyRecordName
-                )
-                viewModel = vm
-                // Keep ViewModel's count in sync with the live @Query so
-                // post-import feedback is immediate without parent refresh.
-                vm.updateImportedCount(importedLedgers.count)
-                // UI tests cannot drive the system document picker, so a
-                // staged CSV path short-circuits straight into the normal
-                // review flow; production launches never set it.
-                if let csvPath = TestEnvironment.uiTestImportCSVPath {
-                    stageForUITests(path: csvPath, viewModel: vm)
-                }
+            // Keep ViewModel's count in sync with the live @Query so
+            // post-import feedback is immediate without parent refresh.
+            viewModel.updateImportedCount(importedLedgers.count)
+            // UI tests cannot drive the system document picker, so a
+            // staged CSV path short-circuits straight into the normal
+            // review flow; production launches never set it.
+            if let csvPath = TestEnvironment.uiTestImportCSVPath {
+                stageForUITests(path: csvPath, viewModel: viewModel)
             }
         }
         .onChange(of: importedLedgers) { _, newLedgers in
             // ViewModel rebuild observes cache changes via @Query count.
-            viewModel?.updateImportedCount(newLedgers.count)
+            viewModel.updateImportedCount(newLedgers.count)
         }
     }
 
@@ -132,7 +126,7 @@ struct LedgerImportView: View {
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.accentColor.opacity(0.15)))
             }
             .accessibilityIdentifier("import.chooseFileButton")
-            if let message = viewModel?.errorMessage {
+            if let message = viewModel.errorMessage {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
@@ -242,7 +236,7 @@ struct LedgerImportView: View {
         switch result {
         case let .failure(error):
             Self.logger.error("File selection failed: \(error, privacy: .private)")
-            viewModel?.loadingFailed("Could not open the selected file.")
+            viewModel.loadingFailed("Could not open the selected file.")
             toastManager?.show(message: "Could not open the selected file.", type: .error)
         case let .success(urls):
             guard let url = urls.first else { return }
@@ -257,14 +251,14 @@ struct LedgerImportView: View {
                 let data = try Data(contentsOf: url)
                 guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
                     Self.logger.error("Failed to decode CSV text from file data at \(url.lastPathComponent, privacy: .private)")
-                    viewModel?.loadingFailed("That file could not be read as text.")
+                    viewModel.loadingFailed("That file could not be read as text.")
                     toastManager?.show(message: "That file could not be read as text.", type: .error)
                     return
                 }
-                viewModel?.stage(csvText: text)
+                viewModel.stage(csvText: text)
             } catch {
                 Self.logger.error("Failed to read file contents from \(url.lastPathComponent, privacy: .private): \(error, privacy: .private)")
-                viewModel?.loadingFailed("That file could not be read.")
+                viewModel.loadingFailed("That file could not be read.")
                 toastManager?.show(message: "That file could not be read.", type: .error)
             }
         }

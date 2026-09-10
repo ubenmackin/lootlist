@@ -89,9 +89,33 @@ final class EquipmentService {
 
     // MARK: - Ownership
 
+    private func ownedIDSet(_ owned: [String]) -> Set<String> {
+        Set(owned)
+    }
+
+    private func equippedIDMap(_ equipped: [String]) -> [String: String] {
+        var dict: [String: String] = [:]
+        for itemID in equipped {
+            guard let item = ShopItem.item(withId: itemID) else { continue }
+            dict[item.category.rawValue] = itemID
+        }
+        return dict
+    }
+
+    private func equippedShopItems(_ equipped: [String]) -> [ShopCategory: ShopItem] {
+        let mapped = equippedIDMap(equipped)
+        var result: [ShopCategory: ShopItem] = [:]
+        for category in ShopCategory.allCases {
+            if let itemID = mapped[category.rawValue], let item = ShopItem.item(withId: itemID) {
+                result[category] = item
+            }
+        }
+        return result
+    }
+
     func ownedItemIDs(for profile: Profile) -> Set<String> {
         let current = resolvedProfile(profile) ?? profile
-        return Set(current.ownedEquipment)
+        return ownedIDSet(current.ownedEquipment)
     }
 
     func isOwned(item: ShopItem, profile: Profile) -> Bool {
@@ -102,12 +126,7 @@ final class EquipmentService {
 
     func equippedItemIDs(for profile: Profile) -> [String: String] {
         let current = resolvedProfile(profile) ?? profile
-        var dict: [String: String] = [:]
-        for itemID in current.equippedItems {
-            guard let item = ShopItem.item(withId: itemID) else { continue }
-            dict[item.category.rawValue] = itemID
-        }
-        return dict
+        return equippedIDMap(current.equippedItems)
     }
 
     func isEquipped(item: ShopItem, profile: Profile) -> Bool {
@@ -122,14 +141,37 @@ final class EquipmentService {
     }
 
     func equippedItems(for profile: Profile) -> [ShopCategory: ShopItem] {
-        let equipped = equippedItemIDs(for: profile)
-        var result: [ShopCategory: ShopItem] = [:]
-        for category in ShopCategory.allCases {
-            if let itemID = equipped[category.rawValue], let item = ShopItem.item(withId: itemID) {
-                result[category] = item
-            }
-        }
-        return result
+        let current = resolvedProfile(profile) ?? profile
+        return equippedShopItems(current.equippedItems)
+    }
+
+    // MARK: - ProfileCache Overloads (Local-First SwiftData)
+
+    func ownedItemIDs(for profileCache: ProfileCache) -> Set<String> {
+        ownedIDSet(profileCache.ownedEquipment ?? [])
+    }
+
+    func isOwned(item: ShopItem, profileCache: ProfileCache) -> Bool {
+        ownedItemIDs(for: profileCache).contains(item.id)
+    }
+
+    func equippedItemIDs(for profileCache: ProfileCache) -> [String: String] {
+        equippedIDMap(profileCache.equippedItems ?? [])
+    }
+
+    func isEquipped(item: ShopItem, profileCache: ProfileCache) -> Bool {
+        let equipped = equippedItemIDs(for: profileCache)
+        return equipped[item.category.rawValue] == item.id
+    }
+
+    func equippedItem(for category: ShopCategory, profileCache: ProfileCache) -> ShopItem? {
+        let equipped = equippedItemIDs(for: profileCache)
+        guard let itemID = equipped[category.rawValue] else { return nil }
+        return ShopItem.item(withId: itemID)
+    }
+
+    func equippedItems(for profileCache: ProfileCache) -> [ShopCategory: ShopItem] {
+        equippedShopItems(profileCache.equippedItems ?? [])
     }
 
     // MARK: - Actions

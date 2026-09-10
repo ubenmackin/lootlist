@@ -10,7 +10,7 @@ import SwiftUI
 struct HeroStatusCard: View {
     let summary: HeroSummary
 
-    var recentQuestLogs: [QuestCompletion]?
+    var recentQuestLogs: [QuestCompletionCache]?
 
     var onTap: (() -> Void)?
 
@@ -158,19 +158,20 @@ struct HeroStatusCard: View {
         }
     }
 
-    private func recentLogRow(_ log: QuestCompletion) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: log.verificationStatus.iconSystemName)
-                .foregroundStyle(log.verificationStatus.tintColor)
+    private func recentLogRow(_ log: QuestCompletionCache) -> some View {
+        let status = log.verificationStatusEnum ?? .pending
+        return HStack(spacing: 8) {
+            Image(systemName: status.iconSystemName)
+                .foregroundStyle(status.tintColor)
                 .font(.caption)
             Text(log.completedDate, format: .dateTime.month().day().hour().minute())
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             Spacer()
-            Text(log.verificationStatus.displayLabel)
+            Text(status.displayLabel)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(log.verificationStatus.tintColor)
+                .foregroundStyle(status.tintColor)
         }
         .padding(.vertical, 2)
     }

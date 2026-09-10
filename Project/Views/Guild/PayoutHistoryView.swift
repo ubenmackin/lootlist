@@ -723,6 +723,7 @@ private extension PayoutHistoryView {
     }
 
     struct SheetsModifier: ViewModifier {
+        @Environment(AppState.self) private var appState
         @Binding var showExportSheet: Bool
         @Binding var showShareSheet: Bool
         @Binding var showImportSheet: Bool
@@ -748,6 +749,7 @@ private extension PayoutHistoryView {
                 .sheet(isPresented: $showImportSheet) {
                     LedgerImportView(
                         importService: ledgerImportService,
+                        appState: appState,
                         familyRecordName: familyRecordName
                     )
                 }
