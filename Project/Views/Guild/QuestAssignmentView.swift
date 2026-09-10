@@ -157,96 +157,120 @@ struct QuestAssignmentView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if mode.isCreateMode {
-                    Section {
-                        Picker("Creation Mode", selection: $creationPickerMode) {
-                            ForEach(CreationPickerOption.allCases) { option in
-                                Text(option.rawValue).tag(option)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
-
-                switch displayMode {
-                case .fromTemplate:
-                    templateAssignmentSections
-                case .quickCreate:
-                    quickCreateSections
-                case .edit:
-                    editSections
-                }
-
-                if mode.isCreateMode, !(displayMode == .quickCreate && quickPostToBoard) {
-                    Section("Week Of") {
-                        DatePicker("Week Starting Monday",
-                                   selection: $weekOf,
-                                   displayedComponents: .date)
-                    }
-                }
-            }
-            .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        if let onCancel {
-                            onCancel()
-                        } else {
-                            dismiss()
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        if onCancel != nil {
-                            Button {
-                                onCancel?()
-                            } label: {
-                                Image(systemName: "xmark")
-                            }
-                            .accessibilityLabel("Close inspector")
-                        }
-                        Button(action: submit) {
-                            if isSubmitting {
-                                ProgressView()
-                            } else {
-                                Text(submitButtonLabel)
-                            }
-                        }
-                        .disabled(isSubmitDisabled)
-                    }
-                }
-            }
-            .onAppear {
-                performOnAppear()
-            }
-            .onChange(of: cachedCompletions) { _, _ in
-                refreshEditLock()
-            }
-            .onChange(of: cachedTemplates) { _, _ in
-                syncLiveSelections()
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                syncLiveSelections()
-            }
-            .onChange(of: cachedAssignments) { _, _ in
-                syncLiveSelections()
-            }
-            .alert("Override Lock?", isPresented: $showOverrideAlert) {
-                Button("Cancel", role: .cancel) {}
-                Button("Override", role: .destructive) {
-                    allowLockedFieldsOverride = true
-                }
-            } message: {
-                Text("Hero has already started this quest. Changing the assignee will move this quest. Continue?")
-            }
-            .toastOverlay()
-            .decimalPadDoneToolbar(isFocused: $isEditAmountFocused)
+            assignmentForm
+                .navigationTitle(navigationTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { assignmentToolbar }
+                .modifier(assignmentLifecycle)
+                .modifier(assignmentDialogs)
         }
         // WHY: view identity tracks family so @Query predicate (init-captured) is recreated on scope switch.
         .id(familyRecordName ?? "")
+    }
+
+    private var assignmentForm: some View {
+        Form {
+            creationModeSection
+            displayModeSections
+            weekOfSection
+        }
+    }
+
+    @ViewBuilder
+    private var creationModeSection: some View {
+        if mode.isCreateMode {
+            Section {
+                Picker("Creation Mode", selection: $creationPickerMode) {
+                    ForEach(CreationPickerOption.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+    }
+
+    /// WHY separate switch: the Form-level if/switch/if combo stalls the Swift 6 type-checker.
+    @ViewBuilder
+    private var displayModeSections: some View {
+        switch displayMode {
+        case .fromTemplate:
+            templateAssignmentSections
+        case .quickCreate:
+            quickCreateSections
+        case .edit:
+            editSections
+        }
+    }
+
+    @ViewBuilder
+    private var weekOfSection: some View {
+        if mode.isCreateMode, !(displayMode == .quickCreate && quickPostToBoard) {
+            Section("Week Of") {
+                DatePicker("Week Starting Monday",
+                           selection: $weekOf,
+                           displayedComponents: .date)
+            }
+        }
+    }
+
+    // MARK: - Toolbar (extracted to keep body shallow for the Swift 6 type-checker)
+
+    @ToolbarContentBuilder
+    private var assignmentToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("Cancel") {
+                if let onCancel {
+                    onCancel()
+                } else {
+                    dismiss()
+                }
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            trailingToolbarButtons
+        }
+    }
+
+    private var trailingToolbarButtons: some View {
+        HStack(spacing: 12) {
+            if onCancel != nil {
+                Button {
+                    onCancel?()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Close inspector")
+            }
+            Button(action: submit) {
+                if isSubmitting {
+                    ProgressView()
+                } else {
+                    Text(submitButtonLabel)
+                }
+            }
+            .disabled(isSubmitDisabled)
+        }
+    }
+
+    private var assignmentLifecycle: some ViewModifier {
+        AssignmentLifecycleModifier(
+            cachedCompletions: cachedCompletions,
+            cachedTemplates: cachedTemplates,
+            cachedProfiles: cachedProfiles,
+            cachedAssignments: cachedAssignments,
+            onAppear: { performOnAppear() },
+            onCompletionsChanged: { refreshEditLock() },
+            onCacheChanged: { syncLiveSelections() }
+        )
+    }
+
+    private var assignmentDialogs: some ViewModifier {
+        AssignmentDialogsModifier(
+            showOverrideAlert: $showOverrideAlert,
+            isEditAmountFocused: $isEditAmountFocused,
+            onOverride: { allowLockedFieldsOverride = true }
+        )
     }
 
     // MARK: - Live cache slices (what the form actually shows)
@@ -847,5 +871,58 @@ struct QuestAssignmentView: View {
 
     private static func defaultWeekOf() -> Date {
         WeekMath.mondayOfWeek(for: Date())
+    }
+}
+
+// MARK: - View Modifiers (extracted to keep body shallow for the Swift 6 type-checker)
+
+private extension QuestAssignmentView {
+    /// WHY split assignment lifecycle into a typed modifier: deep onChange chains stall the Swift 6 type-checker.
+    struct AssignmentLifecycleModifier: ViewModifier {
+        let cachedCompletions: [QuestCompletionCache]
+        let cachedTemplates: [QuestTemplateCache]
+        let cachedProfiles: [ProfileCache]
+        let cachedAssignments: [QuestCache]
+        let onAppear: () -> Void
+        let onCompletionsChanged: () -> Void
+        let onCacheChanged: () -> Void
+
+        func body(content: Content) -> some View {
+            applyTail(to: applyHead(to: content))
+        }
+
+        private func applyHead(to content: Content) -> some View {
+            content
+                .onAppear { onAppear() }
+                .onChange(of: cachedCompletions) { _, _ in onCompletionsChanged() }
+                .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+        }
+
+        private func applyTail(to view: some View) -> some View {
+            view
+                .onChange(of: cachedProfiles) { _, _ in onCacheChanged() }
+                .onChange(of: cachedAssignments) { _, _ in onCacheChanged() }
+        }
+    }
+
+    /// WHY split dialogs into a typed modifier: alert plus overlays widen Form inference.
+    struct AssignmentDialogsModifier: ViewModifier {
+        @Binding var showOverrideAlert: Bool
+        var isEditAmountFocused: FocusState<Bool>.Binding
+        let onOverride: () -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .alert("Override Lock?", isPresented: $showOverrideAlert) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Override", role: .destructive) {
+                        onOverride()
+                    }
+                } message: {
+                    Text("Hero has already started this quest. Changing the assignee will move this quest. Continue?")
+                }
+                .toastOverlay()
+                .decimalPadDoneToolbar(isFocused: isEditAmountFocused)
+        }
     }
 }

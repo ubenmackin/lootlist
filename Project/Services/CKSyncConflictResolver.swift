@@ -366,30 +366,18 @@ final class CKSyncConflictResolver {
         let profileName = originalRecord.recordID.recordName
         let familyName = (serverRecord["family"] as? CKRecord.Reference)?.recordID.recordName
             ?? (originalRecord["family"] as? CKRecord.Reference)?.recordID.recordName
-        let descriptor = if let familyName {
-            FetchDescriptor<ProfileCache>(
-                predicate: #Predicate { $0.recordName == profileName && $0.familyRecordName == familyName }
-            )
+        // WHY dual probe: background context diverges from main in in-memory stores, so empty background must not drop the offline delta.
+        let backgroundBaseline: Int? = if let familyName, let backgroundCache {
+            await backgroundCache.lastSyncedXP(recordName: profileName, familyRecordName: familyName)
         } else {
-            FetchDescriptor<ProfileCache>(
-                predicate: #Predicate { $0.recordName == profileName }
-            )
+            nil
         }
-        let cachedProfile: ProfileCache?
-        do {
-            cachedProfile = try cacheService?.context?.fetch(descriptor).first
-        } catch {
-            logger.warning("Failed to fetch cached Profile for conflict delta: \(error, privacy: .private)")
-            cachedProfile = nil
-        }
+        let lastSyncedBaseline: Int? = backgroundBaseline ?? cachedLastSyncedBaseline(profileName: profileName, familyName: familyName)
 
-        let mergedXP: Int
-        if let cachedProfile {
-            let lastSyncedXP = cachedProfile.lastSyncedXP
-            let clientDelta = max(clientXP - lastSyncedXP, 0)
-            mergedXP = max(serverXP + clientDelta, max(serverXP, clientXP))
+        let mergedXP: Int = if let lastSyncedXP = lastSyncedBaseline {
+            max(serverXP + max(clientXP - lastSyncedXP, 0), max(serverXP, clientXP))
         } else {
-            mergedXP = max(serverXP, clientXP)
+            max(serverXP, clientXP)
         }
 
         var mergedProfile: Profile
@@ -464,6 +452,12 @@ final class CKSyncConflictResolver {
         let mergedRecord = mergedProfile.toRecord()
         mergedRecord.parent = serverRecord.parent
         return mergedRecord
+    }
+
+    /// WHY main fallback: conflict baseline must survive an unwired background writer; main cache holds the server-confirmed value.
+    private func cachedLastSyncedBaseline(profileName: String, familyName: String?) -> Int? {
+        guard let familyName, !familyName.isEmpty, !profileName.isEmpty else { return nil }
+        return cacheService?.fetchProfile(recordName: profileName, family: familyName)?.lastSyncedXP
     }
 
     private static func orderedUnion(_ first: [String], _ second: [String]) -> [String] {

@@ -49,6 +49,36 @@ final class HeroBoardService {
         cached.assigneeRecordName == boardAssigneeRecordName
     }
 
+    /// WHY boundary-only: snapshots rebuild the domain for claim/revoke without touching live storage.
+    static func domainQuest(from snapshot: BoardQuestSnapshot, zoneID: CKRecordZone.ID) -> Quest {
+        var quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.templateRecordName, zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.assigneeRecordName, zoneID: zoneID), action: .none),
+            goldReward: snapshot.goldReward,
+            xpReward: snapshot.xpReward,
+            scheduleType: QuestSchedule(rawValue: snapshot.scheduleType) ?? .weeklyFlexible,
+            targetCount: snapshot.targetCount,
+            isAllOrNothing: snapshot.isAllOrNothing,
+            approvalMode: ApprovalMode(rawValue: snapshot.approvalMode) ?? .autoApprove,
+            weekOf: snapshot.weekOf,
+            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.createdByRecordName, zoneID: zoneID), action: .none),
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.familyRecordName, zoneID: zoneID), action: .none),
+            name: snapshot.questName,
+            descriptionText: snapshot.descriptionText,
+            xpBanked: snapshot.xpBanked,
+            claimedByProfileRecordName: snapshot.claimedByProfileRecordName,
+            claimedAt: snapshot.claimedAt,
+            id: CKRecord.ID(recordName: snapshot.recordName, zoneID: zoneID)
+        )
+        quest.changeTag = snapshot.changeTag
+        return quest
+    }
+
+    /// WHY instance shim: view models hold the service but should not reimplement snapshot conversion.
+    func domainQuest(from snapshot: BoardQuestSnapshot, zoneID: CKRecordZone.ID) -> Quest {
+        Self.domainQuest(from: snapshot, zoneID: zoneID)
+    }
+
     private let logger = Logger(category: "HeroBoard")
 
     private let questService: QuestService

@@ -116,65 +116,13 @@ struct QuestManagerView: View {
             sidebar
                 .navigationTitle("Manage")
                 .searchable(text: $searchText, prompt: "Search quests & templates")
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            // WHY: inspector keeps list visible — sheet would hide the table on iPad.
-                            clearInspectorSelection()
-                            switch sidebarSelection {
-                            case .templatesActive, .templatesArchived:
-                                inspectorNewKind = .template
-                            default:
-                                inspectorNewKind = .assignment
-                            }
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .disabled(isSubmitting)
-                        .accessibilityLabel("New")
-                        #if !os(tvOS)
-                            .keyboardShortcut("n", modifiers: .command)
-                        #endif
-                    }
-                    ToolbarItem(placement: .secondaryAction) {
-                        NavigationLink {
-                            QuestLogView(familyRecordName: familyRecordName)
-                                .environment(questService)
-                                .environment(familyService)
-                                .environment(appState)
-                                .environment(appSyncCoordinator)
-                        } label: {
-                            Label("Quest Log", systemImage: "scroll")
-                        }
-                    }
-                }
+                .toolbar { regularToolbar }
         } content: {
             contentColumn
         } detail: {
             inspectorColumn
         }
-        .task {
-            ensureViewModel()
-            await lifecycleCoordinator?.performManualSync()
-        }
-        .refreshable {
-            await lifecycleCoordinator?.performManualSync()
-            rebuildViewModel()
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                rebuildViewModel()
-            }
-        }
-        .onChange(of: cachedTemplates) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedAssignments) { _, _ in
-            rebuildViewModel()
-        }
-        .onChange(of: cachedProfiles) { _, _ in
-            rebuildViewModel()
-        }
+        .modifier(questLifecycle)
         .onChange(of: sidebarSelection) { _, _ in
             clearInspectorSelection()
         }
@@ -234,6 +182,99 @@ struct QuestManagerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    // MARK: - Toolbar (extracted to keep layouts shallow for the Swift 6 type-checker)
+
+    @ToolbarContentBuilder
+    private var regularToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                // WHY: inspector keeps list visible — sheet would hide the table on iPad.
+                clearInspectorSelection()
+                switch sidebarSelection {
+                case .templatesActive, .templatesArchived:
+                    inspectorNewKind = .template
+                default:
+                    inspectorNewKind = .assignment
+                }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .disabled(isSubmitting)
+            .accessibilityLabel("New")
+            #if !os(tvOS)
+                .keyboardShortcut("n", modifiers: .command)
+            #endif
+        }
+        ToolbarItem(placement: .secondaryAction) {
+            questLogLink
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var compactToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            questLogLink
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                switch selectedTab {
+                case .assignments: showAssignSheet = true
+                case .templates: showAddTemplateSheet = true
+                }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .disabled(isSubmitting)
+            .accessibilityLabel(selectedTab == .assignments ? "Assign New Quest" : "New Template")
+            #if !os(tvOS)
+                .keyboardShortcut("n", modifiers: .command)
+            #endif
+        }
+    }
+
+    /// WHY shared link: the quest-log destination repeats across layouts, so one helper keeps toolbar inference shallow.
+    private var questLogLink: some View {
+        NavigationLink {
+            QuestLogView(familyRecordName: familyRecordName)
+                .environment(questService)
+                .environment(familyService)
+                .environment(appState)
+                .environment(appSyncCoordinator)
+        } label: {
+            Label("Quest Log", systemImage: "scroll")
+        }
+    }
+
+    private var questLifecycle: some ViewModifier {
+        QuestLifecycleModifier(
+            scenePhase: scenePhase,
+            cachedTemplates: cachedTemplates,
+            cachedAssignments: cachedAssignments,
+            cachedProfiles: cachedProfiles,
+            onTask: {
+                ensureViewModel()
+                await lifecycleCoordinator?.performManualSync()
+            },
+            onRefresh: {
+                await lifecycleCoordinator?.performManualSync()
+                rebuildViewModel()
+            },
+            onSceneActive: { rebuildViewModel() },
+            onCacheChanged: { rebuildViewModel() }
+        )
+    }
+
+    private var questSheets: some ViewModifier {
+        QuestSheetsModifier(
+            showAssignSheet: $showAssignSheet,
+            editingTemplateCache: $editingTemplateCache,
+            editingQuestID: $editingQuestID,
+            showAddTemplateSheet: $showAddTemplateSheet,
+            viewModel: viewModel,
+            familyRecordName: appState.family?.id.recordName
+        )
+    }
 }
 
 extension QuestManagerView {
@@ -275,76 +316,9 @@ extension QuestManagerView {
             .navigationTitle("Manage")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: "Search quests & templates")
-            .task {
-                ensureViewModel()
-                await lifecycleCoordinator?.performManualSync()
-            }
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                rebuildViewModel()
-            }
-            .onChange(of: scenePhase) { _, newPhase in
-                if newPhase == .active {
-                    rebuildViewModel()
-                }
-            }
-            .onChange(of: cachedTemplates) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedAssignments) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                rebuildViewModel()
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        QuestLogView(familyRecordName: familyRecordName)
-                            .environment(questService)
-                            .environment(familyService)
-                            .environment(appState)
-                            .environment(appSyncCoordinator)
-                    } label: {
-                        Label("Quest Log", systemImage: "scroll")
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        switch selectedTab {
-                        case .assignments: showAssignSheet = true
-                        case .templates: showAddTemplateSheet = true
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .disabled(isSubmitting)
-                    .accessibilityLabel(selectedTab == .assignments ? "Assign New Quest" : "New Template")
-                    #if !os(tvOS)
-                        .keyboardShortcut("n", modifiers: .command)
-                    #endif
-                }
-            }
-            .sheet(isPresented: $showAssignSheet) {
-                if let vm = viewModel {
-                    QuestAssignmentView(viewModel: vm, familyRecordName: appState.family?.id.recordName)
-                }
-            }
-            .sheet(item: $editingTemplateCache) { template in
-                if let vm = viewModel {
-                    TemplateManagerView(viewModel: vm, editing: template)
-                }
-            }
-            .sheet(item: $editingQuestID) { item in
-                if let vm = viewModel {
-                    QuestAssignmentView(mode: .edit(questRecordName: item.id), viewModel: vm, familyRecordName: appState.family?.id.recordName)
-                }
-            }
-            .sheet(isPresented: $showAddTemplateSheet) {
-                if let vm = viewModel {
-                    TemplateManagerView(viewModel: vm, editing: nil)
-                }
-            }
+            .modifier(questLifecycle)
+            .toolbar { compactToolbar }
+            .modifier(questSheets)
             .onAppear {
                 checkPendingQuickAction(appState.pendingQuickAction)
             }
@@ -816,6 +790,78 @@ extension QuestManagerView {
             )
         } catch {
             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+        }
+    }
+}
+
+// MARK: - View Modifiers (extracted to keep layouts shallow for the Swift 6 type-checker)
+
+private extension QuestManagerView {
+    /// WHY split quest lifecycle into a typed modifier: deep modifier chains stall the Swift 6 type-checker.
+    struct QuestLifecycleModifier: ViewModifier {
+        let scenePhase: ScenePhase
+        let cachedTemplates: [QuestTemplateCache]
+        let cachedAssignments: [QuestCache]
+        let cachedProfiles: [ProfileCache]
+        let onTask: () async -> Void
+        let onRefresh: () async -> Void
+        let onSceneActive: () -> Void
+        let onCacheChanged: () -> Void
+
+        func body(content: Content) -> some View {
+            applyTail(to: applyHead(to: content))
+        }
+
+        private func applyHead(to content: Content) -> some View {
+            content
+                .task { await onTask() }
+                .refreshable { await onRefresh() }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        onSceneActive()
+                    }
+                }
+                .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+        }
+
+        private func applyTail(to view: some View) -> some View {
+            view
+                .onChange(of: cachedAssignments) { _, _ in onCacheChanged() }
+                .onChange(of: cachedProfiles) { _, _ in onCacheChanged() }
+        }
+    }
+
+    /// WHY split quest sheets into a typed modifier: sheet destinations widen layout inference.
+    struct QuestSheetsModifier: ViewModifier {
+        @Binding var showAssignSheet: Bool
+        @Binding var editingTemplateCache: QuestTemplateCache?
+        @Binding var editingQuestID: SheetRecordID?
+        @Binding var showAddTemplateSheet: Bool
+        let viewModel: QuestManagerViewModel?
+        let familyRecordName: String?
+
+        func body(content: Content) -> some View {
+            content
+                .sheet(isPresented: $showAssignSheet) {
+                    if let vm = viewModel {
+                        QuestAssignmentView(viewModel: vm, familyRecordName: familyRecordName)
+                    }
+                }
+                .sheet(item: $editingTemplateCache) { template in
+                    if let vm = viewModel {
+                        TemplateManagerView(viewModel: vm, editing: template)
+                    }
+                }
+                .sheet(item: $editingQuestID) { item in
+                    if let vm = viewModel {
+                        QuestAssignmentView(mode: .edit(questRecordName: item.id), viewModel: vm, familyRecordName: familyRecordName)
+                    }
+                }
+                .sheet(isPresented: $showAddTemplateSheet) {
+                    if let vm = viewModel {
+                        TemplateManagerView(viewModel: vm, editing: nil)
+                    }
+                }
         }
     }
 }

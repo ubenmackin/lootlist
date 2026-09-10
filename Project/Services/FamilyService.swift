@@ -668,18 +668,58 @@ final class FamilyService: FamilyProfileFetching {
         // WHY test hydration: engines never run under tests, so mock query fills cache without live zone fetch.
         guard TestEnvironment.isRunningUnitOrUITests else { return }
         guard !family.id.recordName.isEmpty else { return }
-        guard DatabaseScopeResolver.resolvedScope(appState: appState) != nil else { return }
+        guard let resolvedScope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return }
         do {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
             let (_, db) = familyContext(for: family.id)
             let profiles: [Profile] = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-            if let cacheService {
-                await cacheService.upsertProfiles(profiles, family: family.id.recordName)
+            let records = profiles.map { $0.toRecord() }
+            guard !records.isEmpty else { return }
+            if let coordinator = syncCoordinator {
+                let outcome = await coordinator.delegateHandler.handleIncomingRecordsDirectly(
+                    records,
+                    databaseScope: resolvedScope,
+                    zoneID: family.id.zoneID
+                )
+                // WHY engine path already landed: skip ephemeral replay when ingest committed.
+                if outcome?.didCommit == true {
+                    return
+                }
             }
+            // WHY engine-less tests: ephemeral handler rides the same ingest checks and batching.
+            await hydrateProfilesWithoutEngine(records, databaseScope: resolvedScope, zoneID: family.id.zoneID)
         } catch {
             logger.warning("Profile refresh query skipped: \(error, privacy: .private)")
         }
+    }
+
+    /// Test-only hydration riding the same ingest pipeline when no engine backs the coordinator.
+    private func hydrateProfilesWithoutEngine(_ records: [CKRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async {
+        guard let cacheService else { return }
+        // WHY reuse shared writer: lifecycle-owned actor keeps one batching context when present.
+        if let existing = appState.backgroundCacheActor {
+            let resolver = CKSyncConflictResolver(cacheService: cacheService, appState: appState)
+            let handler = CKSyncEngineDelegateHandler(
+                backgroundCache: existing,
+                conflictResolver: resolver,
+                cacheService: cacheService,
+                appState: appState
+            )
+            await handler.handleIncomingRecordsDirectly(records, databaseScope: databaseScope, zoneID: zoneID)
+            return
+        }
+        guard let container = cacheService.container else { return }
+        // WHY ephemeral batching: in-memory stores never bootstrap a writer, so one is minted for this pass.
+        let writer = BackgroundCacheActor(container: container)
+        let resolver = CKSyncConflictResolver(cacheService: cacheService, backgroundCache: writer, appState: appState)
+        let handler = CKSyncEngineDelegateHandler(
+            backgroundCache: writer,
+            conflictResolver: resolver,
+            cacheService: cacheService,
+            appState: appState
+        )
+        await handler.handleIncomingRecordsDirectly(records, databaseScope: databaseScope, zoneID: zoneID)
     }
 
     // MARK: - Hero Bootstrap Seeding
