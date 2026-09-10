@@ -45,35 +45,17 @@ final class SoundManager {
 
     /// Future enhancement: Slight pitch shift ±5% on repetitive sounds using AVAudioPlayer
     func play(_ event: SoundEvent) {
-        triggerHaptic(for: event)
-
+        switch event {
+        case .questComplete, .levelUp, .lootDrop, .streakMilestone, .shopPurchase:
+            HapticsService.success()
+        case .xpGain, .gemEarned, .buttonTap:
+            HapticsService.lightImpact()
+        case .dailyLogin, .equipItem:
+            HapticsService.mediumImpact()
+        }
+        // WHY sound-only gate: haptics still buzz in silent mode and background.
         if celebrationSoundEnabled {
             AudioServicesPlaySystemSound(event.systemSoundID)
-        }
-    }
-
-    private func triggerHaptic(for event: SoundEvent) {
-        switch event {
-        case .questComplete:
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        case .xpGain:
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        case .levelUp:
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case .lootDrop:
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case .gemEarned:
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        case .streakMilestone:
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case .dailyLogin:
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        case .buttonTap:
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        case .shopPurchase:
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case .equipItem:
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         }
     }
 }

@@ -11,6 +11,20 @@ import Observation
 import os
 import Synchronization
 
+/// WHY op kind: a dropped delete must re-enqueue as a delete — a locally absent cache row is the delete's
+/// normal state and never proves the tombstone reached CloudKit.
+enum PendingBufferOperation: String, Sendable {
+    case save
+    case delete
+}
+
+/// WHY value type: the overflow scan runs off-main on `BackgroundCacheActor`, so tracked loss crosses
+/// actors as a `Sendable` snapshot of record name + operation.
+struct BufferOverflowIdentity: Sendable, Hashable {
+    let recordName: String
+    let operation: PendingBufferOperation
+}
+
 /// WHY single engine: private and shared scopes share one lifecycle.
 @MainActor
 @Observable
@@ -65,9 +79,22 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     var lastSyncedAt: Date?
     var syncError: String?
     private(set) var lastPushReceivedAt: Date?
+    /// WHY display-truth: engine-delivered changes land outside coordinator passes, so change age tracks the engine while push/reconcile age tracks every inbound event. Never
+    /// stamps freshness.
+    private(set) var lastChangeReceivedAt: Date?
+    // WHY visible loss: capped buffers drop oldest, so the flag forces re-hydration instead of trusting diverged cache.
+    private(set) var pendingBufferOverflowed = false
+    private(set) var pendingBufferDroppedCount = 0
+    /// WHY deferred recovery: evicted identities stay tracked until the overflow scan hands them to an
+    /// active engine or proves their cache row is gone, so a fetch/send pass alone cannot clear the loss.
+    /// WHY op kind: keying by record ID records save-vs-delete at eviction time, so a dropped delete is
+    /// never cleared by a vanished cache row and re-enqueues as a delete.
+    @ObservationIgnored private var droppedBufferEntries: [CKRecord.ID: PendingBufferOperation] = [:]
 
     @ObservationIgnored private var lastSendCompletedAt: Date?
     private static let sendCoalescingInterval: TimeInterval = 2
+    /// WHY bounded buffers: offline days with large ledgers must not grow pending queues without limit.
+    private static let maxBufferedIdentities = 2000
 
     var pendingUploadCount: Int {
         var count = 0
@@ -105,6 +132,9 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     // MARK: - Engine Setup
 
     func initializeEngines() {
+        // WHY before the test guard: the persisted loss ledger must reload on every launch, including
+        // environments that never instantiate a real engine.
+        rehydrateBufferOverflowLedger()
         // Skips engine initialization in unit test environments.
         guard !TestEnvironment.isRunningUnitOrUITests else {
             logger.info("CKSyncEngine initialization skipped: unit test environment")
@@ -188,7 +218,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(identity.recordID)])
                 logger.info("Drained buffered save: \(identity.recordID.recordName, privacy: .private)")
             } else {
-                pendingEnqueueBuffer.withLock { $0.append(identity) }
+                restoreSaveIdentity(identity)
             }
         }
         let deletes = pendingDeleteBuffer.withLock { buffer -> [ScopedRecordIdentity] in
@@ -202,8 +232,209 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 engine.state.add(pendingRecordZoneChanges: [.deleteRecord(identity.recordID)])
                 logger.info("Drained buffered delete: \(identity.recordID.recordName, privacy: .private)")
             } else {
-                pendingDeleteBuffer.withLock { $0.append(identity) }
+                restoreDeleteIdentity(identity)
             }
+        }
+    }
+
+    /// WHY shared eviction: save, delete, and drain-restore paths all cap identically, so the 2000 cap,
+    /// eviction arithmetic, and fault logging live in one place rather than drifting per path.
+    /// WHY nonisolated: the eviction runs inside the `Mutex` lock, so it must not require actor isolation.
+    private nonisolated static func evictOverflow(
+        from buffer: inout [ScopedRecordIdentity],
+        cap: Int,
+        operation: PendingBufferOperation,
+        logger: Logger
+    ) -> [ScopedRecordIdentity] {
+        guard buffer.count > cap else { return [] }
+        let overflow = buffer.count - cap
+        let evicted = Array(buffer.prefix(overflow))
+        buffer.removeFirst(overflow)
+        let noun = operation == .save ? "saves" : "deletes"
+        logger
+            .fault(
+                "Pending \(operation.rawValue, privacy: .public) buffer capped at \(cap, privacy: .public) — dropped \(overflow, privacy: .public) oldest \(noun, privacy: .public)"
+            )
+        return evicted
+    }
+
+    /// WHY dedupe+cap: offline bursts re-enqueue the same record repeatedly, so buffered saves stay unique and bounded.
+    private func bufferSaveIdentity(_ identity: ScopedRecordIdentity) {
+        let cap = Self.maxBufferedIdentities
+        let log = logger
+        pendingDeleteBuffer.withLock { $0.removeAll { $0.recordID == identity.recordID } }
+        let dropped = pendingEnqueueBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+            buffer.removeAll { $0.recordID == identity.recordID }
+            buffer.append(identity)
+            return Self.evictOverflow(from: &buffer, cap: cap, operation: .save, logger: log)
+        }
+        noteBufferOverflow(identities: dropped, operation: .save)
+    }
+
+    /// WHY dedupe+cap: delete retries must not duplicate or grow without bound while offline.
+    private func bufferDeleteIdentity(_ identity: ScopedRecordIdentity) {
+        let cap = Self.maxBufferedIdentities
+        let log = logger
+        pendingEnqueueBuffer.withLock { $0.removeAll { $0.recordID == identity.recordID } }
+        let dropped = pendingDeleteBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+            buffer.removeAll { $0.recordID == identity.recordID }
+            buffer.append(identity)
+            return Self.evictOverflow(from: &buffer, cap: cap, operation: .delete, logger: log)
+        }
+        noteBufferOverflow(identities: dropped, operation: .delete)
+    }
+
+    /// WHY no cross-clear: drain restore preserves intent, so saves and deletes re-queue independently.
+    private func restoreSaveIdentity(_ identity: ScopedRecordIdentity) {
+        let cap = Self.maxBufferedIdentities
+        let log = logger
+        let dropped = pendingEnqueueBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+            guard !buffer.contains(where: { $0.recordID == identity.recordID }) else { return [] }
+            buffer.append(identity)
+            return Self.evictOverflow(from: &buffer, cap: cap, operation: .save, logger: log)
+        }
+        noteBufferOverflow(identities: dropped, operation: .save)
+    }
+
+    /// WHY no cross-clear: drain restore preserves intent, so deletes survive alongside saves.
+    private func restoreDeleteIdentity(_ identity: ScopedRecordIdentity) {
+        let cap = Self.maxBufferedIdentities
+        let log = logger
+        let dropped = pendingDeleteBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+            guard !buffer.contains(where: { $0.recordID == identity.recordID }) else { return [] }
+            buffer.append(identity)
+            return Self.evictOverflow(from: &buffer, cap: cap, operation: .delete, logger: log)
+        }
+        noteBufferOverflow(identities: dropped, operation: .delete)
+    }
+
+    /// WHY cross-kind only: a newer write of the other kind can no longer be represented by the evicted
+    /// operation, so it supersedes the recovery record. Same-kind re-buffers stay tracked until an engine
+    /// accepts them (drain hand-off), which is what keeps dropped deletes from reading as locally resolved.
+    private func supersedeDroppedBufferEntry(for recordID: CKRecord.ID, with operation: PendingBufferOperation) {
+        guard let tracked = droppedBufferEntries[recordID], tracked != operation else { return }
+        droppedBufferEntries.removeValue(forKey: recordID)
+        persistBufferOverflowLedger()
+        refreshBufferOverflowState()
+    }
+
+    /// WHY diverge-then-heal: dropped queued writes may never reach the server, so freshness clears and the
+    /// next pass re-hydrates; evicted identities stay tracked with their operation so a dropped delete is
+    /// never cleared by a vanished cache row.
+    private func noteBufferOverflow(identities: [ScopedRecordIdentity], operation: PendingBufferOperation) {
+        guard !identities.isEmpty else { return }
+        for identity in identities {
+            droppedBufferEntries[identity.recordID] = operation
+        }
+        persistBufferOverflowLedger()
+        refreshBufferOverflowState()
+        guard let cacheService = appState?.cacheService else { return }
+        if let familyRecordName = appState?.family?.id.recordName, !familyRecordName.isEmpty {
+            cacheService.invalidateFreshness(forFamilyRecordName: familyRecordName)
+        } else {
+            cacheService.invalidateAllFreshness()
+        }
+    }
+
+    /// WHY full reset: account/family teardown drops the recovery ledger along with the visible loss signal.
+    private func clearBufferOverflow() {
+        droppedBufferEntries.removeAll()
+        if let key = bufferOverflowLedgerKey() {
+            defaults.removeObject(forKey: key)
+        }
+        refreshBufferOverflowState()
+    }
+
+    /// WHY derived display: the count mirrors the unresolved ledger exactly, so partial recovery never
+    /// leaves a stale inflated total and re-dropping a tracked identity cannot double-count.
+    private func refreshBufferOverflowState() {
+        pendingBufferOverflowed = !droppedBufferEntries.isEmpty
+        pendingBufferDroppedCount = droppedBufferEntries.count
+    }
+
+    /// Record names and pending operations whose buffered write was evicted on overflow and has not yet been
+    /// positively recovered. WHY exposed: the overflow scan must probe these so an already-synced row
+    /// (non-nil changeTag) keeps its loss signal until the write is re-enqueued.
+    var unresolvedBufferOverflowIdentities: [BufferOverflowIdentity] {
+        droppedBufferEntries.map { BufferOverflowIdentity(recordName: $0.key.recordName, operation: $0.value) }
+    }
+
+    /// WHY positive proof: a fetch or send pass re-hydrates but never re-enqueues evicted writes, so the
+    /// visible loss clears only when the overflow scan hands each dropped identity to an active engine or
+    /// no longer has a cache row; a dropped delete resolves only after being handed back as a delete, since
+    /// a locally absent row is the delete's normal state and proves nothing. A delete superseded by a newer
+    /// save resolves too: the newer write is authoritative, so re-issuing the delete would destroy it.
+    func acknowledgeBufferOverflowRecovery(
+        reenqueuedSaveRecordIDs: [CKRecord.ID],
+        reenqueuedDeleteRecordIDs: [CKRecord.ID],
+        confirmedDeletedSaveRecordIDs: Set<CKRecord.ID>,
+        supersededDeleteRecordIDs: Set<CKRecord.ID> = []
+    ) {
+        guard !droppedBufferEntries.isEmpty else { return }
+        let reenqueuedSaves = Set(reenqueuedSaveRecordIDs)
+        let reenqueuedDeletes = Set(reenqueuedDeleteRecordIDs)
+        var survivors: [CKRecord.ID: PendingBufferOperation] = [:]
+        for (recordID, operation) in droppedBufferEntries {
+            switch operation {
+            case .save:
+                if reenqueuedSaves.contains(recordID) || confirmedDeletedSaveRecordIDs.contains(recordID) {
+                    continue
+                }
+            case .delete:
+                if reenqueuedDeletes.contains(recordID) || supersededDeleteRecordIDs.contains(recordID) {
+                    continue
+                }
+            }
+            survivors[recordID] = operation
+        }
+        droppedBufferEntries = survivors
+        persistBufferOverflowLedger()
+        refreshBufferOverflowState()
+    }
+
+    // MARK: - Overflow Ledger Persistence
+
+    /// WHY device-local: the ledger is scoped per family and holds no authoritative domain data, only
+    /// display-truth loss tracking that must survive jetsam.
+    private func bufferOverflowLedgerKey() -> String? {
+        let familyRecordName = appState?.family?.id.recordName ?? stableFamilyRecordName()
+        guard let familyRecordName, !familyRecordName.isEmpty else { return nil }
+        return "ck_buffer_overflow.\(familyRecordName)"
+    }
+
+    private func persistBufferOverflowLedger() {
+        guard let key = bufferOverflowLedgerKey() else { return }
+        guard !droppedBufferEntries.isEmpty else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+        let encoded = Dictionary(
+            droppedBufferEntries.map { ($0.key.recordName, $0.value.rawValue) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        defaults.set(encoded, forKey: key)
+    }
+
+    /// WHY relaunch recovery: an evicted update to an already-synced row is invisible to the never-synced
+    /// scan, so the ledger reloads before the first reconciliation pass and re-probes its identities.
+    func rehydrateBufferOverflowLedger() {
+        guard droppedBufferEntries.isEmpty,
+              let key = bufferOverflowLedgerKey(),
+              let stored = defaults.dictionary(forKey: key) as? [String: String]
+        else { return }
+        let zoneID = appState?.familyZoneID ?? appState?.family?.id.zoneID ?? CKRecordZone.default().zoneID
+        var restored: [CKRecord.ID: PendingBufferOperation] = [:]
+        for (recordName, rawValue) in stored {
+            guard let operation = PendingBufferOperation(rawValue: rawValue) else { continue }
+            restored[CKRecord.ID(recordName: recordName, zoneID: zoneID)] = operation
+        }
+        droppedBufferEntries = restored
+        refreshBufferOverflowState()
+        guard let cacheService = appState?.cacheService else { return }
+        if let familyRecordName = appState?.family?.id.recordName, !familyRecordName.isEmpty {
+            cacheService.invalidateFreshness(forFamilyRecordName: familyRecordName)
+        } else {
+            cacheService.invalidateAllFreshness()
         }
     }
 
@@ -218,6 +449,8 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     // MARK: - Public Enqueue APIs
 
     func enqueueSave(recordID: CKRecord.ID, isOwner: Bool) {
+        // A save changes what the record should become, so an evicted delete for the same identity is stale.
+        supersedeDroppedBufferEntry(for: recordID, with: .save)
         guard let engine = activeEngine(isOwner: isOwner) else {
             let identity = ScopedRecordIdentity(
                 databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
@@ -225,7 +458,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 recordID: recordID,
                 familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
             )
-            pendingEnqueueBuffer.withLock { $0.append(identity) }
+            bufferSaveIdentity(identity)
             logger.warning("No active sync engine — buffering save for \(recordID.recordName, privacy: .private)")
             return
         }
@@ -271,6 +504,8 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     }
 
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
+        // A delete changes what the record should become, so an evicted save for the same identity is stale.
+        supersedeDroppedBufferEntry(for: recordID, with: .delete)
         // Dangling pending fix: if a save is pending and the underlying cache row is deleted before
         // transmission, the save would forever retry nil from RecordBridge.
         pendingEnqueueBuffer.withLock { buffer in
@@ -283,7 +518,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
                 recordID: recordID,
                 familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
             )
-            pendingDeleteBuffer.withLock { $0.append(identity) }
+            bufferDeleteIdentity(identity)
             logger.warning("No active sync engine — buffering delete for \(recordID.recordName, privacy: .private)")
             return
         }
@@ -637,11 +872,16 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache_fresh_\(explicitAccountID)_") {
                 defaults.removeObject(forKey: key)
             }
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_buffer_overflow.") {
+                defaults.removeObject(forKey: key)
+            }
             privateSyncEngine = nil
             sharedSyncEngine = nil
             lastSyncedAt = nil
             syncError = nil
             lastPushReceivedAt = nil
+            lastChangeReceivedAt = nil
+            clearBufferOverflow()
             logger.info("CKSyncEngine state reset for both private and shared databases (account: \(explicitAccountID, privacy: .private))")
             return
         }
@@ -655,7 +895,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         }
         defaults.removeObject(forKey: "ck_sync_engine_state_private")
         defaults.removeObject(forKey: "ck_sync_engine_state_shared")
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") || key.hasPrefix("cache_fresh_") {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") || key.hasPrefix("cache_fresh_") || key.hasPrefix("ck_buffer_overflow.") {
             defaults.removeObject(forKey: key)
         }
 
@@ -664,6 +904,8 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         lastSyncedAt = nil
         syncError = nil
         lastPushReceivedAt = nil
+        lastChangeReceivedAt = nil
+        clearBufferOverflow()
         let logID = stableFamilyRecordName() ?? appState?.currentProfile?.id.recordName ?? "none"
         logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID, privacy: .private))")
     }
@@ -675,5 +917,10 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     /// and `AppLifecycleCoordinator.reconcileCacheFromCloudKit` completion.
     func notePushReceived(at date: Date = Date()) {
         lastPushReceivedAt = date
+    }
+
+    /// Display-only marker for engine-delivered changes; independent of push/reconcile age and never stamps freshness.
+    func noteChangeReceived(at date: Date = Date()) {
+        lastChangeReceivedAt = date
     }
 }

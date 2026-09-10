@@ -8,11 +8,72 @@
 import CloudKit
 import Foundation
 import os
-import Synchronization
 
 extension Notification.Name {
     static let didClearSession = Notification.Name("didClearSession")
     static let familyRosterChanged = Notification.Name("familyRosterChanged")
+}
+
+/// WHY typed signals: stringly-typed channels lose payloads and ordering, so
+/// quick actions and notification routes ride AsyncStream buses with cold-start
+/// retention. NotificationCenter posts remain as a legacy ingress adapter until
+/// all producers emit directly.
+@MainActor
+final class QuickActionSignalBus {
+    private static var continuations: [UUID: AsyncStream<QuickActionType>.Continuation] = [:]
+    private static var retainedAction: QuickActionType?
+
+    static func emit(_ action: QuickActionType) {
+        retainedAction = action
+        for (_, continuation) in continuations {
+            continuation.yield(action)
+        }
+    }
+
+    static func takePending() -> QuickActionType? {
+        defer { retainedAction = nil }
+        return retainedAction
+    }
+
+    static func stream() -> AsyncStream<QuickActionType> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            continuation.onTermination = { _ in
+                Task { await MainActor.run { continuations.removeValue(forKey: id) } }
+            }
+        }
+    }
+}
+
+/// WHY retained route: taps arriving before the first subscriber (cold start)
+/// must still navigate once views mount, so the bus keeps the last route.
+@MainActor
+final class NotificationRouteSignalBus {
+    private static var continuations: [UUID: AsyncStream<NotificationRoute>.Continuation] = [:]
+    private static var retainedRoute: NotificationRoute?
+
+    static func emit(_ route: NotificationRoute) {
+        retainedRoute = route
+        for (_, continuation) in continuations {
+            continuation.yield(route)
+        }
+    }
+
+    static func takePending() -> NotificationRoute? {
+        defer { retainedRoute = nil }
+        return retainedRoute
+    }
+
+    static func stream() -> AsyncStream<NotificationRoute> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            continuation.onTermination = { _ in
+                Task { await MainActor.run { continuations.removeValue(forKey: id) } }
+            }
+        }
+    }
 }
 
 @MainActor
@@ -121,6 +182,8 @@ final class AppState {
     var familyZoneID: CKRecordZone.ID? {
         didSet {
             guard oldValue != familyZoneID else { return }
+            // WHY family-before-zone: callers assign `family` first so zone
+            // observers always see consistent family context on change.
             familyZoneIDChangeSignal = UUID()
             onFamilyZoneIDChange?()
         }
@@ -162,10 +225,7 @@ final class AppState {
     }
 
     @ObservationIgnored
-    private let quickActionTaskLock = Mutex<Task<Void, Never>?>(nil)
-
-    @ObservationIgnored
-    private let notificationRouteTaskLock = Mutex<Task<Void, Never>?>(nil)
+    private var signalObservationTask: Task<Void, Never>?
 
     // MARK: - Session Persistence
 
@@ -181,33 +241,98 @@ final class AppState {
         let hasSession = storage.hasActiveSession
         authStatus = hasSession ? .restoringSession : .checkingCloudData
 
-        let qTask = Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
-                if let action = notification.object as? QuickActionType {
-                    self?.pendingQuickAction = action
-                }
-            }
-        }
-        quickActionTaskLock.withLock { $0 = qTask }
-
-        let nTask = Task { [weak self] in
-            if let router = AppDependencies.shared?.notificationRouter,
-               let pending = router.takePendingRoute()
-            {
-                self?.pendingNotificationRoute = pending
-            }
-            for await notification in NotificationCenter.default.notifications(named: .notificationRouteTriggered) {
-                if let route = notification.object as? NotificationRoute {
-                    self?.pendingNotificationRoute = route
-                }
-            }
-        }
-        notificationRouteTaskLock.withLock { $0 = nTask }
+        startSignalObservation()
     }
 
-    deinit {
-        quickActionTaskLock.withLock { $0?.cancel() }
-        notificationRouteTaskLock.withLock { $0?.cancel() }
+    /// Single handling path for quick-action taps, including cold-start taps
+    /// retained by the bus before the first subscriber mounted.
+    func handleQuickAction(_ action: QuickActionType) {
+        pendingQuickAction = action
+    }
+
+    /// Single handling path for notification routes, including cold-start taps
+    /// retained by the router or the bus before views mounted.
+    func handleNotificationRoute(_ route: NotificationRoute) {
+        pendingNotificationRoute = route
+    }
+
+    /// WHY discarding group: the two signal loops share one cancellable scope so
+    /// teardown cancels both without per-task locks. AppState lives for the
+    /// process lifetime, so loops break on weak-self nil and need no deinit hop.
+    private func startSignalObservation() {
+        // WHY drain-before-subscribe: cold-start taps park before this listener
+        // exists, so retained routes land before the live stream resumes.
+        if let pending = QuickActionSignalBus.takePending() {
+            pendingQuickAction = pending
+        }
+        if let router = AppDependencies.shared?.notificationRouter,
+           let pending = router.takePendingRoute()
+        {
+            pendingNotificationRoute = pending
+        }
+        if let retained = NotificationRouteSignalBus.takePending() {
+            pendingNotificationRoute = retained
+        }
+        signalObservationTask = Task { [weak self] in
+            await withDiscardingTaskGroup { group in
+                group.addTask { [weak self] in await self?.observeQuickActionSignals() }
+                group.addTask { [weak self] in await self?.observeNotificationRouteSignals() }
+            }
+        }
+    }
+
+    /// Explicit teardown for previews and tests; production lifetime needs no call.
+    func stopSignalObservation() {
+        signalObservationTask?.cancel()
+        signalObservationTask = nil
+    }
+
+    private func observeQuickActionSignals() async {
+        let signalStream = QuickActionSignalBus.stream()
+        await withDiscardingTaskGroup { group in
+            group.addTask { [weak self] in
+                for await action in signalStream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching view state.
+                    await MainActor.run { self.handleQuickAction(action) }
+                }
+            }
+            group.addTask {
+                // WHY legacy ingress: unmigrated producers still post NotificationCenter,
+                // so forward into the typed bus and let the bus path handle retention.
+                for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
+                    guard !Task.isCancelled else { break }
+                    if let action = notification.object as? QuickActionType {
+                        await MainActor.run { QuickActionSignalBus.emit(action) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func observeNotificationRouteSignals() async {
+        let signalStream = NotificationRouteSignalBus.stream()
+        await withDiscardingTaskGroup { group in
+            group.addTask { [weak self] in
+                for await route in signalStream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching view state.
+                    await MainActor.run { self.handleNotificationRoute(route) }
+                }
+            }
+            group.addTask {
+                // WHY legacy ingress: the router still posts NotificationCenter,
+                // so forward into the typed bus for single-path handling.
+                for await notification in NotificationCenter.default.notifications(named: .notificationRouteTriggered) {
+                    guard !Task.isCancelled else { break }
+                    if let route = notification.object as? NotificationRoute {
+                        await MainActor.run { NotificationRouteSignalBus.emit(route) }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - SessionStorage Delegation

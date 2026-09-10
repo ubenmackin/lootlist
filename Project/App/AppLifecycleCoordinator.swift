@@ -30,6 +30,76 @@ protocol SyncCoordinating: AnyObject {
 
 extension CKSyncEngineCoordinator: SyncCoordinating {}
 
+/// WHY typed signals: session-clear and reconnect previously rode stringly-typed
+/// channels, so lifecycle triggers ride AsyncStream buses with debounce in the
+/// gate. NotificationCenter posts remain as a legacy ingress adapter.
+@MainActor
+final class SessionClearSignal {
+    private static var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    static func emit() {
+        for (_, continuation) in continuations {
+            continuation.yield(())
+        }
+    }
+
+    static func stream() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            continuation.onTermination = { _ in
+                Task { await MainActor.run { continuations.removeValue(forKey: id) } }
+            }
+        }
+    }
+}
+
+/// WHY reconnect bus: connectivity flaps coalesce in the gate's 45s window, so
+/// rapid returns collapse into one snapshot pass instead of one per flap.
+@MainActor
+final class NetworkReconnectSignal {
+    private static var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    static func emit() {
+        for (_, continuation) in continuations {
+            continuation.yield(())
+        }
+    }
+
+    static func stream() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            continuation.onTermination = { _ in
+                Task { await MainActor.run { continuations.removeValue(forKey: id) } }
+            }
+        }
+    }
+}
+
+/// WHY account bus: iCloud account changes reset engines, so the signal carries
+/// no payload and the state machine decides recovery.
+@MainActor
+final class AccountChangeSignal {
+    private static var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    static func emit() {
+        for (_, continuation) in continuations {
+            continuation.yield(())
+        }
+    }
+
+    static func stream() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            continuation.onTermination = { _ in
+                Task { await MainActor.run { continuations.removeValue(forKey: id) } }
+            }
+        }
+    }
+}
+
 // MARK: - AppLifecycleCoordinator
 
 /// Centralized sync/payout/migration trigger — single-flight state machine.
@@ -224,9 +294,7 @@ final class AppLifecycleCoordinator {
     /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
     let payoutScheduler: (PayoutDay) -> Bool
 
-    @ObservationIgnored private var sessionClearTask: Task<Void, Never>?
-    @ObservationIgnored private var networkReconnectTask: Task<Void, Never>?
-    @ObservationIgnored private var accountChangeTask: Task<Void, Never>?
+    @ObservationIgnored private var signalObservationTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -250,17 +318,6 @@ final class AppLifecycleCoordinator {
             return true
         }
 
-        // Observe session clear so the cached scope key does not survive a sign-out.
-        sessionClearTask = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .didClearSession) {
-                guard !Task.isCancelled, let self else { break }
-                // WHY hop: notification sequence resumes off isolation, so re-enter MainActor before touching gate state.
-                await MainActor.run {
-                    self.invalidateScopeStateForSessionClear()
-                }
-            }
-        }
-
         // Typed zone-change observation replaces the former `didChangeFamilyZoneID`
         // NotificationCenter channel. `AppState` bumps `familyZoneIDChangeSignal`
         // and invokes `onFamilyZoneIDChange` directly, so no stringly-typed
@@ -270,41 +327,118 @@ final class AppLifecycleCoordinator {
             self?.invalidateScopeForZoneChange()
         }
 
-        // Trigger automatic catch-up sync when network connectivity returns.
-        // Throttled: rapid reconnect flaps must not each fire a full snapshot pass.
-        networkReconnectTask = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .networkDidReconnect) {
-                guard !Task.isCancelled, let self else { break }
-                // WHY hop: notification sequence resumes off isolation, so re-enter MainActor before touching gate state.
-                let shouldSync: Bool = await MainActor.run {
-                    self.syncGate.consumeReconnectTrigger()
-                }
-                guard shouldSync else {
-                    await MainActor.run {
-                        self.logger
-                            .debug(
-                                "Reconnect sync throttled: last pass within \(Self.reconnectSyncMinimumInterval)s window"
-                            )
-                    }
-                    continue
-                }
-                await self.performManualSync()
-            }
-        }
+        startSignalObservation()
+    }
 
-        accountChangeTask = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .CKAccountChanged) {
-                guard !Task.isCancelled, let self, let appState = self.appState else { break }
-                // WHY hop: notification sequence resumes off isolation, so re-enter MainActor before touching auth state.
-                await appState.authStateMachine.send(.accountChanged)
+    /// WHY discarding group: session, reconnect, and account loops share one
+    /// cancellable scope so teardown cancels all three without per-task state.
+    private func startSignalObservation() {
+        signalObservationTask = Task { [weak self] in
+            await withDiscardingTaskGroup { group in
+                group.addTask { [weak self] in await self?.observeSessionClearSignals() }
+                group.addTask { [weak self] in await self?.observeReconnectSignals() }
+                group.addTask { [weak self] in await self?.observeAccountChangeSignals() }
             }
         }
     }
 
-    deinit {
-        sessionClearTask?.cancel()
-        networkReconnectTask?.cancel()
-        accountChangeTask?.cancel()
+    /// Explicit teardown for tests and previews.
+    func stopSignalObservation() {
+        signalObservationTask?.cancel()
+        signalObservationTask = nil
+    }
+
+    private func observeSessionClearSignals() async {
+        let signalStream = SessionClearSignal.stream()
+        await withDiscardingTaskGroup { group in
+            group.addTask { [weak self] in
+                for await _ in signalStream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching gate state.
+                    await MainActor.run { self.invalidateScopeStateForSessionClear() }
+                }
+            }
+            group.addTask {
+                // WHY legacy ingress: session clearing still posts NotificationCenter,
+                // so forward into the typed bus for single-path handling.
+                for await _ in NotificationCenter.default.notifications(named: .didClearSession) {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run { SessionClearSignal.emit() }
+                }
+            }
+        }
+    }
+
+    private func observeReconnectSignals() async {
+        let signalStream = NetworkReconnectSignal.stream()
+        await withDiscardingTaskGroup { group in
+            group.addTask { [weak self] in
+                for await _ in signalStream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    await self.handleReconnectSignal()
+                }
+            }
+            group.addTask {
+                // WHY legacy ingress: the monitor still posts NotificationCenter,
+                // so forward into the typed bus where the gate debounces flaps.
+                for await _ in NotificationCenter.default.notifications(named: .networkDidReconnect) {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run { NetworkReconnectSignal.emit() }
+                }
+            }
+        }
+    }
+
+    private func handleReconnectSignal() async {
+        // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching gate state.
+        let shouldSync: Bool = await MainActor.run {
+            self.syncGate.consumeReconnectTrigger()
+        }
+        guard shouldSync else {
+            await MainActor.run {
+                self.logger
+                    .debug(
+                        "Reconnect sync throttled: last pass within \(Self.reconnectSyncMinimumInterval)s window"
+                    )
+            }
+            return
+        }
+        await self.performManualSync()
+    }
+
+    private func observeAccountChangeSignals() async {
+        let signalStream = AccountChangeSignal.stream()
+        await withDiscardingTaskGroup { group in
+            group.addTask { [weak self] in
+                for await _ in signalStream {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching auth state.
+                    let shouldBreak = await self.handleAccountChangeSignal()
+                    if shouldBreak {
+                        break
+                    }
+                }
+            }
+            group.addTask {
+                // WHY legacy ingress: CloudKit posts the system notification, so
+                // forward into the typed bus for single-path handling.
+                for await _ in NotificationCenter.default.notifications(named: .CKAccountChanged) {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run { AccountChangeSignal.emit() }
+                }
+            }
+        }
+    }
+
+    /// WHY serialize: nil check and state-machine send stay on one MainActor hop
+    /// so teardown still breaks the loop instead of racing separate hops.
+    private func handleAccountChangeSignal() async -> Bool {
+        guard let appState else { return true }
+        await appState.authStateMachine.send(.accountChanged)
+        return false
     }
 
     /// Convenience initializer preserving the existing `CKSyncEngineCoordinator` call site.

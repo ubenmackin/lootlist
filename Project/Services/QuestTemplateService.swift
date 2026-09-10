@@ -50,31 +50,17 @@ final class QuestTemplateService {
         }
         let state = appState ?? AppState()
         // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
-        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
-        if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
-            self.init(
-                cloudKit: cloudKit,
-                cacheService: cache,
-                appState: state,
-                syncCoordinator: coord
-            )
-        } else {
-            #if DEBUG
-                if TestEnvironment.isRunningUnitOrUITests {
-                    Self.staticLogger.warning("QuestTemplateService initialized without syncCoordinator; using test Noop seam.")
-                } else {
-                    Self.staticLogger.error("QuestTemplateService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
-                }
-                self.init(
-                    cloudKit: cloudKit,
-                    cacheService: cache,
-                    appState: state,
-                    syncCoordinator: NoopSyncEnqueuing()
-                )
-            #else
-                preconditionFailure("QuestTemplateService requires a sync coordinator in production")
-            #endif
-        }
+        let coord = ServiceInitHelper.resolveSyncCoordinator(
+            provided: syncCoordinator,
+            logger: Self.staticLogger,
+            serviceName: "QuestTemplateService"
+        )
+        self.init(
+            cloudKit: cloudKit,
+            cacheService: cache,
+            appState: state,
+            syncCoordinator: coord
+        )
     }
 
     // MARK: - Quest Templates

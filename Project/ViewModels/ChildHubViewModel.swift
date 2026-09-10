@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import os
 
 /// One row in the hub's Today's Chores list. Pending-review rows render amber
 /// (the chore is done from the child's perspective, waiting on a parent);
@@ -54,6 +55,7 @@ struct ActiveGoalSummary: Identifiable {
 @MainActor
 @Observable
 final class ChildHubViewModel {
+    private static let logger = Logger(category: "ChildHubViewModel")
     private(set) var bucketBalances: [BucketKind: Int64] = [:]
     private(set) var choreRows: [ChoreRowItem] = []
     private(set) var weeklyCompleted: Int = 0
@@ -64,9 +66,16 @@ final class ChildHubViewModel {
     private let appState: AppState
     private let bucketService: BucketService
 
-    init(appState: AppState, cacheService: CacheService?) {
+    /// WHY diff-before-encode: Query pulses refire on unrelated writes, so identical snapshots never reach the bridge.
+    @ObservationIgnored private var lastWidgetContent: WidgetSnapshot?
+
+    init(appState: AppState, cacheService: (any CacheServicing)?, syncCoordinator: (any SyncEnqueuing)?) {
         self.appState = appState
-        self.bucketService = BucketService(cacheService: cacheService as (any CacheServicing)?)
+        self.bucketService = BucketService(
+            cacheService: ServiceInitHelper.resolveCacheService(provided: cacheService, logger: Self.logger, serviceName: "ChildHubViewModel"),
+            syncCoordinator: ServiceInitHelper.resolveSyncCoordinator(provided: syncCoordinator, logger: Self.logger, serviceName: "ChildHubViewModel"),
+            appState: appState
+        )
     }
 
     // MARK: - Derived Figures
@@ -241,6 +250,10 @@ final class ChildHubViewModel {
             nextQuestTitle: nextChore,
             lastUpdated: Date()
         )
+        if let last = lastWidgetContent, last.hasSameContent(as: snapshot) {
+            return
+        }
+        lastWidgetContent = snapshot
         WidgetDataBridge.saveSnapshot(snapshot)
     }
 

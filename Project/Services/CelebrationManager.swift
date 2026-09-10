@@ -146,14 +146,14 @@ final class CelebrationManager {
     func triggerConfetti() {
         confettiDismissTask?.cancel()
         isConfettiShowing = true
-        confettiDismissTask = Task {
+        confettiDismissTask = Task { [weak self] in
             do {
                 try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
             } catch {
                 Self.logger.debug("Confetti auto-dismiss timer interrupted: \(error, privacy: .private)")
             }
             guard !Task.isCancelled else { return }
-            isConfettiShowing = false
+            await MainActor.run { self?.isConfettiShowing = false }
         }
     }
 }

@@ -45,7 +45,6 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
 @MainActor
 @Observable
 final class BucketService {
-    private static let staticLogger = Logger(category: "BucketService")
     private let logger = Logger(category: "BucketService")
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
@@ -58,20 +57,6 @@ final class BucketService {
         self.cacheService = cacheService
         self.syncCoordinator = syncCoordinator
         self.appState = appState
-    }
-
-    /// Convenience for callers that supply cacheService only.
-    convenience init(cacheService: any CacheServicing) {
-        self.init(
-            cacheService: cacheService,
-            syncCoordinator: ServiceInitHelper.resolveSyncCoordinator(provided: nil, logger: Self.staticLogger, serviceName: "BucketService"),
-            appState: AppState()
-        )
-    }
-
-    /// Legacy optional shim for call sites that have not yet migrated.
-    convenience init(cacheService: (any CacheServicing)? = nil) {
-        self.init(cacheService: ServiceInitHelper.resolveCacheService(provided: cacheService, logger: Self.staticLogger, serviceName: "BucketService"))
     }
 
     // MARK: - Split Math
@@ -275,19 +260,16 @@ final class BucketService {
             throw BucketServiceError.invalidAmount
         }
 
-        // Self-ownership gate: a child can only transfer their own funds.
-        guard let acting = appState.currentProfile,
-              acting.id == profile.id
-        else {
+        // WHY single gate: self-ownership plus family scope share one helper so child self-only never drifts.
+        do {
+            _ = try ActiveFamilyScopeGuard.requireMutationContext(
+                appState: appState,
+                familyRecordName: family.id.recordName,
+                expectedSelf: profile
+            )
+        } catch let error as FamilyServiceError where error == .unauthorized {
             throw BucketServiceError.unauthorized
         }
-
-        // Family-scope guard: the transfer must target the active family so a
-        // stale or mismatched scope cannot produce phantom ledger entries.
-        try ActiveFamilyScopeGuard.requireActiveFamily(
-            familyRecordName: family.id.recordName,
-            appState: appState
-        )
 
         // Check available balance in the source bucket.
         let entries = cacheService.fetchLedgerEntries(

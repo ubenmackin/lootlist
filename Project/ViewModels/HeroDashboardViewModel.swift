@@ -54,12 +54,26 @@ final class HeroDashboardViewModel {
 
     // MARK: - List Building
 
-    func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache], allowancePeriods: [AllowancePeriodCache]) {
-        guard let profileName = appState.currentProfile?.id.recordName,
-              appState.family != nil
+    func rebuildLists(
+        quests: [QuestCache],
+        logs: [QuestCompletionCache],
+        templates: [QuestTemplateCache],
+        allowancePeriods: [AllowancePeriodCache],
+        viewerRow: ProfileCache? = nil,
+        familyRow: FamilyCache? = nil
+    ) {
+        // WHY row-first: week math must mirror @Query rows so payout-day edits never disagree with gating.
+        let resolvedProfileName = viewerRow?.recordName ?? appState.currentProfile?.id.recordName
+        let resolvedFamilyName = familyRow?.recordName ?? appState.family?.id.recordName
+        guard let profileName = resolvedProfileName,
+              resolvedFamilyName != nil
         else { return }
 
-        let payoutDay = appState.resolvedPayoutDay
+        let payoutDay: PayoutDay = if viewerRow != nil || familyRow != nil {
+            PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
+        } else {
+            appState.resolvedPayoutDay
+        }
         weekDays = HeroDashboardViewModel.currentWeekDays(payoutDay: payoutDay)
         let todayCode = HeroDashboardViewModel.todayWeekdayCode()
 
@@ -135,13 +149,17 @@ final class HeroDashboardViewModel {
 
         let heroLogs = logs.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroLogs)
-        let profileRecordName = appState.currentProfile?.id.recordName ?? ""
-        let payoutPolicy = appState.currentProfile?.payoutPolicy ?? appState.family?.payoutPolicy
+        // WHY row-first: payout policy must mirror @Query rows so pending math never disagrees with gating.
+        let payoutPolicy: PayoutPolicy? = if viewerRow != nil || familyRow != nil {
+            viewerRow?.payoutPolicyEnum ?? familyRow?.payoutPolicyEnum
+        } else {
+            appState.currentProfile?.payoutPolicy ?? appState.family?.payoutPolicy
+        }
         earnedThisWeek = Self.earnedThisWeek(
             logs: heroLogs,
             quests: quests,
             allowancePeriods: allowancePeriods,
-            profileRecordName: profileRecordName,
+            profileRecordName: profileName,
             payoutPolicy: payoutPolicy,
             payoutDay: payoutDay,
             templatesByID: templatesByID

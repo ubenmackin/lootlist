@@ -81,7 +81,7 @@ enum CacheFirst {
             }
             // Only transient network failures fall back to stale cache. Persistent
             // CloudKit errors rethrow so callers can surface them (§5).
-            guard operations.fallbackToStale, isTransientNetworkError(error) else {
+            guard operations.fallbackToStale, CloudKitErrorClassifier.isTransient(error) else {
                 throw error
             }
             cacheFirstLogger
@@ -94,27 +94,6 @@ enum CacheFirst {
             }
             return mapped
         }
-    }
-
-    /// Returns `true` for transient network errors that justify stale-cache
-    /// fallback; all other errors should surface to the caller.
-    private static func isTransientNetworkError(_ error: Error) -> Bool {
-        if let ckError = error as? CKError {
-            return ckError.code == .networkUnavailable || ckError.code == .networkFailure
-        }
-        if let serviceError = error as? CloudKitServiceError {
-            switch serviceError {
-            case .networkUnavailable, .retryable, .exhaustedBudget:
-                return true
-            case .notFound:
-                // WHY: server-missing is persistent, so callers surface it instead of masking as stale cache.
-                return false
-            default:
-                // WHY: other server errors are persistent, so callers surface them instead of masking as stale cache.
-                return false
-            }
-        }
-        return false
     }
 
     /// WHY single source: quest-log and payout paths patch CloudKit-missing

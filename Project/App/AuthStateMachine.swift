@@ -38,22 +38,14 @@ final class AuthStateMachine {
     private func handle(_ event: Event, appState: AppState) {
         switch event {
         case .accountChanged:
-            // Former didSet: defer discovery while a complete persisted session awaits restoreSession.
-            let proposed: AppState.AuthStatus = .checkingCloudData
-            let current = appState.authStatus
-            guard proposed == .checkingCloudData,
-                  current == .restoringSession,
-                  appState.family == nil,
-                  appState.currentProfile == nil,
-                  hasCompletePersistedSession()
-            else {
-                if appState.authStatus != .checkingCloudData {
-                    appState.authStatus = .checkingCloudData
-                }
+            // WHY defer: account flap must not interrupt an in-flight session restore.
+            if appState.authStatus == .restoringSession, hasCompletePersistedSession() {
+                logger.info("Deferring account-change discovery until the persisted session is restored")
                 return
             }
-            logger.info("Deferring account-change discovery until the persisted session is restored")
-            appState.authStatus = .restoringSession
+            if appState.authStatus != .checkingCloudData {
+                appState.authStatus = .checkingCloudData
+            }
         case .sessionRestored:
             // Serialized completion marker; restoreSession itself sets .authenticated.
             break

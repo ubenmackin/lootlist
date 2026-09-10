@@ -7,21 +7,57 @@
 
 import Foundation
 import os
+import Synchronization
 
 /// Canonical formatter for locale-aware currency display backed by `FormatStyle.Currency`.
 enum CurrencyFormatter: Sendable {
     private static let logger = Logger(category: "CurrencyFormatter")
+
+    // WHY cache: FormatStyle construction allocates; per-code bases reuse across calls.
+    private static let doubleCurrencyCache = Mutex<[String: FloatingPointFormatStyle<Double>.Currency]>([:])
+    private static let decimalCurrencyCache = Mutex<[String: Decimal.FormatStyle.Currency]>([:])
+    private static let editingNumberCache = Mutex<[String: Decimal.FormatStyle]>([:])
 
     static var currencyCode: String {
         Locale.current.currency?.identifier ?? "USD"
     }
 
     static var currencyStyle: FloatingPointFormatStyle<Double>.Currency {
-        FloatingPointFormatStyle<Double>.Currency(code: currencyCode).locale(Locale.current)
+        let code = currencyCode
+        let base = doubleCurrencyCache.withLock { cache -> FloatingPointFormatStyle<Double>.Currency in
+            if let hit = cache[code] {
+                return hit
+            }
+            let fresh = FloatingPointFormatStyle<Double>.Currency(code: code)
+            cache[code] = fresh
+            return fresh
+        }
+        return base.locale(Locale.current)
     }
 
     static var decimalCurrencyStyle: Decimal.FormatStyle.Currency {
-        Decimal.FormatStyle.Currency(code: currencyCode).locale(Locale.current)
+        let code = currencyCode
+        let base = decimalCurrencyCache.withLock { cache -> Decimal.FormatStyle.Currency in
+            if let hit = cache[code] {
+                return hit
+            }
+            let fresh = Decimal.FormatStyle.Currency(code: code)
+            cache[code] = fresh
+            return fresh
+        }
+        return base.locale(Locale.current)
+    }
+
+    private static var editingNumberStyle: Decimal.FormatStyle {
+        let key = Locale.current.identifier
+        return editingNumberCache.withLock { cache -> Decimal.FormatStyle in
+            if let hit = cache[key] {
+                return hit
+            }
+            let fresh = Decimal.FormatStyle.number.precision(.fractionLength(2)).grouping(.never).locale(Locale.current)
+            cache[key] = fresh
+            return fresh
+        }
     }
 
     /// Compatibility shim — existing 20+ call sites keep calling string(_:)
@@ -73,8 +109,9 @@ enum CurrencyFormatter: Sendable {
         signed(pennies: pennies)
     }
 
+    /// WHY locale number: fields and CSV round-trip through the device decimal separator.
     static func editingString(pennies: Int64) -> String {
-        String(format: "%.2f", Double(pennies) / 100.0)
+        (Decimal(pennies) / 100).formatted(editingNumberStyle)
     }
 
     static func editingString(_ pennies: Int64) -> String {
@@ -103,7 +140,7 @@ enum CurrencyFormatter: Sendable {
     }
 
     static func editingString(_ amount: Double) -> String {
-        String(format: "%.2f", amount)
+        editingString(pennies: dollarsToPennies(amount))
     }
 
     static var currencySymbol: String {

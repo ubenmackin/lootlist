@@ -73,11 +73,19 @@ final class QuestCompletionService {
 
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        guard let acting = appState.currentProfile,
-              acting.id == profile.id
-        else {
+        // WHY single gate: self-acting plus scope share one helper so unauthorized versus scope-violation never drifts.
+        let acting: Profile
+        do {
+            acting = try ActiveFamilyScopeGuard.requireMutationContext(
+                appState: appState,
+                familyRef: quest.family,
+                zoneID: quest.id.zoneID,
+                cloudKit: cloudKit,
+                expectedSelf: profile
+            )
+        } catch let error as FamilyServiceError {
             logger.warning("markComplete aborted: acting profile mismatch for quest \(quest.id.recordName, privacy: .private)")
-            throw FamilyServiceError.unauthorized
+            throw error
         }
         guard quest.assignee.recordID.recordName == profile.id.recordName || acting.role.isParent else {
             logger.warning("markComplete aborted: assignee mismatch for quest \(quest.id.recordName, privacy: .private)")
@@ -89,12 +97,6 @@ final class QuestCompletionService {
             logger.warning("markComplete aborted: family/zone mismatch for quest \(quest.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
-            familyRef: quest.family,
-            zoneID: quest.id.zoneID,
-            appState: appState,
-            cloudKit: cloudKit
-        )
         let questName = quest.id.recordName
         let inserted = inFlightCompletions.withLock { $0.insert(questName).inserted }
         guard inserted else {
@@ -169,7 +171,7 @@ final class QuestCompletionService {
                 awardApplied = true
             }
         } catch {
-            if isTransientCompletionError(error) {
+            if CloudKitErrorClassifier.isTransient(error) {
                 return try await handleAutoApproveTransient(
                     log: mutableLog,
                     quest: quest,
@@ -509,49 +511,5 @@ final class QuestCompletionService {
                 throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
             }
         }
-    }
-
-    /// WHY transient isolates optimistic path: hard errors roll back via tombstone.
-    private func isTransientCompletionError(_ error: Error) -> Bool {
-        if let ckError = error as? CKError {
-            switch ckError.code {
-            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy, .resultsTruncated:
-                return true
-            case .operationCancelled:
-                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
-                    return true
-                }
-                return false
-            default:
-                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
-                    return true
-                }
-                // Also treat timeout-wrapped errors.
-                if (error as NSError).domain == NSURLErrorDomain, (error as NSError).code == NSURLErrorTimedOut {
-                    return true
-                }
-                return false
-            }
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorTimedOut {
-            return true
-        }
-        if let serviceError = error as? CloudKitServiceError {
-            switch serviceError {
-            case .networkUnavailable, .retryable, .exhaustedBudget:
-                return true
-            case .zoneNotFound, .notFound, .serverRecordChanged, .changeTokenExpired, .invalidArguments, .accountUnavailable, .shareFailed, .shareAcceptFailed,
-                 .paginationExhausted,
-                 .underlying, .zoneSetupFailed:
-                return false
-            }
-        }
-        // Non-CKError (validation, permission, unknownItem path) is hard per spec.
-        if error is CKError {
-            return false
-        }
-        // Any CKError partialFailure or permission errors are hard — already covered by default false.
-        return false
     }
 }

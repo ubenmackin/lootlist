@@ -141,22 +141,11 @@ final class LinkMetadataService {
 
     /// Extracts the first og:image or twitter:image URL from HTML, resolving relative URLs against baseURL.
     nonisolated static func extractOGImage(from html: String, baseURL: URL) -> String? {
-        let metaPattern = "<meta[^>]+>"
-        let metaRegex: NSRegularExpression
-        do {
-            metaRegex = try NSRegularExpression(pattern: metaPattern, options: .caseInsensitive)
-        } catch {
-            return nil
-        }
-        let range = NSRange(html.startIndex..., in: html)
-        let matches = metaRegex.matches(in: html, options: [], range: range)
-
         var ogCandidate: String?
         var twitterCandidate: String?
 
-        for match in matches {
-            guard let tagRange = Range(match.range, in: html) else { continue }
-            let tag = String(html[tagRange])
+        for match in html.matches(of: /(?i)<meta[^>]+>/) {
+            let tag = String(match.output)
             let lower = tag.lowercased()
 
             // Prefer og:image over twitter:image — track first of each.
@@ -181,18 +170,8 @@ final class LinkMetadataService {
     }
 
     private nonisolated static func extractContent(from tag: String) -> String? {
-        let pattern = #"content\s*=\s*["']([^"']+)["']"#
-        let regex: NSRegularExpression
-        do {
-            regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-        } catch {
-            return nil
-        }
-        let range = NSRange(tag.startIndex..., in: tag)
-        guard let match = regex.firstMatch(in: tag, options: [], range: range),
-              match.numberOfRanges > 1,
-              let contentRange = Range(match.range(at: 1), in: tag) else { return nil }
-        let content = String(tag[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = tag.firstMatch(of: /(?i)content\s*=\s*["']([^"']+)["']/) else { return nil }
+        let content = String(match.output.1).trimmingCharacters(in: .whitespacesAndNewlines)
         return content.isEmpty ? nil : content
     }
 
@@ -212,7 +191,7 @@ final class LinkMetadataService {
     }
 
     nonisolated static func fetchRawHTML(for url: URL) async -> String? {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 8)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 6)
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

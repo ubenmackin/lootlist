@@ -9,6 +9,8 @@ import os
 import SwiftData
 import SwiftUI
 
+/// Checklist-focused hero home: player card plus first-run checklist and immersive journey surfaces.
+/// WHY second hub: ChildHubView owns balance, chores, and goal momentum; this view owns onboarding checklist and player identity so neither hub duplicates the other's transforms.
 struct HeroHomeView: View {
     @Environment(AppState.self) private var appState
     @Environment(XPService.self) private var xpService
@@ -25,6 +27,7 @@ struct HeroHomeView: View {
     @Query private var cachedGemLedgers: [GemLedgerCache]
     @Query private var currentProfileRows: [ProfileCache]
     @Query private var cachedGoals: [GoalCache]
+    @Query private var cachedFamilies: [FamilyCache]
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var showingJourneyMap = false
@@ -53,6 +56,7 @@ struct HeroHomeView: View {
         let currentProfileFilter = HubQueryProvider.currentProfileFilter(family: targetFamily, profile: targetProfile)
         let templateFilter = HubQueryProvider.templateFilter(family: targetFamily)
         let profileFilter = HubQueryProvider.profileFilter(family: targetFamily)
+        let familyFilter = FamilyCache.recordPredicate(recordName: targetFamily)
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(filter: questFilter, sort: HubQueryProvider.questSort())
@@ -63,6 +67,10 @@ struct HeroHomeView: View {
         _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: HubQueryProvider.gemSort())
         _currentProfileRows = Query(filter: currentProfileFilter, sort: \ProfileCache.displayName)
         _cachedGoals = Query(filter: goalFilter, sort: HubQueryProvider.goalSort())
+        _cachedFamilies = Query(
+            filter: familyFilter,
+            sort: [SortDescriptor(\FamilyCache.name), SortDescriptor(\FamilyCache.recordName)]
+        )
     }
 
     /// Queried cache row for the active hero profile. Nil when the session
@@ -75,20 +83,25 @@ struct HeroHomeView: View {
         )
     }
 
+    /// Queried family row; nil when scope has no synced row (fail-closed rendering).
+    private var cachedFamilyRow: FamilyCache? {
+        cachedFamilies.first
+    }
+
     /// Quests assigned to the active hero profile.
     private var profileQuests: [QuestCache] {
-        // WHY: defensive — predicate is source of truth; guards against stale identity drift.
+        // WHY: predicate is primary scope; secondary filter blocks cross-profile leak when identity resolves late.
         guard let name = currentProfileRow?.recordName,
               profileRecordName == nil || profileRecordName == name else { return [] }
-        return cachedQuests
+        return cachedQuests.filter { $0.assigneeRecordName == name }
     }
 
     /// Completions logged by the active hero profile.
     private var profileLogs: [QuestCompletionCache] {
-        // WHY: defensive — store is source of truth; guards against stale identity drift.
+        // WHY: predicate is primary scope; secondary filter blocks cross-profile leak when identity resolves late.
         guard let name = currentProfileRow?.recordName,
               profileRecordName == nil || profileRecordName == name else { return [] }
-        return cachedCompletions
+        return cachedCompletions.filter { $0.completerRecordName == name }
     }
 
     // MARK: - Checklist
@@ -169,9 +182,18 @@ struct HeroHomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                scrollContent
-            }
+            heroSurface
+        }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch; defensive filter in rebuild() is secondary guard.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+    }
+
+    // MARK: - Subviews
+
+    /// WHY split: keeping the presentation modifiers on their own expression lets the type-checker solve
+    /// the scroll surface and the observer chain independently instead of as one nested generic.
+    private var heroSurface: some View {
+        heroScrollSurface
             .background(Color(DesignSystemConstants.Colors.background))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
@@ -185,49 +207,56 @@ struct HeroHomeView: View {
             .sheet(item: $checklistSheetItem) { item in
                 checklistSheet(for: item)
             }
-            .task {
-                migrateDismissals()
-                ensureViewModel()
-            }
-            .onChange(of: cachedQuests) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedCompletions) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedTemplates) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                rebuildViewModel()
-            }
+    }
+
+    /// WHY split: lifecycle and query-change observers are grouped away from presentation modifiers so
+    /// neither chain has to be inferred together.
+    private var heroScrollSurface: some View {
+        heroObservedScroll
             .onChange(of: cachedAllowancePeriods) { _, _ in
                 rebuildViewModel()
             }
             .onChange(of: cachedGoals) { _, _ in
                 rebuildViewModel()
             }
-        }
-        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch; defensive filter in rebuild() is secondary guard.
-        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+            .onChange(of: currentProfileRows) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedGemLedgers) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedFamilies) { _, _ in
+                rebuildViewModel()
+            }
     }
 
-    // MARK: - Subviews
+    /// WHY split: the scroll view, its lifecycle hook, and the leading observers form one expression so
+    /// the remaining observer group on `heroScrollSurface` stays a shallow modifier chain.
+    private var heroObservedScroll: some View {
+        ScrollView {
+            scrollContent
+        }
+        .task {
+            migrateDismissals()
+            ensureViewModel()
+        }
+        .onChange(of: cachedQuests) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedCompletions) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedTemplates) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedProfiles) { _, _ in
+            rebuildViewModel()
+        }
+    }
 
     private var scrollContent: some View {
         VStack(spacing: DesignSystemConstants.Padding.standard) {
-            if shouldShowChecklist, let row = currentProfileRow {
-                let splitIsDefault = splitIsDefault(for: row)
-                HeroChecklistCardView(
-                    profileRow: row,
-                    pendingNotification: !effectiveHasSeenNotificationPrime,
-                    splitIsDefault: splitIsDefault,
-                    hasCompletedFirstQuest: hasCompletedFirstQuest,
-                    hasFirstGoal: hasFirstGoal,
-                    onAction: handleChecklistAction,
-                    hasDismissedHeroChecklist: scopedChecklistBinding
-                )
-            }
+            checklistCard
 
             DailyLoginBannerView(compactMode: true)
 
@@ -241,6 +270,24 @@ struct HeroHomeView: View {
         }
         .padding(.horizontal, DesignSystemConstants.Padding.standard)
         .padding(.bottom, DesignSystemConstants.Padding.standard - 4)
+    }
+
+    /// WHY split: isolates the checklist initializer's overload resolution and optional row unwrap from
+    /// the surrounding stack so neither expression compounds the other's inference.
+    @ViewBuilder
+    private var checklistCard: some View {
+        if shouldShowChecklist, let row = currentProfileRow {
+            let splitIsDefault = splitIsDefault(for: row)
+            HeroChecklistCardView(
+                profileRow: row,
+                pendingNotification: !effectiveHasSeenNotificationPrime,
+                splitIsDefault: splitIsDefault,
+                hasCompletedFirstQuest: hasCompletedFirstQuest,
+                hasFirstGoal: hasFirstGoal,
+                onAction: handleChecklistAction,
+                hasDismissedHeroChecklist: scopedChecklistBinding
+            )
+        }
     }
 
     @ViewBuilder
@@ -311,7 +358,8 @@ struct HeroHomeView: View {
                 shields: row.streakShields,
                 completed: viewModel?.completedQuestCount ?? 0,
                 total: profileQuests.count,
-                familyName: appState.family?.name
+                // WHY cache-first family: pill renders the queried row so display never reads session domain.
+                familyName: cachedFamilyRow?.name
             )
         }
     }
@@ -351,7 +399,7 @@ struct HeroHomeView: View {
         let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }
         let logs = cachedCompletions.filter { $0.completerRecordName == currentName }
         let periods = cachedAllowancePeriods.filter { $0.profileRecordName == currentName }
-        targetVM.rebuildLists(quests: quests, logs: logs, templates: cachedTemplates, allowancePeriods: periods)
+        targetVM.rebuildLists(quests: quests, logs: logs, templates: cachedTemplates, allowancePeriods: periods, viewerRow: currentProfileRow, familyRow: cachedFamilyRow)
     }
 
     // MARK: - Checklist Actions

@@ -196,27 +196,21 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     }
                     self.logger.warning("nextRecordZoneChangeBatch removed dangling pending save for \(recordID.recordName, privacy: .private) — enqueued delete")
                 } else {
-                    // WHY: `locallyDeleted == false` is ambiguous — row still present (retain)
-                    // or fetch threw (unknown stall); distinguish via fetchSucceeded
-                    // so unknown does not spin indefinitely.
+                    // WHY retain-and-retry: `locallyDeleted == false` is ambiguous — the row may
+                    // still be present (transient bridge validation) or the fetch may have thrown
+                    // (unknown stall). Both must retain the pending save and schedule a backoff
+                    // retry with a 30s deadline so the stall neither drops the save nor spins
+                    // indefinitely; the fetch result only distinguishes the log detail.
                     let fetchSucceeded = await MainActor.run {
                         RecordBridge.fetchSucceeded(for: identity, cacheService: cacheService)
                     }
-                    if !fetchSucceeded {
-                        // WHY: transient ModelContext fetch failure — do NOT drop save nor convert to delete; log and schedule retry with exponential backoff and 30s deadline to avoid tight spin.
-                        self.logger
-                            .warning(
-                                "nextRecordZoneChangeBatch fetch error for \(recordID.recordName, privacy: .private) — verification failed, pending save retained for retry with 30s deadline"
-                            )
-                        let isOwner = identity.databaseScope == .private
-                        await MainActor.run {
-                            self.coordinator?.scheduleRetry(for: recordID, isOwner: isOwner)
-                        }
-                    } else {
-                        self.logger
-                            .warning(
-                                "nextRecordZoneChangeBatch suppressed dangling delete for \(recordID.recordName, privacy: .private) — local row still present, pending save retained for retry"
-                            )
+                    let fetchDetail = fetchSucceeded ? "local row still present" : "verification failed"
+                    self.logger.warning(
+                        "nextRecordZoneChangeBatch pending save retained for \(recordID.recordName, privacy: .private) — \(fetchDetail, privacy: .public), retry scheduled with 30s deadline"
+                    )
+                    let isOwner = identity.databaseScope == .private
+                    await MainActor.run {
+                        self.coordinator?.scheduleRetry(for: recordID, isOwner: isOwner)
                     }
                 }
             } else {
@@ -337,7 +331,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             return IngestOutcome(failedTypes: failedTypes, didCommit: false, parseFailures: parseFailures, committedTypes: [])
         }
 
-        let writeSucceeded = await writer.batchUpsertParsedRecords(accepted)
+        let writeSucceeded = await writer.batchUpsertParsedRecords(accepted, databaseScope: databaseScope)
         guard writeSucceeded else {
             coordinator?.noteCacheWriteFailure()
             logger.error("Cache write failure during incoming zone changes: batch upsert failed")
@@ -573,9 +567,26 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         _ changes: CKSyncEngine.Event.FetchedRecordZoneChanges,
         databaseScope: CKDatabase.Scope? = nil
     ) async {
-        let records = changes.modifications.map(\.record)
-        let eventZoneID = records.first?.recordID.zoneID ?? changes.deletions.first?.recordID.zoneID
+        await processFetchedRecordZoneChanges(
+            modifications: changes.modifications.map(\.record),
+            deletions: changes.deletions.map { (recordID: $0.recordID, recordType: $0.recordType) },
+            databaseScope: databaseScope
+        )
+    }
+
+    /// WHY primitive inputs: CKSyncEngine fetched-change payloads expose no public initializers, so the
+    /// record/deletion handling lives here where both the engine event and the DEBUG test seam can drive it.
+    private func processFetchedRecordZoneChanges(
+        modifications records: [CKRecord],
+        deletions: [(recordID: CKRecord.ID, recordType: CKRecord.RecordType)],
+        databaseScope: CKDatabase.Scope?
+    ) async {
+        let eventZoneID = records.first?.recordID.zoneID ?? deletions.first?.recordID.zoneID
         await handleIncomingRecordsDirectly(records, databaseScope: databaseScope, zoneID: eventZoneID)
+        // WHY distinct signal: the engine delivered real changes, so change age stamps here independent of the push/reconcile age noted below.
+        if !records.isEmpty || !deletions.isEmpty {
+            coordinator?.noteChangeReceived()
+        }
         coordinator?.notePushReceived()
 
         if let activeFamily = appState?.family?.id.recordName,
@@ -583,10 +594,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         {
             // WHY fail-closed scope: unknown scope drops deletes so wrong-scope purge cannot run.
             guard let dbScope = databaseScope ?? DatabaseScopeResolver.resolvedScope(appState: appState) else {
-                logger.warning("Deletions dropped: unknown database scope — \(changes.deletions.count, privacy: .public) deletion(s) deferred")
+                logger.warning("Deletions dropped: unknown database scope — \(deletions.count, privacy: .public) deletion(s) deferred")
                 return
             }
-            for deletion in changes.deletions {
+            for deletion in deletions {
                 await conflictResolver.handleDeletedRecord(
                     recordID: deletion.recordID,
                     recordType: deletion.recordType,
@@ -605,10 +616,24 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 }
             }
         }
-        if !changes.deletions.isEmpty {
+        if !deletions.isEmpty {
             coordinator?.noteChangesProcessed()
         }
     }
+
+    #if DEBUG
+        /// Test-accessible entry mirroring the engine's fetched-changes path for record modifications.
+        func simulateFetchedRecordZoneChanges(
+            modifications: [CKRecord],
+            databaseScope: CKDatabase.Scope? = nil
+        ) async {
+            await processFetchedRecordZoneChanges(
+                modifications: modifications,
+                deletions: [],
+                databaseScope: databaseScope
+            )
+        }
+    #endif
 
     private func handleSentRecordZoneChanges(
         _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,

@@ -207,7 +207,7 @@ enum LedgerCSVParser {
         return records
     }
 
-    /// WHY bank exports: thousands separators strip before numeric conversion.
+    /// WHY locale-first: device separators (e.g. German 1.234,56) parse directly; symbols fall through.
     static func parseAmount(_ raw: String) -> Int64? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -215,20 +215,57 @@ enum LedgerCSVParser {
         var negative = false
         if text.hasPrefix("("), text.hasSuffix(")") {
             negative = true
-            text = String(text.dropFirst().dropLast())
+            text = String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
         }
-        text = text.replacingOccurrences(of: CurrencyFormatter.currencySymbol, with: "")
-            .replacingOccurrences(of: ",", with: "")
+
+        if let direct = CurrencyFormatter.decimalDouble(from: text) {
+            let pennies = CurrencyFormatter.dollarsToPennies(direct)
+            return negative ? -abs(pennies) : pennies
+        }
+
+        // WHY symbol-strip fallback: pasted values carry symbols outside the number style.
+        var stripped = text
+        if !CurrencyFormatter.currencySymbol.isEmpty {
+            stripped = stripped.replacingOccurrences(of: CurrencyFormatter.currencySymbol, with: "")
+        }
+        stripped = stripped.components(separatedBy: CharacterSet(charactersIn: "$€£¥₹₩")).joined()
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stripped.isEmpty else { return nil }
 
-        if text.hasPrefix("-") {
+        if stripped.hasPrefix("-") {
             negative.toggle()
-            text.removeFirst()
-        } else if text.hasPrefix("+") {
-            text.removeFirst()
+            stripped = String(stripped.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if stripped.hasPrefix("+") {
+            stripped = String(stripped.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !stripped.isEmpty else { return nil }
+
+        if let value = CurrencyFormatter.decimalDouble(from: stripped) {
+            guard value.isFinite else { return nil }
+            let pennies = CurrencyFormatter.dollarsToPennies(value)
+            return negative ? -abs(pennies) : pennies
         }
 
-        guard let value = Double(text), value.isFinite else { return nil }
+        // WHY last-separator-wins: German 1.234,56 and US 1,234.56 converge on any device.
+        let hasDot = stripped.contains(".")
+        let hasComma = stripped.contains(",")
+        let normalized: String = if hasDot, hasComma {
+            if let lastDot = stripped.lastIndex(of: "."),
+               let lastComma = stripped.lastIndex(of: ","),
+               lastDot > lastComma
+            {
+                stripped.replacingOccurrences(of: ",", with: "")
+            } else {
+                stripped.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
+            }
+        } else if hasComma {
+            stripped.replacingOccurrences(of: ",", with: ".")
+        } else {
+            stripped
+        }
+
+        guard let value = Double(normalized), value.isFinite else { return nil }
         let pennies = CurrencyFormatter.dollarsToPennies(value)
         return negative ? -abs(pennies) : pennies
     }
@@ -272,12 +309,10 @@ enum LedgerCSVParser {
     }
 }
 
-// WHY deterministic import: confirmed rows mint stable IDs without touching ledger pre-confirm.
-#if DEBUG
-    /// WHY test seam: cache-only coordination keeps reads deterministic.
-    @MainActor
-    extension NoopSyncEnqueuing: SyncCoordinating {}
-#endif
+/// WHY deterministic import: confirmed rows mint stable IDs without touching ledger pre-confirm.
+/// WHY test seam: cache-only coordination keeps reads deterministic.
+@MainActor
+extension NoopSyncEnqueuing: SyncCoordinating {}
 
 @MainActor
 @Observable
@@ -287,7 +322,6 @@ final class LedgerImportService {
     let syncCoordinator: any SyncEnqueuing & SyncCoordinating
     let appState: AppState
 
-    private static let staticLogger = Logger(category: "LedgerImport")
     private let logger = Logger(category: "LedgerImport")
 
     struct FinalizeSummary: Equatable, Sendable {
@@ -306,6 +340,8 @@ final class LedgerImportService {
         self.appState = appState
         self.syncCoordinator = syncCoordinator
     }
+
+    private static let staticLogger = Logger(category: "LedgerImport")
 
     @_disfavoredOverload
     convenience init(

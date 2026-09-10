@@ -242,7 +242,11 @@ extension AppLifecycleCoordinator {
     }
 
     /// Client→server re-enqueue for locally-created rows that missed their
-    /// initial CloudKit upload. Sanctioned exception to the ingest() contract:
+    /// initial CloudKit upload, plus evicted buffered writes whose row still
+    /// exists in cache (including already-synced rows the never-synced scan
+    /// cannot see). Evicted buffered deletes are re-issued as deletes so a
+    /// locally absent row never resurrects the removed record. Sanctioned
+    /// exception to the ingest() contract:
     /// ARCHITECTURE §4 requires every server→cache write to ride
     /// `ingest()` (except the participant reconciliation door and pre-session
     /// FamilyService mirrors). This path never writes server payloads into
@@ -270,43 +274,92 @@ extension AppLifecycleCoordinator {
         else { return }
 
         let familyName = family.id.recordName
-        var unsyncedIDs = await backgroundCache.fetchUnsyncedRecordIDs(familyRecordName: familyName, zoneID: zoneID)
-
-        guard !unsyncedIDs.isEmpty else { return }
-
-        // Deterministic ordering so the paging cap slices a stable prefix.
-        unsyncedIDs.sort { $0.recordName < $1.recordName }
-
-        let enqueueLimit = 50
-        if unsyncedIDs.count > enqueueLimit {
-            logger.warning(
-                "Unsynced re-enqueue capped to \(enqueueLimit) (found \(unsyncedIDs.count)) — remainder will retry next window",
-                family: familyName,
-                zone: zoneID.zoneName
-            )
-            unsyncedIDs = Array(unsyncedIDs.prefix(enqueueLimit))
-        }
-
-        // Batch enqueue resolves the owner anchor once and enqueues atomically
-        // on the correct database scope. SerialMutationQueue linearization is
-        // provided by the preceding BackgroundCacheActor.fetchUnsyncedRecordIDs
-        // scan (mutationQueue.write), so this batch cannot interleave with an
-        // in-flight reconciliation commit or payout transaction.
-        let idsToEnqueue = unsyncedIDs
-        ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
-            coordinator,
-            ids: idsToEnqueue,
-            appState: appState,
-            logger: logger,
-            context: "AppLifecycleCoordinator.enqueueUnsyncedLocalRecords"
+        let scan = await backgroundCache.fetchPendingRecordIDs(
+            familyRecordName: familyName,
+            zoneID: zoneID,
+            trackedDroppedIdentities: coordinator.unresolvedBufferOverflowIdentities
         )
 
-        for id in idsToEnqueue {
-            logger.log(
-                level: .info,
-                "Re-enqueuing unsynced local record '\(id.recordName, privacy: .private)' for CloudKit upload family=\(familyName, privacy: .private) zone=\(zoneID.zoneName, privacy: .private)"
+        var idsToEnqueue: [CKRecord.ID] = []
+        let enqueueLimit = 50
+        if !scan.recordIDsToEnqueue.isEmpty {
+            // Deterministic ordering so the paging cap slices a stable prefix.
+            var sortedIDs = scan.recordIDsToEnqueue.sorted { $0.recordName < $1.recordName }
+
+            if sortedIDs.count > enqueueLimit {
+                logger.warning(
+                    "Unsynced re-enqueue capped to \(enqueueLimit) (found \(sortedIDs.count)) — remainder will retry next window",
+                    family: familyName,
+                    zone: zoneID.zoneName
+                )
+                sortedIDs = Array(sortedIDs.prefix(enqueueLimit))
+            }
+            idsToEnqueue = sortedIDs
+
+            // Batch enqueue resolves the owner anchor once and enqueues atomically
+            // on the correct database scope. SerialMutationQueue linearization is
+            // provided by the preceding BackgroundCacheActor.fetchPendingRecordIDs
+            // scan (mutationQueue.write), so this batch cannot interleave with an
+            // in-flight reconciliation commit or payout transaction.
+            ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+                coordinator,
+                ids: idsToEnqueue,
+                appState: appState,
+                logger: logger,
+                context: "AppLifecycleCoordinator.enqueueUnsyncedLocalRecords"
             )
+
+            for id in idsToEnqueue {
+                logger.log(
+                    level: .info,
+                    "Re-enqueuing unsynced local record '\(id.recordName, privacy: .private)' for CloudKit upload family=\(familyName, privacy: .private) zone=\(zoneID.zoneName, privacy: .private)"
+                )
+            }
         }
+
+        var deleteIDsToEnqueue: [CKRecord.ID] = []
+        if !scan.deleteRecordIDsToEnqueue.isEmpty {
+            var sortedDeleteIDs = scan.deleteRecordIDsToEnqueue.sorted { $0.recordName < $1.recordName }
+            if sortedDeleteIDs.count > enqueueLimit {
+                logger.warning(
+                    "Dropped-delete re-enqueue capped to \(enqueueLimit) (found \(sortedDeleteIDs.count)) — remainder will retry next window",
+                    family: familyName,
+                    zone: zoneID.zoneName
+                )
+                sortedDeleteIDs = Array(sortedDeleteIDs.prefix(enqueueLimit))
+            }
+            deleteIDsToEnqueue = sortedDeleteIDs
+
+            // WHY delete-specific: a dropped delete whose cache row is already gone must be re-issued as a
+            // delete; re-enqueuing it as a save would resurrect the record the user removed.
+            for id in deleteIDsToEnqueue {
+                ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(
+                    coordinator,
+                    id: id,
+                    appState: appState,
+                    logger: logger,
+                    context: "AppLifecycleCoordinator.enqueueUnsyncedLocalRecords.delete"
+                )
+                logger.log(
+                    level: .info,
+                    "Re-enqueuing dropped delete '\(id.recordName, privacy: .private)' family=\(familyName, privacy: .private) zone=\(zoneID.zoneName, privacy: .private)"
+                )
+            }
+        }
+
+        // WHY recovery gate: a dropped buffer identity clears only once the overflow scan hands it to an
+        // active engine or proves its cache row is gone; deletes resolve only after being handed back as
+        // deletes, and without an engine the batch only re-buffers, so those identities stay tracked. A
+        // tracked delete superseded by a newer write clears regardless of engine state — re-issuing it would
+        // destroy the re-created record.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let hasActiveEngine = coordinator.activeEngine(isOwner: isOwner) != nil
+        coordinator.acknowledgeBufferOverflowRecovery(
+            reenqueuedSaveRecordIDs: hasActiveEngine ? idsToEnqueue : [],
+            reenqueuedDeleteRecordIDs: hasActiveEngine ? deleteIDsToEnqueue : [],
+            confirmedDeletedSaveRecordIDs: scan.confirmedDeletedRecordIDs,
+            supersededDeleteRecordIDs: scan.supersededDeleteRecordIDs
+        )
     }
 }
 

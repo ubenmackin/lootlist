@@ -23,7 +23,9 @@ enum PriceExtractionService {
 
     nonisolated static func extractPrice(from url: URL) async -> ExtractedPrice? {
         guard let html = await fetchRawHTML(for: url) else { return nil }
-        let cleaned = stripScriptsAndStyles(from: html)
+        // Bound regex work on large pages; meta/JSON-LD price signals sit in <head>.
+        let truncated = String(html.prefix(30000))
+        let cleaned = stripScriptsAndStyles(from: truncated)
         let snippet = String(cleaned.prefix(8000))
         guard !snippet.isEmpty else { return nil }
 
@@ -39,7 +41,7 @@ enum PriceExtractionService {
             }
         #endif
 
-        return extractWithRegex(from: snippet, fullHTML: html)
+        return extractWithRegex(from: snippet, fullHTML: truncated)
     }
 
     nonisolated static func fetchRawHTML(for url: URL) async -> String? {

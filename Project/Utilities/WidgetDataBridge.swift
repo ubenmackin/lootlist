@@ -7,6 +7,7 @@
 
 import Foundation
 import os
+import Synchronization
 #if canImport(WidgetKit)
     import WidgetKit
 #endif
@@ -75,11 +76,34 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
         nextQuestTitle: "Clean Room",
         lastUpdated: Date()
     )
+
+    /// WHY content-only: lastUpdated ticks every Query pulse, so diffing ignores it to avoid re-encoding identical widgets.
+    public func hasSameContent(as other: WidgetSnapshot) -> Bool {
+        todayCompletedQuests == other.todayCompletedQuests
+            && todayTotalQuests == other.todayTotalQuests
+            && dailyQuestStreak == other.dailyQuestStreak
+            && weeklySavingsStreak == other.weeklySavingsStreak
+            && activeGoalName == other.activeGoalName
+            && activeGoalTargetPennies == other.activeGoalTargetPennies
+            && activeGoalSavedPennies == other.activeGoalSavedPennies
+            && activeGoalEmoji == other.activeGoalEmoji
+            && nextQuestTitle == other.nextQuestTitle
+    }
 }
 
 public enum WidgetDataBridge {
     public static let appGroupID = "group.com.volcrypt.lootlist"
     private static let snapshotKey = "lootlist_widget_snapshot"
+    /// WHY coalesced reloads: every Query pulse rebuilds the hub, so rapid content changes share one timeline reload.
+    private static let reloadDebounceInterval: TimeInterval = 5
+
+    private struct BridgeState: Sendable {
+        var lastContent: WidgetSnapshot?
+        var lastReloadAt: Date = .distantPast
+        var pendingTrailingReload = false
+    }
+
+    private static let bridgeState = Mutex<BridgeState>(BridgeState())
 
     public static var sharedDefaults: UserDefaults {
         UserDefaults(suiteName: appGroupID) ?? .standard
@@ -99,14 +123,64 @@ public enum WidgetDataBridge {
     private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "WidgetDataBridge")
 
     public static func saveSnapshot(_ snapshot: WidgetSnapshot) {
+        // WHY diff-before-encode: identical Query pulses skip JSON + IPC entirely.
+        let shouldEncode: Bool = bridgeState.withLock { state in
+            if let last = state.lastContent, last.hasSameContent(as: snapshot) {
+                return false
+            }
+            state.lastContent = snapshot
+            return true
+        }
+        guard shouldEncode else { return }
         do {
             let data = try JSONEncoder().encode(snapshot)
             sharedDefaults.set(data, forKey: snapshotKey)
-            #if canImport(WidgetKit)
-                WidgetCenter.shared.reloadAllTimelines()
-            #endif
+            requestReloadDebounced()
         } catch {
             logger.warning("Failed to encode widget data snapshot: \(error, privacy: .private)")
         }
+    }
+
+    private enum ReloadDecision: Sendable {
+        case reloadNow
+        case scheduleTrailing(TimeInterval)
+        case none
+    }
+
+    private static func requestReloadDebounced() {
+        let now = Date()
+        let decision: ReloadDecision = bridgeState.withLock { state in
+            if now.timeIntervalSince(state.lastReloadAt) >= reloadDebounceInterval {
+                state.lastReloadAt = now
+                state.pendingTrailingReload = false
+                return .reloadNow
+            }
+            // WHY trailing edge: persisted data stays fresh while the reload waits out the burst.
+            if state.pendingTrailingReload {
+                return .none
+            }
+            state.pendingTrailingReload = true
+            return .scheduleTrailing(reloadDebounceInterval - now.timeIntervalSince(state.lastReloadAt))
+        }
+        switch decision {
+        case .reloadNow:
+            reloadTimelines()
+        case let .scheduleTrailing(delay):
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                bridgeState.withLock { state in
+                    state.lastReloadAt = Date()
+                    state.pendingTrailingReload = false
+                }
+                reloadTimelines()
+            }
+        case .none:
+            break
+        }
+    }
+
+    private static func reloadTimelines() {
+        #if canImport(WidgetKit)
+            WidgetCenter.shared.reloadAllTimelines()
+        #endif
     }
 }

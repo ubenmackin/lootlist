@@ -12,16 +12,30 @@ import SwiftData
 
 private let cacheConversionsLogger = Logger(category: "CacheConversions")
 
-/// WHY sanctioned exception: cache metadata lacks session anchor so zone-owner heuristic stays local; mapping rides single resolver.
-func inferDatabaseScope(from zoneID: CKRecordZone.ID) -> String? {
+/// WHY heuristic persists: inferred string lands in sourceDatabaseScope, so a wrong guess stalls outbound bridging until re-ingest corrects it.
+/// WHY owner-name fallback: decode-time callers hold only a zoneID with no session scope, so owner-name is the best local signal.
+/// WHY explicit fast path: server ingest holds the resolved scope and passes it via explicitScope instead of re-deriving from owner-name.
+func inferDatabaseScope(from zoneID: CKRecordZone.ID, explicitScope: CKDatabase.Scope? = nil) -> String? {
+    // WHY explicit wins: resolved session scope outranks the owner-name guess, avoiding a second derivation.
+    if let explicitScope {
+        switch explicitScope {
+        case .private: return "private"
+        case .shared: return "shared"
+        case .public: return "public"
+        @unknown default: break
+        }
+    }
     let owner = zoneID.ownerName
     // WHY unknown owner proves nothing: empty stays nil so validation defers instead of guessing private.
     guard !owner.isEmpty else { return nil }
     #if DEBUG
-        let isOwner = owner == CKCurrentUserDefaultName || (TestEnvironment.isRunningUnitOrUITests && (owner == "TestOwner" || owner == "Owner")) || !owner.hasPrefix("_")
+        // WHY test seam: unit-test zones use documented owners that never resolve via CloudKit identity.
+        let isTestOwner = TestEnvironment.isRunningUnitOrUITests && (owner == "TestOwner" || owner == "Owner")
+        let isOwner = owner == CKCurrentUserDefaultName || isTestOwner || !owner.hasPrefix("_")
     #else
         let isOwner = owner == CKCurrentUserDefaultName || !owner.hasPrefix("_")
     #endif
+    // WHY single mapping: owner decision rides DatabaseScopeResolver so private/shared stays defined once.
     let scope = DatabaseScopeResolver.scope(isOwner: isOwner)
     return scope == .private ? "private" : "shared"
 }

@@ -211,7 +211,7 @@ final class AchievementService {
         return defaults.map { AchievementCache(from: $0) }.sorted { $0.name < $1.name }
     }
 
-    // WHY: Bespoke fallback seeding default achievements when CloudKit empty — intentionally inline, not a single-type CacheFirst flow.
+    // WHY: Default catalog seeding is a domain fallback kept after the scaffold returns empty — cacheFirst does not model it.
     func fetchAllDefinitions(family: Family) async throws -> [Achievement] {
         let familyName = family.id.recordName
         // WHY fail-closed: unknown scope serves cache only without guessing a database.
@@ -240,27 +240,64 @@ final class AchievementService {
             return defaults
         }
         if let cache = cacheService {
-            let cached = cache.fetchAchievements(family: familyName)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
-                return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
-            }
-        }
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        do {
-            let results = try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
-            if !results.isEmpty {
-                await syncCoordinator?.hydrationHandler.hydrateFromQuery(
-                    models: results,
-                    databaseScope: scope,
-                    zoneID: family.id.zoneID
+            do {
+                let scaffolded: [Achievement] = try await CacheFirst.cacheFirst(
+                    type: .achievement,
+                    family: family,
+                    cacheService: cache,
+                    scope: scope,
+                    operations: .init(
+                        fetchCache: { [cache] familyName in
+                            cache.fetchAchievements(family: familyName)
+                        },
+                        map: { [family] cacheRow in
+                            cacheRow.toAchievement(zoneID: family.id.zoneID)
+                        },
+                        query: { [cloudKit, family] in
+                            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                            let predicate = NSPredicate(format: "family == %@", familyRef)
+                            return try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
+                        },
+                        hydrate: { [syncCoordinator, scope, family] models in
+                            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
+                                models: models,
+                                databaseScope: scope,
+                                zoneID: family.id.zoneID
+                            )
+                        },
+                        // WHY: a transient query failure must rethrow so the default-catalog seed still runs instead of returning stale rows.
+                        fallbackToStale: false
+                    )
                 )
-                return results
+                if !scaffolded.isEmpty {
+                    return scaffolded
+                }
+                // WHY authoritative empty stays empty: fresh cache with no rows is complete, not a seed trigger.
+                if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
+                    return scaffolded
+                }
+            } catch {
+                logger.debug("Querying achievement definitions from CloudKit skipped/failed: \(error, privacy: .private)")
             }
-        } catch {
-            logger.debug("Querying achievement definitions from CloudKit skipped/failed: \(error, privacy: .private)")
+        } else {
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let predicate = NSPredicate(format: "family == %@", familyRef)
+            do {
+                let results = try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
+                if !results.isEmpty {
+                    await syncCoordinator?.hydrationHandler.hydrateFromQuery(
+                        models: results,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                    return results
+                }
+            } catch {
+                logger.debug("Querying achievement definitions from CloudKit skipped/failed: \(error, privacy: .private)")
+            }
         }
         // Fallback to default achievement definitions if none were in CloudKit/cache yet.
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)
         for achievement in defaults {
             await cacheService?.upsertAchievement(achievement)
@@ -301,9 +338,55 @@ final class AchievementService {
         }
 
         if let cache = cacheService {
-            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .profileAchievement, scope: scope) {
-                return cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
-                    .map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
+            do {
+                let scaffoldFamily = family ?? Family(
+                    name: "",
+                    creatorUserRecordName: nil,
+                    id: CKRecord.ID(recordName: primaryFamilyName, zoneID: profile.id.zoneID)
+                )
+                return try await CacheFirst.cacheFirst(
+                    type: .profileAchievement,
+                    family: scaffoldFamily,
+                    cacheService: cache,
+                    scope: scope,
+                    operations: .init(
+                        fetchCache: { [cache, profileName, fallbackFamilyName] familyName in
+                            var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: familyName)
+                            if cached.isEmpty, fallbackFamilyName != familyName {
+                                cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
+                            }
+                            return cached
+                        },
+                        map: { [profile] cacheRow in
+                            cacheRow.toProfileAchievement(zoneID: profile.id.zoneID)
+                        },
+                        query: { [cloudKit, profile] in
+                            let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                            let predicate = NSPredicate(format: "profile == %@", profileRef)
+                            return try await cloudKit.query(
+                                ProfileAchievement.self,
+                                predicate: predicate,
+                                in: profile.id.zoneID,
+                                sortDescriptors: [NSSortDescriptor(key: "earnedDate", ascending: false)]
+                            )
+                        },
+                        hydrate: { [syncCoordinator, scope, profile] models in
+                            await syncCoordinator?.hydrationHandler.hydrateFromQuery(
+                                models: models,
+                                databaseScope: scope,
+                                zoneID: profile.id.zoneID
+                            )
+                        },
+                        sortedBy: { $0.earnedDate > $1.earnedDate }
+                    )
+                )
+            } catch {
+                logger.debug("Querying earned achievements from CloudKit skipped/failed: \(error, privacy: .private)")
+                var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
+                if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
+                }
+                return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
                     .sorted { $0.earnedDate > $1.earnedDate }
             }
         }
@@ -325,14 +408,6 @@ final class AchievementService {
             return results
         } catch {
             logger.debug("Querying earned achievements from CloudKit skipped/failed: \(error, privacy: .private)")
-            if let cache = cacheService {
-                var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
-                if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
-                    cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
-                }
-                return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
-                    .sorted { $0.earnedDate > $1.earnedDate }
-            }
             return []
         }
     }

@@ -15,6 +15,12 @@ struct SyncHealthSnapshot: Sendable, Equatable {
     var lastSyncedAt: Date?
     var syncError: String?
     var lastPushReceivedAt: Date?
+    // WHY display-truth: engine-delivered changes land outside coordinator passes, so change age complements full-sync age without promoting freshness.
+    var lastChangeReceivedAt: Date?
     var isPrivateEngineActive: Bool = false
     var isSharedEngineActive: Bool = false
+    // WHY visible loss: bounded pending buffers drop oldest on cap; the count tracks unresolved dropped
+    // writes so partial recovery shows the remaining loss, never a cumulative tally.
+    var pendingBufferOverflowed: Bool = false
+    var pendingBufferDroppedCount: Int = 0
 }

@@ -66,6 +66,7 @@ extension CachedRecordType {
         let deleteByIdentity: (ModelContext, ScopedRecordIdentity, CKRecordZone.ID?) -> Void
         let deleteByName: (ModelContext, String, String) -> Void
         let purgeMissing: (ModelContext, Set<String>, String?, Set<String>) -> Void
+        let rowExists: (ModelContext, String, String) -> Bool
     }
 
     private var deletionDispatch: DeletionDispatch {
@@ -73,67 +74,80 @@ extension CachedRecordType {
         case .profile: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(ProfileCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(ProfileCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(ProfileCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(ProfileCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(ProfileCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .family: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(FamilyCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { context, recordName, _ in Self.deleteFamilyByName(in: context, recordName: recordName) },
-                purgeMissing: { Self.purgeRows(FamilyCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(FamilyCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(FamilyCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .quest: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(QuestCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(QuestCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(QuestCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(QuestCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(QuestCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .questTemplate: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(QuestTemplateCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(QuestTemplateCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(QuestTemplateCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(QuestTemplateCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(QuestTemplateCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .questCompletion: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(QuestCompletionCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(QuestCompletionCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(QuestCompletionCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(QuestCompletionCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(QuestCompletionCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .ledgerEntry: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(LedgerEntryCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(LedgerEntryCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(LedgerEntryCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(LedgerEntryCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(LedgerEntryCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .allowancePeriod: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(AllowancePeriodCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(AllowancePeriodCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(AllowancePeriodCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(AllowancePeriodCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(AllowancePeriodCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .achievement: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(AchievementCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(AchievementCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(AchievementCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(AchievementCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(AchievementCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .profileAchievement: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(ProfileAchievementCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(ProfileAchievementCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(ProfileAchievementCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(ProfileAchievementCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(ProfileAchievementCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .notificationPreference: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(NotificationPreferenceCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(NotificationPreferenceCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(NotificationPreferenceCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(NotificationPreferenceCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(NotificationPreferenceCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .gemLedger: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(GemLedgerCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(GemLedgerCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(GemLedgerCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(GemLedgerCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(GemLedgerCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .rewardEvent: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(RewardEventCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(RewardEventCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(RewardEventCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(RewardEventCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(RewardEventCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         case .goal: DeletionDispatch(
                 deleteByIdentity: { Self.deleteSingleByIdentity(GoalCache.self, in: $0, identity: $1, expectedActiveZone: $2) },
                 deleteByName: { Self.deleteScopedByName(GoalCache.self, in: $0, recordName: $1, familyRecordName: $2) },
-                purgeMissing: { Self.purgeRows(GoalCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) }
+                purgeMissing: { Self.purgeRows(GoalCache.self, in: $0, validRecordNames: $1, familyRecordName: $2, preservedRecordNames: $3) },
+                rowExists: { Self.rowExists(GoalCache.self, in: $0, recordName: $1, familyRecordName: $2) }
             )
         }
     }
@@ -151,6 +165,24 @@ extension CachedRecordType {
     /// WHY shared entry: reconciliation prunes via one table so empty-type purges stay legitimate.
     func purgeMissing(in context: ModelContext, validRecordNames: Set<String>, familyRecordName: String?, preservedRecordNames: Set<String> = []) {
         deletionDispatch.purgeMissing(context, validRecordNames, familyRecordName, preservedRecordNames)
+    }
+
+    /// WHY shared entry: the overflow scan probes tracked identities through one typed table so the
+    /// 13-type dispatch never drifts from the deletion surface.
+    func recordExists(in context: ModelContext, recordName: String, familyRecordName: String) -> Bool {
+        deletionDispatch.rowExists(context, recordName, familyRecordName)
+    }
+
+    /// WHY fail-closed: a fetch error keeps the identity pending (returns true) rather than falsely resolving it.
+    static func rowExists(_ type: (some CacheMergeable).Type, in context: ModelContext, recordName: String, familyRecordName: String) -> Bool {
+        var descriptor = type.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
+        descriptor.fetchLimit = 1
+        do {
+            return try !context.fetch(descriptor).isEmpty
+        } catch {
+            deletionLogger.warning("Failed to probe \(recordName, privacy: .private) for existence: \(error, privacy: .private)")
+            return true
+        }
     }
 
     /// WHY fail-closed: scoped delete without family must not scan other families.

@@ -87,4 +87,12 @@ extension CacheMergeable where DomainModel: DomainSystemFields {
             encodedSystemFields = domain.encodedSystemFields
         }
     }
+
+    /// WHY explicit scope: server ingest holds the authoritative database scope, so stamping it after
+    /// the field write outranks the zone-owner guess that decode-only callers must fall back on.
+    /// Only the scope field is rewritten, leaving the encoded-system-field preservation rules intact.
+    func applyExplicitDatabaseScope(_ scope: CKDatabase.Scope?, from domain: DomainModel) {
+        guard let scope else { return }
+        sourceDatabaseScope = inferDatabaseScope(from: domain.id.zoneID, explicitScope: scope)
+    }
 }

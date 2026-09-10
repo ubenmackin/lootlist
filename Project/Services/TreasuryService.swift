@@ -265,56 +265,57 @@ final class TreasuryService {
 
         let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
         let (startOfWeek, _) = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay)
-        let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))"
+        let periodRecordName = DeterministicRecordID.allowancePeriod(familyRecordName: family.id.recordName, profileRecordName: profile.id.recordName, weekStart: startOfWeek)
 
-        return try await periodLock.withLock(key: periodRecordName) {
-            // Fast cache check for allowance period existence.
-            if let cached = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName) {
-                return cached.toAllowancePeriod(zoneID: family.id.zoneID)
-            }
-
-            let normalizedWeekStart = WeekMath.startOfDay(for: startOfWeek)
-            // WHY fail-closed: unknown scope never queries with a guessed database.
-            guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
-                throw FamilyServiceError.unauthorized
-            }
-            let matched: [AllowancePeriod] = try await CacheFirst.cacheFirst(
-                type: .allowancePeriod,
-                family: family,
-                cacheService: cacheService,
-                scope: scope,
-                operations: .init(
-                    fetchCache: { [cacheService, profile, normalizedWeekStart] familyName in
-                        cacheService.fetchAllowancePeriods(profileRecordName: profile.id.recordName, family: familyName)
-                            .filter { $0.weekOf == normalizedWeekStart }
-                    },
-                    map: { [family] cache in
-                        cache.toAllowancePeriod(zoneID: family.id.zoneID)
-                    },
-                    query: { [cloudKit, profile, normalizedWeekStart] in
-                        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                        let predicate = NSPredicate(
-                            format: "profile == %@ AND weekOf == %@",
-                            profileRef as CVarArg,
-                            normalizedWeekStart as CVarArg
-                        )
-                        return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
-                    },
-                    hydrate: { [syncCoordinator, scope, profile] models in
-                        await syncCoordinator.hydrationHandler.hydrateFromQuery(
-                            models: models,
-                            databaseScope: scope,
-                            zoneID: profile.id.zoneID
-                        )
-                    }
-                )
-            )
-            if let existing = matched.first {
-                return existing
-            }
-
-            return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek)
+        // WHY brief lock: deterministic IDs dedupe concurrent creates, so slow query stays outside.
+        let fastHit: AllowancePeriod? = try await periodLock.withLock(key: periodRecordName) {
+            cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName)?.toAllowancePeriod(zoneID: family.id.zoneID)
         }
+        if let fastHit {
+            return fastHit
+        }
+
+        let normalizedWeekStart = WeekMath.startOfDay(for: startOfWeek)
+        // WHY fail-closed: unknown scope never queries with a guessed database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            throw FamilyServiceError.unauthorized
+        }
+        let matched: [AllowancePeriod] = try await CacheFirst.cacheFirst(
+            type: .allowancePeriod,
+            family: family,
+            cacheService: cacheService,
+            scope: scope,
+            operations: .init(
+                fetchCache: { [cacheService, profile, normalizedWeekStart] familyName in
+                    cacheService.fetchAllowancePeriods(profileRecordName: profile.id.recordName, family: familyName)
+                        .filter { $0.weekOf == normalizedWeekStart }
+                },
+                map: { [family] cache in
+                    cache.toAllowancePeriod(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, profile, normalizedWeekStart] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(
+                        format: "profile == %@ AND weekOf == %@",
+                        profileRef as CVarArg,
+                        normalizedWeekStart as CVarArg
+                    )
+                    return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
+                },
+                hydrate: { [syncCoordinator, scope, profile] models in
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: profile.id.zoneID
+                    )
+                }
+            )
+        )
+        if let existing = matched.first {
+            return existing
+        }
+
+        return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek)
     }
 
     private func createPeriod(profile: Profile, family: Family, weekOf: Date) async throws -> AllowancePeriod {
@@ -347,7 +348,7 @@ final class TreasuryService {
             questsTotal: completedCount,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(
-                recordName: "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))",
+                recordName: DeterministicRecordID.allowancePeriod(familyRecordName: family.id.recordName, profileRecordName: profile.id.recordName, weekStart: startOfWeek),
                 zoneID: family.id.zoneID
             )
         )
@@ -407,17 +408,13 @@ final class TreasuryService {
     // MARK: - Payout & Settlement
 
     func runPayout(period: AllowancePeriod) async throws {
-        guard let acting = appState.currentProfile,
-              acting.role.isParent
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+        // WHY single gate: parent-only payout plus scope share one helper so unauthorized versus scope-violation never drifts.
+        _ = try ActiveFamilyScopeGuard.requireMutationContext(
+            appState: appState,
             familyRef: period.family,
             zoneID: period.id.zoneID,
-            appState: appState,
-            cloudKit: cloudKit
+            cloudKit: cloudKit,
+            requireParent: true
         )
 
         let periodRecordName = period.id.recordName
@@ -528,7 +525,7 @@ final class TreasuryService {
         let effectivePolicy = effectivePayoutPolicy(for: profile, family: family)
         guard effectivePolicy == .realTime else { return nil }
         let (weekOf, weekRange) = WeekMath.range(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
-        let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(weekOf.timeIntervalSince1970))"
+        let periodRecordName = DeterministicRecordID.allowancePeriod(familyRecordName: family.id.recordName, profileRecordName: profile.id.recordName, weekStart: weekOf)
         let inserted = inFlightSettlements.withLock { $0.insert(periodRecordName).inserted }
         guard inserted else {
             return nil

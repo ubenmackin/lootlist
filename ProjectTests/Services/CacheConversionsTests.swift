@@ -706,6 +706,39 @@ struct CacheConversionsTests {
         #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: "_sharedUser123")) == "shared")
     }
 
+    @Test
+    func `explicit database scope overrides the zone-owner heuristic on cache writes`() {
+        let sharedLookingZone = CKRecordZone.ID(zoneName: "CustomZone", ownerName: "_sharedUser123")
+        let quest = ExhaustiveCacheFixtures.makeQuest(zoneID: sharedLookingZone)
+
+        // WHY fallback: a decode-only caller holds the zone but no session scope, so owner name guesses shared.
+        let heuristicOnly = QuestCache(from: quest)
+        #expect(heuristicOnly.sourceDatabaseScope == "shared")
+
+        let scoped = QuestCache(from: quest)
+        scoped.applyExplicitDatabaseScope(.private, from: quest)
+        #expect(scoped.sourceDatabaseScope == "private")
+
+        // WHY nil no-op: a caller without a resolved scope must not clear the heuristic-derived value.
+        scoped.applyExplicitDatabaseScope(nil, from: quest)
+        #expect(scoped.sourceDatabaseScope == "private")
+
+        let ownerZone = CKRecordZone.ID(zoneName: "Zone", ownerName: CKCurrentUserDefaultName)
+        #expect(inferDatabaseScope(from: ownerZone, explicitScope: .shared) == "shared")
+        #expect(inferDatabaseScope(from: sharedLookingZone, explicitScope: .private) == "private")
+    }
+
+    @Test
+    func `inferDatabaseScope explicit public scope bypasses owner heuristic while nil falls back`() {
+        // `.public` is a valid explicit scope the owner-name heuristic can never produce.
+        let ownerZone = CKRecordZone.ID(zoneName: "Zone", ownerName: CKCurrentUserDefaultName)
+        #expect(inferDatabaseScope(from: ownerZone, explicitScope: .public) == "public")
+
+        // A nil explicit scope defers to the owner-name heuristic.
+        let sharedLookingZone = CKRecordZone.ID(zoneName: "Zone", ownerName: "_sharedUser123")
+        #expect(inferDatabaseScope(from: sharedLookingZone, explicitScope: nil) == "shared")
+    }
+
     private func questCacheFixture(
         recordName: String,
         familyRecordName: String,

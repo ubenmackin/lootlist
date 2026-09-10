@@ -82,6 +82,11 @@ enum DeterministicRecordID {
         "payout-\(periodRecordName)"
     }
 
+    /// WHY single source: concurrent period creates dedupe on this name across devices.
+    static func allowancePeriod(familyRecordName: String, profileRecordName: String, weekStart: Date) -> String {
+        "period-\(familyRecordName)-\(profileRecordName)-\(Int(weekStart.timeIntervalSince1970))"
+    }
+
     static func realtimePayout(periodRecordName: String) -> String {
         "rt-\(periodRecordName)"
     }
