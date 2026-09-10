@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 
@@ -23,11 +22,6 @@ final class HeroBoardViewModel {
             self.claimantName = claimantName
             self.isClaimedByCurrentUser = isClaimedByCurrentUser
             self.isPending = isPending
-        }
-
-        /// Test/legacy bridge: converts the domain snapshot to a value snapshot at the boundary so rows never hold live models.
-        init(quest: Quest, claimantName: String?, isClaimedByCurrentUser: Bool, isPending: Bool = false) {
-            self.init(quest: BoardQuestSnapshot(from: quest), claimantName: claimantName, isClaimedByCurrentUser: isClaimedByCurrentUser, isPending: isPending)
         }
 
         /// Cache bridge: snapshots the live row on isolation so rows never hold @Model references.
@@ -224,7 +218,7 @@ final class HeroBoardViewModel {
         markPending(id)
 
         // WHY mutation boundary: snapshot converts here so presentation never holds domain structs.
-        let quest = row.quest.toQuest(zoneID: zoneID)
+        let quest = boardService.domainQuest(from: row.quest, zoneID: zoneID)
         do {
             switch try await boardService.claim(quest, by: hero) {
             case .claimed:
@@ -306,7 +300,7 @@ final class HeroBoardViewModel {
         markPending(id)
         // WHY mutation boundary: snapshot converts here so presentation never holds domain structs.
         let zoneID = appState.resolvedFamilyZoneID()
-        let quest = row.quest.toQuest(zoneID: zoneID)
+        let quest = boardService.domainQuest(from: row.quest, zoneID: zoneID)
         do {
             try await boardService.revoke(quest)
             if let index = claimedRows.firstIndex(where: { $0.id == row.id }) {
@@ -409,30 +403,5 @@ struct BoardQuestSnapshot: Sendable, Equatable, Hashable {
         claimedByProfileRecordName = quest.claimedByProfileRecordName
         claimedAt = quest.claimedAt
         changeTag = quest.changeTag
-    }
-
-    /// WHY boundary-only: snapshot rebuilds the domain for claim/revoke without touching live storage.
-    func toQuest(zoneID: CKRecordZone.ID) -> Quest {
-        var quest = Quest(
-            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: templateRecordName, zoneID: zoneID), action: .none),
-            assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: assigneeRecordName, zoneID: zoneID), action: .none),
-            goldReward: goldReward,
-            xpReward: xpReward,
-            scheduleType: QuestSchedule(rawValue: scheduleType) ?? .weeklyFlexible,
-            targetCount: targetCount,
-            isAllOrNothing: isAllOrNothing,
-            approvalMode: ApprovalMode(rawValue: approvalMode) ?? .autoApprove,
-            weekOf: weekOf,
-            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: createdByRecordName, zoneID: zoneID), action: .none),
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
-            name: questName,
-            descriptionText: descriptionText,
-            xpBanked: xpBanked,
-            claimedByProfileRecordName: claimedByProfileRecordName,
-            claimedAt: claimedAt,
-            id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
-        )
-        quest.changeTag = changeTag
-        return quest
     }
 }

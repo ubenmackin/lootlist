@@ -288,7 +288,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             )
             return nil
         }
-        let processed = processIngestRecords(
+        let processed = await processIngestRecords(
             records,
             databaseScope: databaseScope,
             expectedDbScope: expectedDbScope,
@@ -353,54 +353,61 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         expectedDbScope: CKDatabase.Scope,
         activeFamily: String,
         activeZone: CKRecordZone.ID
-    ) -> ProcessedIngestRecords {
+    ) async -> ProcessedIngestRecords {
         var accepted: [ParsedRecord] = []
         var parseFailures = 0
         var failedTypes: Set<CachedRecordType> = []
         var dropped = 0
-        for record in records {
-            let identity = ScopedRecordIdentity(
-                databaseScope: databaseScope,
-                zoneID: record.recordID.zoneID,
-                recordID: record.recordID,
-                familyRecordName: activeFamily
-            )
-
-            // Fail-closed scope gate.
-            if !identity.matchesActiveScope(
-                expectedFamily: activeFamily,
-                expectedZone: activeZone,
-                expectedDatabase: expectedDbScope
-            ) {
-                logIngestScopeMismatch(
-                    record: record,
-                    identity: identity,
-                    activeFamily: activeFamily,
-                    activeZone: activeZone,
-                    expectedDbScope: expectedDbScope
+        for chunkStart in stride(from: 0, to: records.count, by: 200) {
+            let chunkEnd = min(chunkStart + 200, records.count)
+            for record in records[chunkStart ..< chunkEnd] {
+                let identity = ScopedRecordIdentity(
+                    databaseScope: databaseScope,
+                    zoneID: record.recordID.zoneID,
+                    recordID: record.recordID,
+                    familyRecordName: activeFamily
                 )
-                // WHY dropped types gate stamping: zero committed rows must stay stale.
-                dropped += 1
-                if let droppedType = CachedRecordType.recordType(for: record.recordType) {
-                    failedTypes.insert(droppedType)
-                }
-                continue
-            }
 
-            let parsed = ParsedRecord.parse(record: record)
-            switch parsed {
-            case .parseFailure:
-                parseFailures += 1
-                // WHY: unknown record types carry no freshness watermark, so only known types gate per-type stamping.
-                if let failedType = CachedRecordType.recordType(for: record.recordType) {
-                    failedTypes.insert(failedType)
+                // Fail-closed scope gate.
+                if !identity.matchesActiveScope(
+                    expectedFamily: activeFamily,
+                    expectedZone: activeZone,
+                    expectedDatabase: expectedDbScope
+                ) {
+                    logIngestScopeMismatch(
+                        record: record,
+                        identity: identity,
+                        activeFamily: activeFamily,
+                        activeZone: activeZone,
+                        expectedDbScope: expectedDbScope
+                    )
+                    // WHY dropped types gate stamping: zero committed rows must stay stale.
+                    dropped += 1
+                    if let droppedType = CachedRecordType.recordType(for: record.recordType) {
+                        failedTypes.insert(droppedType)
+                    }
+                    continue
                 }
-                logger.error("Parse failure for incoming record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
-            case .ignoredSystemRecord:
-                logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
-            default:
-                checkTransferSkew(record: record, parsed: parsed)
-                accepted.append(parsed)
+
+                let parsed = ParsedRecord.parse(record: record)
+                switch parsed {
+                case .parseFailure:
+                    parseFailures += 1
+                    // WHY: unknown record types carry no freshness watermark, so only known types gate per-type stamping.
+                    if let failedType = CachedRecordType.recordType(for: record.recordType) {
+                        failedTypes.insert(failedType)
+                    }
+                    logger.error("Parse failure for incoming record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
+                case .ignoredSystemRecord:
+                    logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
+                default:
+                    checkTransferSkew(record: record, parsed: parsed)
+                    accepted.append(parsed)
+                }
+            }
+            // WHY yield between chunks: large snapshots must not stall MainActor rendering.
+            if chunkEnd < records.count {
+                await Task.yield()
             }
         }
         return ProcessedIngestRecords(accepted: accepted, parseFailures: parseFailures, failedTypes: failedTypes, dropped: dropped)

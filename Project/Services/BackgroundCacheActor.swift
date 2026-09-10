@@ -754,6 +754,28 @@ actor BackgroundCacheActor {
 
     // Purge and deletion helpers moved to BackgroundCacheActor+Maintenance.swift
 
+    // MARK: - Conflict baseline reads
+
+    func lastSyncedXP(recordName: String, familyRecordName: String) async -> Int? {
+        // WHY fail-closed: empty scope must never match a baseline row.
+        guard !recordName.isEmpty, !familyRecordName.isEmpty else { return nil }
+        return await mutationQueue.write {
+            await self.fetchLastSyncedXP(recordName: recordName, familyRecordName: familyRecordName)
+        }
+    }
+
+    private func fetchLastSyncedXP(recordName: String, familyRecordName: String) async -> Int? {
+        // WHY indexed probe: baseline read rides the composite index so the conflict path never scans.
+        var descriptor = ProfileCache.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
+        descriptor.fetchLimit = 1
+        do {
+            return try modelContext.fetch(descriptor).first?.lastSyncedXP
+        } catch {
+            logger.error("Failed to fetch ProfileCache baseline: \(error, privacy: .private)")
+            return nil
+        }
+    }
+
     @discardableResult
     func saveContext() -> Bool {
         do {

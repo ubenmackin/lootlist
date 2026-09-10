@@ -192,8 +192,8 @@ struct HeroBoardViewModelTests {
         await ctx.cache.upsertQuest(rivalWin.toQuest(zoneID: ctx.zoneID))
 
         // The child's list still shows the stale unclaimed copy when they tap.
-        let staleQuest = ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID)
-        let staleRow = HeroBoardViewModel.BoardRow(quest: staleQuest, claimantName: nil, isClaimedByCurrentUser: false)
+        let staleCache = ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore")
+        let staleRow = HeroBoardViewModel.BoardRow(quest: staleCache, claimantName: nil, isClaimedByCurrentUser: false)
 
         await ctx.viewModel.claim(staleRow)
 

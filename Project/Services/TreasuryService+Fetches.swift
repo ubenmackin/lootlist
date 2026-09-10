@@ -257,7 +257,20 @@ extension TreasuryService {
         if let cached = cacheService.fetchFamily(recordName: recordID.recordName) {
             return cached.toFamily(zoneID: recordID.zoneID)
         }
-        return try await cloudKit.fetch(Family.self, id: recordID)
+        // WHY fail-closed: unknown scope never queries with a guessed database.
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
+            throw FamilyServiceError.unauthorized
+        }
+        let fetched = try await cloudKit.fetch(Family.self, id: recordID)
+        guard !fetched.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw FamilyServiceError.unauthorized
+        }
+        await syncCoordinator.hydrationHandler.hydrateFromQuery(
+            models: [fetched],
+            databaseScope: scope,
+            zoneID: recordID.zoneID
+        )
+        return fetched
     }
 
     // MARK: - Gold Aggregation
