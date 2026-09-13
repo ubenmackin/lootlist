@@ -55,6 +55,16 @@ extension AppLifecycleCoordinator {
         logger.info("Manual sync completed")
     }
 
+    /// Centralized early-payout entry point for views. Syncs first so settlement observes reconciled cache, then settles early under single-flight payout ordering.
+    func requestEarlyPayout(
+        heroRows: [ProfileCache],
+        familyRow: FamilyCache?
+    ) async -> (settled: Int, failed: [String]) {
+        await performManualSync()
+        guard let autoPayoutCoordinator else { return (0, []) }
+        return await autoPayoutCoordinator.processEarlyPayout(heroRows: heroRows, familyRow: familyRow)
+    }
+
     /// Re-registers subscriptions and re-runs migrations/payouts when the
     /// active family zone changes. Recovered authenticated sessions may complete
     /// this transition before initial bootstrap has been marked complete.

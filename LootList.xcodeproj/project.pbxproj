@@ -24,6 +24,7 @@
 		081EC14A9D47F6641C059EB1 /* CurrencyFormatterPenniesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6664830D31F939A69D25F6FE /* CurrencyFormatterPenniesTests.swift */; };
 		0880A879F3DC8F996BCCABD0 /* GemServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E373C156981A67C46478F5 /* GemServiceTests.swift */; };
 		08CDCCB89655DC48BBC25803 /* AvatarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3733A863E64E1CB664EF4452 /* AvatarService.swift */; };
+		096EDCB91F8B2B9AC7FBF624 /* TreasuryService+PayoutSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B9FAEBA5DE3B5B14EE4F9D /* TreasuryService+PayoutSettlement.swift */; };
 		09D7BC7C2E5575A65BBD7CDD /* LootDropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EBD8ED61436B7A7945BDDE /* LootDropService.swift */; };
 		0B1529EEA1515B23848B6057 /* QuickCreateFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1A522EC782B6FC177DFBD4 /* QuickCreateFormView.swift */; };
 		0B88EDE3C487D4A6D398A8D9 /* CacheConversions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68346001171FD0C1F3D08B31 /* CacheConversions.swift */; };
@@ -773,6 +774,7 @@
 		872C97F16BCA4BE07632C3D6 /* NotificationRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouter.swift; sourceTree = "<group>"; };
 		8760C1A1D33C956A393D158E /* TransferTestScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferTestScaffold.swift; sourceTree = "<group>"; };
 		8761871EDB01C4A39B494AA3 /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
+		87B9FAEBA5DE3B5B14EE4F9D /* TreasuryService+PayoutSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TreasuryService+PayoutSettlement.swift"; sourceTree = "<group>"; };
 		8809BA2CCE4B470D8B8554F7 /* HeroDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDetailView.swift; sourceTree = "<group>"; };
 		887A2A9E9522DED6DFD50A1B /* Goal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Goal.swift; sourceTree = "<group>"; };
 		888F4B414BCB903A20D25936 /* CacheService+Batches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Batches.swift"; sourceTree = "<group>"; };
@@ -1234,6 +1236,7 @@
 				7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */,
 				E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */,
 				3BF2353F4534F87197328D31 /* TreasuryService+Fetches.swift */,
+				87B9FAEBA5DE3B5B14EE4F9D /* TreasuryService+PayoutSettlement.swift */,
 				1ACB50C5AFC8745DF880FC82 /* XPService.swift */,
 			);
 			path = Services;
@@ -2273,6 +2276,7 @@
 				21198597FF7A7473784031A3 /* ToastManager.swift in Sources */,
 				CCDDCA3B0C69344A4BEC71D4 /* ToastView.swift in Sources */,
 				F0CEB3692881579520F29603 /* TreasuryService+Fetches.swift in Sources */,
+				096EDCB91F8B2B9AC7FBF624 /* TreasuryService+PayoutSettlement.swift in Sources */,
 				B08A23CAFB867A2750ED0BB5 /* TreasuryService.swift in Sources */,
 				48D5AF22A208D1D904393F6E /* TreasuryView.swift in Sources */,
 				A5EDA6D44BE252D8ACAE9A05 /* TreasuryViewModel.swift in Sources */,

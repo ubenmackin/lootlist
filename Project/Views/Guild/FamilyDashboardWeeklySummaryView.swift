@@ -21,8 +21,10 @@ struct FamilyDashboardWeeklySummaryView: View {
     var body: some View {
         if let summary {
             let isPending = summary.pendingPayoutAmount > 0
+            // WHY shared fallback: subtitle mirrors pendingPayoutAmount so mixed policies never split labels.
+            let effectiveFamilyPolicy = summary.familyPayoutPolicy ?? familyPayoutPolicy
             let allRealTime = summary.heroSummaries.allSatisfy {
-                ($0.profile.payoutPolicyEnum ?? familyPayoutPolicy ?? .perQuest) == .realTime
+                ($0.profile.payoutPolicyEnum ?? effectiveFamilyPolicy ?? .perQuest) == .realTime
             }
             let showsSettled = allRealTime && summary.totalEarned > 0
             let subtitle = FamilyDashboardViewModel.weeklySubtitle(

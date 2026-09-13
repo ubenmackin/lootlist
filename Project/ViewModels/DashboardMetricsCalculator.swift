@@ -131,6 +131,7 @@ enum DashboardMetricsCalculator {
         let computedWeekSummary = WeekendSummary(
             weekOf: WeekMath.startOfWeek(for: Date(), payoutDay: familyContext.payoutDay),
             totalEarned: totalEarned,
+            familyPayoutPolicy: familyContext.payoutPolicy,
             totalQuestsCompleted: totalQuests,
             heroSummaries: heroSummaries
         )

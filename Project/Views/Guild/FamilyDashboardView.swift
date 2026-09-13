@@ -551,7 +551,8 @@ struct FamilyDashboardView: View {
                 treasury: treasury,
                 achievementService: achievementService,
                 familyService: familyService,
-                appState: appState
+                appState: appState,
+                lifecycleCoordinator: lifecycleCoordinator
             )
         }, rebuild: { vm in rebuild(vm) })
     }
@@ -567,7 +568,9 @@ struct FamilyDashboardView: View {
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
-            templates: cachedTemplates
+            templates: cachedTemplates,
+            familyRow: cachedFamilyRow,
+            viewerRow: currentProfileRow
         )
     }
 
@@ -676,20 +679,10 @@ private extension FamilyDashboardView {
             quests: cachedQuests,
             viewerIsHero: viewerIsHero,
             onApprove: { completion in
-                let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-                // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
-                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-                Task { [domainLog] in
-                    await approveCompletion(domainLog)
-                }
+                Task { await approveCompletion(completion) }
             },
             onReject: { completion in
-                let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-                // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
-                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-                Task { [domainLog] in
-                    await rejectCompletion(domainLog)
-                }
+                Task { await rejectCompletion(completion) }
             }
         )
     }
@@ -703,12 +696,12 @@ private extension FamilyDashboardView {
     }
 
     @MainActor
-    func approveCompletion(_ domainLog: QuestCompletion) async {
+    func approveCompletion(_ completion: QuestCompletionCache) async {
         // WHY: mutation actor derives from the cache row so verify never reads session domain state.
         guard let row = currentProfileRow else { return }
         let parent = row.toProfile(zoneID: appState.resolvedFamilyZoneID())
         do {
-            _ = try await questService.verify(questLog: domainLog, by: parent)
+            _ = try await questService.verify(questLog: completion, by: parent)
             HapticsService.success()
             rebuild()
         } catch {
@@ -720,12 +713,12 @@ private extension FamilyDashboardView {
     }
 
     @MainActor
-    func rejectCompletion(_ domainLog: QuestCompletion) async {
+    func rejectCompletion(_ completion: QuestCompletionCache) async {
         // WHY: mutation actor derives from the cache row so verify never reads session domain state.
         guard let row = currentProfileRow else { return }
         let parent = row.toProfile(zoneID: appState.resolvedFamilyZoneID())
         do {
-            _ = try await questService.reject(questLog: domainLog, by: parent)
+            _ = try await questService.reject(questLog: completion, by: parent)
             HapticsService.warning()
             rebuild()
         } catch {
@@ -753,22 +746,35 @@ private extension FamilyDashboardView {
     func processPayout() async {
         isProcessingPayout = true
         defer { isProcessingPayout = false }
-        guard appState.family != nil else { return }
-        let zoneID = appState.resolvedFamilyZoneID()
-        let matchingPeriods = cachedAllowancePeriods.filter { period in
-            let status = period.statusEnum
-            return status == .active || status == .payoutPending
+        let heroRows = cachedProfiles.filter { $0.roleEnum == .hero && $0.isActive }
+        // WHY centralized: early payout rides lifecycle sync plus single-flight ordering, never direct settlement.
+        let result: (settled: Int, failed: [String]) = if let vm = viewModel {
+            await vm.requestEarlyPayout(heroRows: heroRows, familyRow: cachedFamilyRow)
+        } else if let lifecycleCoordinator {
+            await lifecycleCoordinator.requestEarlyPayout(heroRows: heroRows, familyRow: cachedFamilyRow)
+        } else {
+            (0, [])
         }
-        let activePeriods = matchingPeriods.map { $0.toAllowancePeriod(zoneID: zoneID) }
-        for period in activePeriods {
-            do {
-                _ = try await treasury.runPayout(period: period)
-            } catch {
-                toastManager.show(
-                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
-                    type: .error
-                )
-            }
+        rebuild()
+        let settledCount = result.settled
+        let failedCount = result.failed.count
+        if settledCount > 0, failedCount > 0 {
+            toastManager.show(
+                message: "Settled \(settledCount) payout\(settledCount == 1 ? "" : "s"), but couldn't process \(failedCount) payout\(failedCount == 1 ? "" : "s") — please try again.",
+                type: .warning
+            )
+        } else if settledCount > 0 {
+            toastManager.show(
+                message: "Settled \(settledCount) payout\(settledCount == 1 ? "" : "s").",
+                type: .success
+            )
+        } else if failedCount > 0 {
+            toastManager.show(
+                message: "Couldn't process \(failedCount) payout\(failedCount == 1 ? "" : "s") — please try again.",
+                type: .error
+            )
+        } else {
+            toastManager.show(message: "Nothing to pay out yet — completed quest earnings will appear here.", type: .info)
         }
     }
 

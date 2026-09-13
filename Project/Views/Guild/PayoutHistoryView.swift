@@ -16,11 +16,14 @@ struct PayoutHistoryView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
     @Environment(LedgerImportService.self) private var ledgerImportService
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
@@ -59,6 +62,8 @@ struct PayoutHistoryView: View {
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "PayoutHistoryView")
         let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
+        let questFilter = QuestCache.familyPredicate(familyRecordName: targetFamily)
+        let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
         let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
         let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
         let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
@@ -73,6 +78,14 @@ struct PayoutHistoryView: View {
         _cachedProfiles = Query(
             filter: profileFilter,
             sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+        )
+        _cachedQuests = Query(
+            filter: questFilter,
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
+        )
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedAchievements = Query(
             filter: achievementFilter,
@@ -176,6 +189,8 @@ struct PayoutHistoryView: View {
         LifecycleModifier(
             cachedAllowancePeriods: cachedAllowancePeriods,
             cachedProfiles: cachedProfiles,
+            cachedQuests: cachedQuests,
+            cachedCompletions: cachedCompletions,
             cachedAchievements: cachedAchievements,
             cachedProfileAchievements: cachedProfileAchievements,
             cachedLedgers: cachedLedgers,
@@ -184,7 +199,14 @@ struct PayoutHistoryView: View {
             cachedGoals: cachedGoals,
             onAppear: {
                 ensureViewModel()
+                // WHY single sync: refresh rides the lifecycle gate, so an explicit manual sync here would double-fire.
                 await viewModel?.refresh()
+                rebuildFromCache()
+            },
+            onRefresh: {
+                // WHY single sync: refresh rides the lifecycle gate, so an explicit manual sync here would double-fire.
+                await viewModel?.refresh()
+                rebuildFromCache()
             },
             onCacheChanged: {
                 rebuildFromCache()
@@ -286,21 +308,26 @@ struct PayoutHistoryView: View {
                 treasury: treasury,
                 achievementService: achievementService,
                 familyService: familyService,
-                appState: appState
+                appState: appState,
+                lifecycleCoordinator: lifecycleCoordinator
             )
         }, rebuild: { vm in rebuildFromCache(vm) })
     }
 
     private func rebuildFromCache(_ vm: FamilyDashboardViewModel? = nil) {
+        // WHY cache-first: viewer gating mirrors the queried row so session drift never leaks into metrics.
+        let viewerRow = ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
         (vm ?? viewModel)?.rebuildLists(
             profiles: cachedProfiles,
-            quests: [],
-            logs: [],
-            ledgers: [],
+            quests: cachedQuests,
+            logs: cachedCompletions,
+            ledgers: cachedLedgers,
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
-            templates: cachedTemplates
+            templates: cachedTemplates,
+            familyRow: cachedFamilies.first,
+            viewerRow: viewerRow
         )
     }
 
@@ -760,6 +787,8 @@ private extension PayoutHistoryView {
     struct LifecycleModifier: ViewModifier {
         let cachedAllowancePeriods: [AllowancePeriodCache]
         let cachedProfiles: [ProfileCache]
+        let cachedQuests: [QuestCache]
+        let cachedCompletions: [QuestCompletionCache]
         let cachedAchievements: [AchievementCache]
         let cachedProfileAchievements: [ProfileAchievementCache]
         let cachedLedgers: [LedgerEntryCache]
@@ -767,6 +796,7 @@ private extension PayoutHistoryView {
         let currentProfileRows: [ProfileCache]
         let cachedGoals: [GoalCache]
         let onAppear: () async -> Void
+        let onRefresh: () async -> Void
         let onCacheChanged: () -> Void
 
         func body(content: Content) -> some View {
@@ -776,19 +806,21 @@ private extension PayoutHistoryView {
         private func applyCore(to content: Content) -> some View {
             content
                 .task { await onAppear() }
-                .refreshable { onCacheChanged() }
+                .refreshable { await onRefresh() }
                 .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
                 .onChange(of: cachedProfiles) { _, _ in onCacheChanged() }
-                .onChange(of: cachedAchievements) { _, _ in onCacheChanged() }
+                .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
         }
 
         private func applyRemaining(to view: some View) -> some View {
             view
+                .onChange(of: cachedCompletions) { _, _ in onCacheChanged() }
+                .onChange(of: cachedAchievements) { _, _ in onCacheChanged() }
                 .onChange(of: cachedProfileAchievements) { _, _ in onCacheChanged() }
                 .onChange(of: cachedLedgers) { _, _ in onCacheChanged() }
                 .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
                 .onChange(of: currentProfileRows) { _, _ in onCacheChanged() }
-                .onChange(of: cachedGoals) { _, _ in }
+                .onChange(of: cachedGoals) { _, _ in onCacheChanged() }
         }
     }
 }

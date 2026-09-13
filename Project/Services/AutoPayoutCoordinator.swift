@@ -43,6 +43,31 @@ final class AutoPayoutCoordinator {
 
     // MARK: - Payout Evaluation
 
+    /// Early payout requested from UI. Shares the automatic single-flight guard so concurrent triggers never double-settle.
+    @discardableResult
+    func processEarlyPayout(
+        heroRows: [ProfileCache],
+        familyRow: FamilyCache?,
+        now: Date = Date()
+    ) async -> (settled: Int, failed: [String]) {
+        guard isProcessing.withLock({ flag in
+            guard !flag else { return false }
+            flag = true
+            return true
+        }) else {
+            logger.debug("Early payout already in progress. Skipping.")
+            return (0, [])
+        }
+        defer { isProcessing.withLock { $0 = false } }
+
+        return await treasuryService.settleDuePayouts(
+            heroRows: heroRows,
+            familyRow: familyRow,
+            now: now,
+            allowEarlyCurrentWeek: true
+        )
+    }
+
     /// Evaluates whether payouts or quest sweeps are due for any hero in the active family
     /// and executes them atomically. Safe to call on cold launch, scene foreground, or background refresh.
     @discardableResult
@@ -72,55 +97,10 @@ final class AutoPayoutCoordinator {
         do {
             let heroes = try await familyService.fetchHeroes(for: family)
 
-            for hero in heroes {
-                // Real-time heroes have no weekly payout step — their earnings are settled via runPayout's real-time
-                // guard on each quest completion.
-                let effectivePolicy = hero.payoutPolicy ?? family.payoutPolicy
-                guard effectivePolicy != .realTime else { continue }
-
-                let payoutDay = hero.payoutDay ?? family.payoutDay
-                let currentWeekStart = WeekMath.startOfWeek(for: now, payoutDay: payoutDay)
-
-                // Check current week and previous week for open allowance periods
-                let candidateWeeks = [
-                    currentWeekStart,
-                    Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.previousWeekDayOffset, to: currentWeekStart) ?? currentWeekStart
-                ]
-
-                for weekOf in candidateWeeks {
-                    // Payout fires once now reaches the exclusive upper bound of the week.
-                    let payoutDate = WeekMath.weekRange(starting: weekOf).upperBound
-                    guard now >= payoutDate else {
-                        continue
-                    }
-
-                    do {
-                        let period: AllowancePeriod? = if weekOf == currentWeekStart {
-                            try await treasuryService.getOrCreateAllowancePeriod(
-                                profile: hero,
-                                weekOf: weekOf,
-                                family: family
-                            )
-                        } else {
-                            try await treasuryService.fetchAllowancePeriod(
-                                profile: hero,
-                                weekOf: weekOf
-                            )
-                        }
-
-                        // Local status pre-check backed by save-layer CAS on AllowancePeriod: skip if missing or already paid
-                        guard let period, period.status != .paid else {
-                            continue
-                        }
-
-                        logger.info("Executing auto-payout for hero \(hero.displayName, privacy: .private) for week \(weekOf, privacy: .private)")
-                        try await treasuryService.runPayout(period: period)
-                        processedCount += 1
-                    } catch {
-                        logger.error("Error processing auto-payout for hero \(hero.displayName, privacy: .private): \(error, privacy: .private)")
-                    }
-                }
-            }
+            let heroRows = appState.cacheService?.fetchProfiles(family: family.id.recordName).filter { $0.roleEnum == .hero && $0.isActive } ?? []
+            let familyRow = appState.cacheService?.fetchFamily(recordName: family.id.recordName)
+            let settlement = await treasuryService.settleDuePayouts(heroRows: heroRows, familyRow: familyRow, now: now, allowEarlyCurrentWeek: false)
+            processedCount += settlement.settled
 
             // Retire quests from past weeks, sweeping per distinct effective hero payout day.
             let heroesByWeekStart = Dictionary(grouping: heroes) { hero in
@@ -186,19 +166,12 @@ final class AutoPayoutCoordinator {
         var totalCarriedPerAssignee: [String: Int] = [:]
 
         for (currentWeekStart, weekHeroes) in heroesByWeekStart {
-            // Derive previous week start for this payout-day group.
-            let previousWeekStart = Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.previousWeekDayOffset, to: currentWeekStart) ?? currentWeekStart
+            let previousWeekStart = WeekMath.weekStart(byAddingWeeks: -1, to: currentWeekStart)
             guard previousWeekStart < currentWeekStart else {
                 logger
                     .error(
                         "Carry-forward week math corrupt: previousWeekStart \(previousWeekStart, privacy: .private) >= currentWeekStart \(currentWeekStart, privacy: .private). Skipping group."
                     )
-                continue
-            }
-            guard WeekMath.weekRange(starting: previousWeekStart).upperBound == WeekMath.weekRange(starting: previousWeekStart).lowerBound
-                .addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek))
-            else {
-                logger.error("Carry-forward weekRange invariant violated for previousWeekStart \(previousWeekStart, privacy: .private). Skipping group.")
                 continue
             }
 
