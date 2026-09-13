@@ -197,7 +197,7 @@ struct HeroTransactionView: View {
                     .modifier(OptionalForegroundModifier(color: mode.confirmButtonTintColor))
                 }
             }
-            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: $amountText)
             .interactiveDismissDisabled(viewModel.isLoading)
             .alert("Spend Will Go Negative", isPresented: $showOverdrawConfirm) {
                 Button("Cancel", role: .cancel) {}
@@ -241,7 +241,8 @@ struct HeroTransactionView: View {
         let amountSnapshot = amount
         let dateSnapshot = date
         let modeSnapshot = mode
-        Task { [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot] in
+        // WHY MainActor view: toast and dismiss stay isolated so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot, toastManager, dismiss] in
             let success = (modeSnapshot == .deposit)
                 ? await viewModel.deposit(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)
                 : await viewModel.withdraw(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)
@@ -259,7 +260,6 @@ struct HeroTransactionView: View {
 
     // MARK: - Parsing
 
-    /// Parses amount using the current locale, falling back to dot-normalized Double.
     static func parseAmount(_ text: String) -> Int64? {
         CurrencyFormatter.pennies(from: text)
     }

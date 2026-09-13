@@ -30,6 +30,11 @@ enum AppConstants {
         static let legendaryXP: Int = 500
     }
 
+    enum Rewards {
+        /// WHY pennies presets: locale editing uses comma separators so string equality fails.
+        static let rewardPresetsPennies: [Int64] = [100, 250, 500]
+    }
+
     enum Sync {
         static let maxPulseAttempts: Int = 3
         /// Window around UTC midnight for flagging transfers that may straddle the day-bucket boundary.

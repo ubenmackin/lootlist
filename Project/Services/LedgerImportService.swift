@@ -207,67 +207,9 @@ enum LedgerCSVParser {
         return records
     }
 
-    /// WHY locale-first: device separators (e.g. German 1.234,56) parse directly; symbols fall through.
+    /// WHY single source: import amounts share the hardened locale-aware parser.
     static func parseAmount(_ raw: String) -> Int64? {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-
-        var negative = false
-        if text.hasPrefix("("), text.hasSuffix(")") {
-            negative = true
-            text = String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-        }
-
-        if let direct = CurrencyFormatter.decimalDouble(from: text) {
-            let pennies = CurrencyFormatter.dollarsToPennies(direct)
-            return negative ? -abs(pennies) : pennies
-        }
-
-        // WHY symbol-strip fallback: pasted values carry symbols outside the number style.
-        var stripped = text
-        if !CurrencyFormatter.currencySymbol.isEmpty {
-            stripped = stripped.replacingOccurrences(of: CurrencyFormatter.currencySymbol, with: "")
-        }
-        stripped = stripped.components(separatedBy: CharacterSet(charactersIn: "$€£¥₹₩")).joined()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !stripped.isEmpty else { return nil }
-
-        if stripped.hasPrefix("-") {
-            negative.toggle()
-            stripped = String(stripped.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if stripped.hasPrefix("+") {
-            stripped = String(stripped.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        guard !stripped.isEmpty else { return nil }
-
-        if let value = CurrencyFormatter.decimalDouble(from: stripped) {
-            guard value.isFinite else { return nil }
-            let pennies = CurrencyFormatter.dollarsToPennies(value)
-            return negative ? -abs(pennies) : pennies
-        }
-
-        // WHY last-separator-wins: German 1.234,56 and US 1,234.56 converge on any device.
-        let hasDot = stripped.contains(".")
-        let hasComma = stripped.contains(",")
-        let normalized: String = if hasDot, hasComma {
-            if let lastDot = stripped.lastIndex(of: "."),
-               let lastComma = stripped.lastIndex(of: ","),
-               lastDot > lastComma
-            {
-                stripped.replacingOccurrences(of: ",", with: "")
-            } else {
-                stripped.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
-            }
-        } else if hasComma {
-            stripped.replacingOccurrences(of: ",", with: ".")
-        } else {
-            stripped
-        }
-
-        guard let value = Double(normalized), value.isFinite else { return nil }
-        let pennies = CurrencyFormatter.dollarsToPennies(value)
-        return negative ? -abs(pennies) : pennies
+        CurrencyFormatter.pennies(from: raw)
     }
 
     /// WHY flexible dates: ISO and US bank formats share one parser.
@@ -387,10 +329,11 @@ final class LedgerImportService {
 
     /// WHY distinct identity: assigned child is part of the content hash.
     static func recordName(for row: StagedImportRow, profileRecordName: String) -> String {
-        let cents = Int(row.amount ?? 0)
+        let cents = row.amount ?? 0
         // WHY sentinel: blockingRows gates nil dates, but direct callers still converge on a stable value.
         let rowDate = row.date ?? Date(timeIntervalSince1970: 0)
-        let timestamp = Int(rowDate.timeIntervalSince1970)
+        // WHY seconds canon: historic import IDs hash seconds so re-imports dedupe.
+        let timestamp = Int64(rowDate.timeIntervalSince1970)
         let canonical = [
             row.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             row.merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),

@@ -106,7 +106,7 @@ struct QuestAssignmentView: View {
 
     @State private var quickName: String = ""
     @State private var quickDescription: String = ""
-    @State private var quickGoldText: String = "1.00"
+    @State private var quickGoldText: String = CurrencyFormatter.editingString(100)
     @State private var quickRarity: QuestRarity = .common
     @State private var quickSchedule: QuestSchedule = .weeklyFlexible
     @State private var quickSpecificDays: Set<String> = []
@@ -269,6 +269,7 @@ struct QuestAssignmentView: View {
         AssignmentDialogsModifier(
             showOverrideAlert: $showOverrideAlert,
             isEditAmountFocused: $isEditAmountFocused,
+            editAmountText: $editGoldText,
             onOverride: { allowLockedFieldsOverride = true }
         )
     }
@@ -377,174 +378,26 @@ struct QuestAssignmentView: View {
 
     // MARK: - Edit sections
 
-    private var isEditMultiOccurrence: Bool {
-        QuestSchedule.isMultiOccurrence(
-            schedule: editSchedule,
-            targetCount: editTargetCount,
-            specificDaysCount: editSpecificDays.count
-        )
-    }
-
-    @ViewBuilder
+    /// WHY split edit form: the combined Section chain stalls the Swift 6 type-checker.
     private var editSections: some View {
-        Section("Quest Details") {
-            TextField("Quest Name", text: $editQuestName)
-
-            TextField("Description (optional)", text: $editQuestDescription, axis: .vertical)
-                .lineLimit(2 ... 3)
-        }
-
-        Section("Hero") {
-            if editHasLogs, !allowLockedFieldsOverride {
-                HStack {
-                    if let assignee = editAssignee {
-                        Text(assignee.displayName)
-                    } else {
-                        Text("Unknown Hero")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Override") {
-                        showOverrideAlert = true
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
-                }
-            } else {
-                heroPickerEdit
-            }
-        }
-
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Reward")
-                    .foregroundStyle(editHasLogs ? .secondary : .primary)
-                if !editHasLogs {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
-                                PresetPill(
-                                    text: CurrencyFormatter.presetString(preset),
-                                    isSelected: editGoldText == preset,
-                                    action: { editGoldText = preset }
-                                )
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-                TextField("1.00", text: $editGoldText)
-                    .keyboardType(.decimalPad)
-                    .focused($isEditAmountFocused)
-                    .disabled(editHasLogs)
-            }
-
-            if FeatureFlags.rpgImmersive {
-                HStack {
-                    Text("Bonus Reward")
-                        .foregroundStyle(editHasLogs ? .secondary : .primary)
-                    Spacer()
-                    TextField("0", text: $editXpText)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 80)
-                        .disabled(editHasLogs)
-                }
-            }
-
-            if isEditMultiOccurrence {
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle("All-or-Nothing", isOn: $editIsAllOrNothing)
-                        .disabled(editHasLogs)
-                    Text(
-                        "When enabled, the hero must complete all required days or times to earn the full reward. When disabled, rewards are earned incrementally per completion."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 2)
-            }
-        } header: {
-            Text("Rewards")
-        }
-
-        Section("Schedule & Approval") {
-            Picker("Schedule", selection: $editSchedule) {
-                ForEach(QuestSchedule.allCases, id: \.self) { schedule in
-                    Text(schedule.displayName).tag(schedule)
-                }
-            }
-            .disabled(editHasLogs)
-
-            if editSchedule == .weeklyFlexible {
-                Stepper("Required Times Per Week: \(editTargetCount)", value: $editTargetCount, in: 1 ... 7)
-                    .disabled(editHasLogs)
-            }
-
-            if editSchedule == .specificDays {
-                VStack(alignment: .leading) {
-                    Text("Repeat On")
-                        .foregroundStyle(editHasLogs ? .secondary : .primary)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Array(WeekMath.weekdayOrder.indices), id: \.self) { idx in
-                                let code = WeekMath.weekdayOrder[idx]
-                                PresetPill(
-                                    text: AppConstants.weekdayAbbreviated[idx],
-                                    isSelected: editSpecificDays.contains(code),
-                                    action: {
-                                        if editSpecificDays.contains(code) {
-                                            editSpecificDays.remove(code)
-                                        } else {
-                                            editSpecificDays.insert(code)
-                                        }
-                                    }
-                                )
-                                .disabled(editHasLogs)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            }
-
-            Picker("Approval", selection: $editApproval) {
-                ForEach(ApprovalMode.allCases, id: \.self) { approval in
-                    Text(approval.displayName).tag(approval)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-
-        Section("Template Sync") {
-            Toggle("Also update parent template", isOn: $propagateToTemplate)
-                .help("Applies these schedule + day changes to the master template too, affecting future quests assigned from it.")
-        }
-
-        if editHasLogs {
-            Section {
-                Text("🔒 Locked — Hero has started this quest. Name and description remain editable.")
-                    .font(.caption)
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
-            }
-        }
-    }
-
-    // MARK: - Hero pickers
-
-    @ViewBuilder
-    private var heroPickerEdit: some View {
-        if liveHeroes.isEmpty {
-            Text("No heroes in the family.")
-                .foregroundStyle(.secondary)
-        } else {
-            Picker("Hero", selection: $editAssignee) {
-                Text("Choose…").tag(nil as ProfileCache?)
-                ForEach(liveHeroes) { hero in
-                    Text(hero.displayName).tag(hero as ProfileCache?)
-                }
-            }
-        }
+        QuestAssignmentEditFormView(
+            questName: $editQuestName,
+            questDescription: $editQuestDescription,
+            goldText: $editGoldText,
+            xpText: $editXpText,
+            schedule: $editSchedule,
+            specificDays: $editSpecificDays,
+            targetCount: $editTargetCount,
+            isAllOrNothing: $editIsAllOrNothing,
+            approval: $editApproval,
+            assignee: $editAssignee,
+            propagateToTemplate: $propagateToTemplate,
+            showOverrideAlert: $showOverrideAlert,
+            isEditAmountFocused: $isEditAmountFocused,
+            heroes: liveHeroes,
+            hasLogs: editHasLogs,
+            allowLockedOverride: allowLockedFieldsOverride
+        )
     }
 
     // MARK: - Submit disabled
@@ -669,22 +522,29 @@ struct QuestAssignmentView: View {
         let nameOverride = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
 
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
+        let templateSnapshot = template.toQuestTemplate(zoneID: zoneID)
+        let heroSnapshot = hero.toProfile(zoneID: zoneID)
+        let overridesSnapshot = (gold: gold, xp: xp, approval: approval, allOrNothing: allOrNothingOverride, name: nameOverride)
+        let weekSnapshot = weekOf
+        let onCancelSnapshot = onCancel
         isSubmitting = true
-        Task {
+        // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, templateSnapshot, heroSnapshot, overridesSnapshot, weekSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             do {
                 try await viewModel.assignQuest(
-                    template: template.toQuestTemplate(zoneID: zoneID),
-                    assignee: hero.toProfile(zoneID: zoneID),
-                    goldOverride: gold,
-                    xpOverride: xp,
-                    approvalOverride: approval,
-                    isAllOrNothingOverride: allOrNothingOverride,
-                    nameOverride: nameOverride,
-                    weekOf: weekOf
+                    template: templateSnapshot,
+                    assignee: heroSnapshot,
+                    goldOverride: overridesSnapshot.gold,
+                    xpOverride: overridesSnapshot.xp,
+                    approvalOverride: overridesSnapshot.approval,
+                    isAllOrNothingOverride: overridesSnapshot.allOrNothing,
+                    nameOverride: overridesSnapshot.name,
+                    weekOf: weekSnapshot
                 )
                 isSubmitting = false
-                if let onCancel {
-                    onCancel()
+                if let onCancelSnapshot {
+                    onCancelSnapshot()
                 } else {
                     dismiss()
                 }
@@ -731,26 +591,42 @@ struct QuestAssignmentView: View {
         let effectiveAllOrNothing = isQuickMultiOccurrence ? quickIsAllOrNothing : false
 
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: hero)
-        isSubmitting = true
-        let input = QuestManagerViewModel.QuickQuestInput(
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
+        let heroSnapshot = hero.toProfile(zoneID: zoneID)
+        let inputSnapshot = (
             name: trimmedName,
             description: quickDescription,
-            assignee: hero.toProfile(zoneID: zoneID),
-            goldReward: gold,
-            xpReward: xp,
-            scheduleType: quickSchedule,
-            specificDays: Array(quickSpecificDays),
-            targetCount: quickSchedule == .weeklyFlexible ? max(1, quickTargetCount) : 1,
-            isAllOrNothing: effectiveAllOrNothing,
-            approvalMode: quickApproval,
-            weekOf: weekOf
+            gold: gold,
+            xp: xp,
+            schedule: quickSchedule,
+            days: Array(quickSpecificDays),
+            target: quickSchedule == .weeklyFlexible ? max(1, quickTargetCount) : 1,
+            allOrNothing: effectiveAllOrNothing,
+            approval: quickApproval,
+            week: weekOf
         )
-        Task {
+        let onCancelSnapshot = onCancel
+        isSubmitting = true
+        // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, heroSnapshot, inputSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+            let input = QuestManagerViewModel.QuickQuestInput(
+                name: inputSnapshot.name,
+                description: inputSnapshot.description,
+                assignee: heroSnapshot,
+                goldReward: inputSnapshot.gold,
+                xpReward: inputSnapshot.xp,
+                scheduleType: inputSnapshot.schedule,
+                specificDays: inputSnapshot.days,
+                targetCount: inputSnapshot.target,
+                isAllOrNothing: inputSnapshot.allOrNothing,
+                approvalMode: inputSnapshot.approval,
+                weekOf: inputSnapshot.week
+            )
             do {
                 try await viewModel.assignQuickQuest(input)
                 isSubmitting = false
-                if let onCancel {
-                    onCancel()
+                if let onCancelSnapshot {
+                    onCancelSnapshot()
                 } else {
                     dismiss()
                 }
@@ -775,19 +651,27 @@ struct QuestAssignmentView: View {
             return
         }
 
+        // WHY snapshot: @State values cross suspension; Sendable copies ride the Task.
+        let nameSnapshot = trimmedName
+        let descriptionSnapshot = quickDescription
+        let goldSnapshot = gold
+        let xpSnapshot = FeatureFlags.rpgImmersive ? quickRarity.xpReward : AppConstants.Rarity.commonXP
+        let approvalSnapshot = quickApproval
+        let onCancelSnapshot = onCancel
         isSubmitting = true
-        Task {
+        // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, nameSnapshot, descriptionSnapshot, goldSnapshot, xpSnapshot, approvalSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             do {
                 try await viewModel.postQuestToBoard(
-                    name: trimmedName,
-                    description: quickDescription,
-                    goldReward: gold,
-                    xpReward: FeatureFlags.rpgImmersive ? quickRarity.xpReward : AppConstants.Rarity.commonXP,
-                    approvalMode: quickApproval
+                    name: nameSnapshot,
+                    description: descriptionSnapshot,
+                    goldReward: goldSnapshot,
+                    xpReward: xpSnapshot,
+                    approvalMode: approvalSnapshot
                 )
                 isSubmitting = false
-                if let onCancel {
-                    onCancel()
+                if let onCancelSnapshot {
+                    onCancelSnapshot()
                 } else {
                     dismiss()
                 }
@@ -833,31 +717,49 @@ struct QuestAssignmentView: View {
         let name = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
         let description = editQuestDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestDescription
 
-        let effectiveAllOrNothing = isEditMultiOccurrence ? editIsAllOrNothing : false
+        let isEditMulti = QuestSchedule.isMultiOccurrence(schedule: editSchedule, targetCount: editTargetCount, specificDaysCount: editSpecificDays.count)
+        let effectiveAllOrNothing = isEditMulti ? editIsAllOrNothing : false
 
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: questCache)
-        let quest = questCache.toQuest(zoneID: zoneID)
-        isSubmitting = true
-        let input = QuestManagerViewModel.UpdateQuestInput(
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
+        let questSnapshot = questCache.toQuest(zoneID: zoneID)
+        let heroSnapshot = hero.toProfile(zoneID: zoneID)
+        let inputSnapshot = (
             name: name,
-            descriptionText: description,
-            goldReward: gold,
-            xpReward: xp,
-            scheduleType: editSchedule,
-            specificDays: Array(editSpecificDays),
-            targetCount: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
-            isAllOrNothing: effectiveAllOrNothing,
-            approvalMode: editApproval,
-            assignee: hero.toProfile(zoneID: zoneID),
-            allowLockedFieldsOverride: allowLockedFieldsOverride,
-            propagateToTemplate: propagateToTemplate
+            description: description,
+            gold: gold,
+            xp: xp,
+            schedule: editSchedule,
+            days: Array(editSpecificDays),
+            target: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
+            allOrNothing: effectiveAllOrNothing,
+            approval: editApproval,
+            allowOverride: allowLockedFieldsOverride,
+            propagate: propagateToTemplate
         )
-        Task {
+        let onCancelSnapshot = onCancel
+        isSubmitting = true
+        // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, questSnapshot, heroSnapshot, inputSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+            let input = QuestManagerViewModel.UpdateQuestInput(
+                name: inputSnapshot.name,
+                descriptionText: inputSnapshot.description,
+                goldReward: inputSnapshot.gold,
+                xpReward: inputSnapshot.xp,
+                scheduleType: inputSnapshot.schedule,
+                specificDays: inputSnapshot.days,
+                targetCount: inputSnapshot.target,
+                isAllOrNothing: inputSnapshot.allOrNothing,
+                approvalMode: inputSnapshot.approval,
+                assignee: heroSnapshot,
+                allowLockedFieldsOverride: inputSnapshot.allowOverride,
+                propagateToTemplate: inputSnapshot.propagate
+            )
             do {
-                try await viewModel.updateQuest(quest, input: input)
+                try await viewModel.updateQuest(questSnapshot, input: input)
                 isSubmitting = false
-                if let onCancel {
-                    onCancel()
+                if let onCancelSnapshot {
+                    onCancelSnapshot()
                 } else {
                     dismiss()
                 }
@@ -871,58 +773,5 @@ struct QuestAssignmentView: View {
 
     private static func defaultWeekOf() -> Date {
         WeekMath.mondayOfWeek(for: Date())
-    }
-}
-
-// MARK: - View Modifiers (extracted to keep body shallow for the Swift 6 type-checker)
-
-private extension QuestAssignmentView {
-    /// WHY split assignment lifecycle into a typed modifier: deep onChange chains stall the Swift 6 type-checker.
-    struct AssignmentLifecycleModifier: ViewModifier {
-        let cachedCompletions: [QuestCompletionCache]
-        let cachedTemplates: [QuestTemplateCache]
-        let cachedProfiles: [ProfileCache]
-        let cachedAssignments: [QuestCache]
-        let onAppear: () -> Void
-        let onCompletionsChanged: () -> Void
-        let onCacheChanged: () -> Void
-
-        func body(content: Content) -> some View {
-            applyTail(to: applyHead(to: content))
-        }
-
-        private func applyHead(to content: Content) -> some View {
-            content
-                .onAppear { onAppear() }
-                .onChange(of: cachedCompletions) { _, _ in onCompletionsChanged() }
-                .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
-        }
-
-        private func applyTail(to view: some View) -> some View {
-            view
-                .onChange(of: cachedProfiles) { _, _ in onCacheChanged() }
-                .onChange(of: cachedAssignments) { _, _ in onCacheChanged() }
-        }
-    }
-
-    /// WHY split dialogs into a typed modifier: alert plus overlays widen Form inference.
-    struct AssignmentDialogsModifier: ViewModifier {
-        @Binding var showOverrideAlert: Bool
-        var isEditAmountFocused: FocusState<Bool>.Binding
-        let onOverride: () -> Void
-
-        func body(content: Content) -> some View {
-            content
-                .alert("Override Lock?", isPresented: $showOverrideAlert) {
-                    Button("Cancel", role: .cancel) {}
-                    Button("Override", role: .destructive) {
-                        onOverride()
-                    }
-                } message: {
-                    Text("Hero has already started this quest. Changing the assignee will move this quest. Continue?")
-                }
-                .toastOverlay()
-                .decimalPadDoneToolbar(isFocused: isEditAmountFocused)
-        }
     }
 }

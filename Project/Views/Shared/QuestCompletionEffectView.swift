@@ -22,13 +22,6 @@ struct QuestCompletionEffectView: View {
         self._isShowing = isShowing
     }
 
-    init(xpEarned: Int, goldEarned: Double?, rarity: QuestRarity, isShowing: Binding<Bool>) {
-        self.xpEarned = xpEarned
-        self.goldEarned = goldEarned.map { CurrencyFormatter.dollarsToPennies($0) }
-        self.rarity = rarity
-        self._isShowing = isShowing
-    }
-
     @Environment(SoundManager.self) private var soundManager
 
     @State private var textScale: CGFloat = 0.5

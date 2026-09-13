@@ -13,7 +13,7 @@ import SwiftUI
 struct HeroHomePlayerCardView: View {
     let row: ProfileCache
     let progress: LevelProgress
-    let earned: Double
+    let pennies: Int64
     let streak: Int
     let shields: Int
     let completed: Int
@@ -112,7 +112,7 @@ struct HeroHomePlayerCardView: View {
                     Text("This Week")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Text(CurrencyFormatter.string(earned))
+                    Text(CurrencyFormatter.string(pennies: pennies))
                         .font(.subheadline.bold())
                         .foregroundStyle(.primary)
                 }

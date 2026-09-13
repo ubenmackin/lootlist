@@ -12,7 +12,7 @@ struct HeroHeaderCardView: View {
     let profileCache: ProfileCache?
     let familyName: String?
     let streak: Int
-    let earnedThisWeek: Double
+    let earnedThisWeek: Int64
     let completedQuestCount: Int
     let totalQuestCount: Int
     var isPendingPayout: Bool = false
@@ -114,7 +114,7 @@ struct HeroHeaderCardView: View {
                                 .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         }
                     }
-                    Text(CurrencyFormatter.string(earnedThisWeek))
+                    Text(CurrencyFormatter.string(pennies: earnedThisWeek))
                         .font(.title3.bold())
                         .monospacedDigit()
                 }

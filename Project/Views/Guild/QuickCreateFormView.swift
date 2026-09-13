@@ -69,20 +69,20 @@ struct QuickCreateFormView: View {
                 Text("Reward")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                        ForEach(AppConstants.Rewards.rewardPresetsPennies, id: \.self) { preset in
                             PresetPill(
-                                text: CurrencyFormatter.presetString(preset),
-                                isSelected: quickGoldText == preset,
-                                action: { quickGoldText = preset }
+                                text: CurrencyFormatter.string(pennies: preset),
+                                isSelected: CurrencyFormatter.pennies(from: quickGoldText) == preset,
+                                action: { quickGoldText = CurrencyFormatter.editingString(preset) }
                             )
                         }
                     }
                     .padding(.vertical, 2)
                 }
-                TextField("1.00", text: $quickGoldText)
+                TextField(CurrencyFormatter.editingString(100), text: $quickGoldText)
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
-                    .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+                    .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: $quickGoldText)
             }
 
             // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.

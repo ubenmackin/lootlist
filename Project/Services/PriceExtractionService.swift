@@ -12,7 +12,8 @@ import os
 #endif
 
 struct ExtractedPrice: Sendable {
-    let amount: Double
+    // WHY pennies: boundary quantizes once so callers never drift through Double.
+    let amountPennies: Int64
     let currency: String
     let confidence: String
 }
@@ -33,7 +34,7 @@ enum PriceExtractionService {
             if #available(iOS 26, *) {
                 if SystemLanguageModel.default.isAvailable {
                     if let fmPrice = await extractWithFoundationModels(snippet: snippet) {
-                        if fmPrice.amount > 0, fmPrice.amount < 100_000 {
+                        if fmPrice.amountPennies > 0, fmPrice.amountPennies < 10_000_000 {
                             return fmPrice
                         }
                     }
@@ -106,22 +107,35 @@ enum PriceExtractionService {
             }
             guard let obj = jsonObject as? [String: Any] else { return nil }
 
-            let rawPrice: Double? = {
-                if let num = obj["price"] as? Double {
-                    return num
+            let pennies: Int64? = {
+                if let str = obj["price"] as? String {
+                    return CurrencyFormatter.pennies(from: str)
+                }
+                // WHY Bool guard: JSON booleans bridge to numbers so reject before Int.
+                if obj["price"] is Bool {
+                    return nil
                 }
                 if let num = obj["price"] as? Int {
-                    return Double(num)
+                    return CurrencyFormatter.quantizeToPennies(Decimal(num))
                 }
-                if let str = obj["price"] as? String {
-                    return Double(str)
+                if let num = obj["price"] as? Double {
+                    return CurrencyFormatter.legacyDollarsToPennies(num)
+                }
+                if let number = obj["price"] as? NSNumber {
+                    // WHY Decimal canon: decimalValue avoids Double binary drift.
+                    if let exact = Decimal(string: number.stringValue, locale: Locale(identifier: "en_US_POSIX")) {
+                        if let pennies = CurrencyFormatter.quantizeToPennies(exact) {
+                            return pennies
+                        }
+                    }
+                    return CurrencyFormatter.quantizeToPennies(number.decimalValue)
                 }
                 if obj["price"] is NSNull {
                     return nil
                 }
                 return nil
             }()
-            guard let price = rawPrice, price > 0, price < 100_000 else { return nil }
+            guard let amountPennies = pennies, amountPennies > 0, amountPennies < 10_000_000 else { return nil }
 
             let currency = (obj["currency"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             let resolvedCurrency: String = {
@@ -134,7 +148,7 @@ enum PriceExtractionService {
             let confidence = (obj["confidence"] as? String)?.lowercased() ?? "medium"
             let resolvedConfidence = ["high", "medium", "low"].contains(confidence) ? confidence : "medium"
 
-            return ExtractedPrice(amount: price, currency: resolvedCurrency, confidence: resolvedConfidence)
+            return ExtractedPrice(amountPennies: amountPennies, currency: resolvedCurrency, confidence: resolvedConfidence)
         }
     #endif
 
@@ -145,33 +159,33 @@ enum PriceExtractionService {
         let currency = extractCurrency(from: fullHTML)
 
         if let raw = extractMetaAmount(for: "og:price:amount", in: fullHTML),
-           let amount = parseAmountString(raw),
-           amount > 0, amount < 100_000
+           let amountPennies = parseAmountPennies(raw),
+           amountPennies > 0, amountPennies < 10_000_000
         {
-            return ExtractedPrice(amount: amount, currency: currency, confidence: "high")
+            return ExtractedPrice(amountPennies: amountPennies, currency: currency, confidence: "high")
         }
 
         if let raw = extractMetaAmount(for: "product:price:amount", in: fullHTML),
-           let amount = parseAmountString(raw),
-           amount > 0, amount < 100_000
+           let amountPennies = parseAmountPennies(raw),
+           amountPennies > 0, amountPennies < 10_000_000
         {
-            return ExtractedPrice(amount: amount, currency: currency, confidence: "high")
+            return ExtractedPrice(amountPennies: amountPennies, currency: currency, confidence: "high")
         }
 
         // JSON-LD "price" — structured data fallback.
         if let raw = extractJSONLDPrice(from: fullHTML),
-           let amount = parseAmountString(raw),
-           amount > 0, amount < 100_000
+           let amountPennies = parseAmountPennies(raw),
+           amountPennies > 0, amountPennies < 10_000_000
         {
-            return ExtractedPrice(amount: amount, currency: currency, confidence: "medium")
+            return ExtractedPrice(amountPennies: amountPennies, currency: currency, confidence: "medium")
         }
 
         // Also try snippet for JSON-LD when fullHTML is large but snippet contains the block.
         if let raw = extractJSONLDPrice(from: snippet),
-           let amount = parseAmountString(raw),
-           amount > 0, amount < 100_000
+           let amountPennies = parseAmountPennies(raw),
+           amountPennies > 0, amountPennies < 10_000_000
         {
-            return ExtractedPrice(amount: amount, currency: currency, confidence: "medium")
+            return ExtractedPrice(amountPennies: amountPennies, currency: currency, confidence: "medium")
         }
 
         return nil
@@ -226,17 +240,13 @@ enum PriceExtractionService {
         return content.isEmpty ? nil : content
     }
 
-    private nonisolated static func parseAmountString(_ raw: String) -> Double? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        // Strip currency symbols and keep digits, comma, dot.
-        let cleaned = trimmed.replacingOccurrences(of: ",", with: "")
-        if let direct = Double(cleaned), direct.isFinite {
-            return direct
+    private nonisolated static func parseAmountPennies(_ raw: String) -> Int64? {
+        // WHY single source: separators converge in CurrencyFormatter so groupings never drift.
+        if let pennies = CurrencyFormatter.pennies(from: raw) {
+            return pennies
         }
-        // Fallback: extract first numeric token.
-        if let match = cleaned.firstMatch(of: /([0-9]+(?:\.[0-9]+)?)/) {
-            return Double(String(match.output.1))
+        if let match = raw.firstMatch(of: /([0-9]+(?:[.,][0-9]+)?)/) {
+            return CurrencyFormatter.pennies(from: String(match.output.1))
         }
         return nil
     }

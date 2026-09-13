@@ -84,7 +84,7 @@ struct LogSpendingView: View {
                                         }
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
-                                        .background(Color(.tertiarySystemFill), in: Capsule())
+                                        .background(Color(DesignSystemConstants.Colors.tertiaryFill), in: Capsule())
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -170,7 +170,7 @@ struct LogSpendingView: View {
                     .disabled(isSaving)
                 }
             }
-            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: $amountText)
             .interactiveDismissDisabled(isSaving)
             .alert("Spend Will Go Negative", isPresented: $showOverdrawConfirm) {
                 Button("Cancel", role: .cancel) {}
@@ -257,7 +257,8 @@ struct LogSpendingView: View {
         let amountSnapshot = amount
         let locationSnapshot = location
         let dateSnapshot = date
-        Task { [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot] in
+        // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot, toastManager, dismiss] in
             let success = await viewModel.logSpending(
                 description: descriptionSnapshot,
                 amount: amountSnapshot,

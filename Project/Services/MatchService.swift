@@ -75,9 +75,9 @@ final class MatchService {
     /// Whole-penny match, always rounded down so rounding can never mint value
     /// that wasn't earned. Rate can exceed 100% (rateBps > 10000) so a parent
     /// choosing a 200% match gets double the contribution.
-    static func matchPennies(contributionPennies: Int, rateBps: Int) -> Int {
+    static func matchPennies(contributionPennies: Int64, rateBps: Int) -> Int64 {
         guard contributionPennies > 0, rateBps > 0 else { return 0 }
-        return contributionPennies * rateBps / 10000
+        return contributionPennies * Int64(rateBps) / 10000
     }
 
     // MARK: - Config
@@ -173,11 +173,10 @@ final class MatchService {
                 let entryDate = WeekMath.startOfDay(for: entry.date)
                 return entryDate >= monthStart && entryDate < monthEnd
             }
-            .reduce(into: 0) { $0 += Int($1.amount) }
+            .reduce(into: Int64(0)) { $0 += $1.amount }
 
-        let contributionPennies = Int(contributionAmount)
         var matchPennies = Self.matchPennies(
-            contributionPennies: contributionPennies,
+            contributionPennies: contributionAmount,
             rateBps: heroProfile.matchRateBps
         )
 
@@ -185,7 +184,7 @@ final class MatchService {
         // pennies (same unit as match calculations) so the comparison
         // stays exact without floating-point rounding.
         if let cap = heroProfile.matchMonthlyCapPennies, cap > 0 {
-            let remaining = max(Int(cap) - mtdPennies, 0)
+            let remaining = max(cap - mtdPennies, 0)
             matchPennies = min(matchPennies, remaining)
         }
 
@@ -193,7 +192,7 @@ final class MatchService {
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: heroProfile.id, action: .none),
-            amount: Int64(matchPennies),
+            amount: matchPennies,
             description: Self.entryDescription,
             date: date,
             source: LedgerSource.match.rawValue,
@@ -203,7 +202,7 @@ final class MatchService {
         )
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "MatchService.applyMatch")
-        let formattedAmount = CurrencyFormatter.string(pennies: Int64(matchPennies))
+        let formattedAmount = CurrencyFormatter.string(pennies: matchPennies)
         logger.info("Matched \(formattedAmount, privacy: .public) for goal \(goal.id.recordName, privacy: .private) in month \(month, privacy: .public)")
         return entry
     }

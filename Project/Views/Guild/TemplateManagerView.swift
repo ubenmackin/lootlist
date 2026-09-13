@@ -48,17 +48,17 @@ struct TemplateManagerView: View {
                             .foregroundStyle(.secondary)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                                ForEach(AppConstants.Rewards.rewardPresetsPennies, id: \.self) { preset in
                                     PresetPill(
-                                        text: CurrencyFormatter.presetString(preset),
-                                        isSelected: defaultGoldText == preset,
-                                        action: { defaultGoldText = preset }
+                                        text: CurrencyFormatter.string(pennies: preset),
+                                        isSelected: CurrencyFormatter.pennies(from: defaultGoldText) == preset,
+                                        action: { defaultGoldText = CurrencyFormatter.editingString(preset) }
                                     )
                                 }
                             }
                             .padding(.vertical, 2)
                         }
-                        TextField("1.00", text: $defaultGoldText)
+                        TextField(CurrencyFormatter.editingString(100), text: $defaultGoldText)
                             .keyboardType(.decimalPad)
                             .focused($isAmountFocused)
                     }
@@ -184,7 +184,7 @@ struct TemplateManagerView: View {
                     }
                 }
             }
-            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: $defaultGoldText)
             .onAppear(perform: hydrateFromEditing)
             .toastOverlay()
         }
@@ -232,42 +232,47 @@ struct TemplateManagerView: View {
 
         let effectiveAllOrNothing = isMultiOccurrence ? isAllOrNothing : false
 
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
+        let detailSnapshot = (name: trimmedName, description: descriptionText, gold: gold, xp: xp)
+        let daysSnapshot: [String] = schedule.requiresSpecificDays ? Array(specificDays) : []
+        let targetSnapshot = schedule == .weeklyFlexible ? max(1, targetCount) : 1
+        let planSnapshot = (schedule: schedule, days: daysSnapshot, target: targetSnapshot, allOrNothing: effectiveAllOrNothing, approval: approvalMode)
+        let zoneIDSnapshot = editing.map { appState.resolvedFamilyZoneID(fallbackRecord: $0) }
+        let templateSnapshot = editing.flatMap { cache in
+            zoneIDSnapshot.map { cache.toQuestTemplate(zoneID: $0) }
+        }
+        let onCancelSnapshot = onCancel
         isSaving = true
-        Task {
+        // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [viewModel, detailSnapshot, planSnapshot, templateSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             do {
-                if let editing {
-                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: editing)
-                    var updated = editing.toQuestTemplate(zoneID: zoneID)
-                    updated.name = trimmedName
-                    updated.description = descriptionText
-                    updated.defaultGold = gold
-                    updated.xpReward = xp
-                    updated.scheduleType = schedule
-                    updated.specificDays = schedule.requiresSpecificDays
-                        ? Array(specificDays)
-                        : []
-                    updated.targetCount = schedule == .weeklyFlexible ? max(1, targetCount) : 1
-                    updated.isAllOrNothing = effectiveAllOrNothing
-                    updated.approvalMode = approvalMode
+                if var updated = templateSnapshot {
+                    updated.name = detailSnapshot.name
+                    updated.description = detailSnapshot.description
+                    updated.defaultGold = detailSnapshot.gold
+                    updated.xpReward = detailSnapshot.xp
+                    updated.scheduleType = planSnapshot.schedule
+                    updated.specificDays = planSnapshot.days
+                    updated.targetCount = planSnapshot.target
+                    updated.isAllOrNothing = planSnapshot.allOrNothing
+                    updated.approvalMode = planSnapshot.approval
                     try await viewModel.updateTemplate(updated)
                 } else {
                     try await viewModel.createTemplate(
-                        name: trimmedName,
-                        description: descriptionText,
-                        defaultGold: gold,
-                        xpReward: xp,
-                        schedule: schedule,
-                        specificDays: schedule.requiresSpecificDays
-                            ? Array(specificDays)
-                            : [],
-                        targetCount: schedule == .weeklyFlexible ? max(1, targetCount) : 1,
-                        isAllOrNothing: effectiveAllOrNothing,
-                        approvalMode: approvalMode
+                        name: detailSnapshot.name,
+                        description: detailSnapshot.description,
+                        defaultGold: detailSnapshot.gold,
+                        xpReward: detailSnapshot.xp,
+                        schedule: planSnapshot.schedule,
+                        specificDays: planSnapshot.days,
+                        targetCount: planSnapshot.target,
+                        isAllOrNothing: planSnapshot.allOrNothing,
+                        approvalMode: planSnapshot.approval
                     )
                 }
                 isSaving = false
-                if let onCancel {
-                    onCancel()
+                if let onCancelSnapshot {
+                    onCancelSnapshot()
                 } else {
                     dismiss()
                 }

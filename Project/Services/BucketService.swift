@@ -64,41 +64,40 @@ final class BucketService {
     /// One bucket's share of a single payout, in whole pennies.
     struct BucketShare: Equatable, Sendable {
         let kind: BucketKind
-        var pennies: Int
+        var pennies: Int64
     }
 
     /// Splits `totalPennies` across the three buckets using the largest remainder method so the shares sum
     /// exactly to the total — a payout can never gain or lose a penny to rounding.
-    nonisolated static func splitPennies(_ totalPennies: Int,
+    nonisolated static func splitPennies(_ totalPennies: Int64,
                                          spendPercent: Int,
                                          shortPercent: Int,
                                          longPercent: Int) -> [BucketShare]
     {
-        let weights: [(kind: BucketKind, percent: Int)] = [
-            (.spend, max(0, spendPercent)),
-            (.shortTermSave, max(0, shortPercent)),
-            (.longTermSave, max(0, longPercent))
+        let weights: [(kind: BucketKind, percent: Int64)] = [
+            (.spend, Int64(max(0, spendPercent))),
+            (.shortTermSave, Int64(max(0, shortPercent))),
+            (.longTermSave, Int64(max(0, longPercent)))
         ]
-        let totalWeight = weights.reduce(0) { $0 + $1.percent }
+        let totalWeight = weights.reduce(Int64(0)) { $0 + $1.percent }
         guard totalWeight > 0 else {
             return [.init(kind: .spend, pennies: totalPennies)]
         }
 
-        let exactShares = weights.map { Double(totalPennies) * Double($0.percent) / Double(totalWeight) }
-        var shares = zip(weights, exactShares).map {
-            BucketShare(kind: $0.kind, pennies: Int($1.rounded(.down)))
+        // WHY integer math: quotient/remainder split keeps shares exact with no binary drift.
+        let quotients = weights.map { totalPennies * $0.percent / totalWeight }
+        let remainders = weights.map { totalPennies * $0.percent % totalWeight }
+        var shares = zip(weights, quotients).map {
+            BucketShare(kind: $0.kind, pennies: $1)
         }
 
-        // Leftover pennies (the discarded fractions) go to the buckets with
-        // the largest fractional remainders; ties resolve in bucket order so
-        // the same input always produces the same allocation.
-        let remainders = exactShares.map { $0.truncatingRemainder(dividingBy: 1) }
+        // WHY remainder order: leftover goes to largest fractions; ties stay in bucket order.
         let order = weights.indices.sorted {
             remainders[$0] != remainders[$1]
                 ? remainders[$0] > remainders[$1]
                 : $0 < $1
         }
-        var leftover = totalPennies - shares.reduce(0) { $0 + $1.pennies }
+        var leftover = totalPennies - quotients.reduce(0, +)
         for index in order where leftover > 0 {
             shares[index].pennies += 1
             leftover -= 1
@@ -107,7 +106,7 @@ final class BucketService {
     }
 
     /// Convenience overload reading the split snapshot off a profile record.
-    nonisolated static func splitPennies(_ totalPennies: Int, profile: Profile) -> [BucketShare] {
+    nonisolated static func splitPennies(_ totalPennies: Int64, profile: Profile) -> [BucketShare] {
         splitPennies(totalPennies,
                      spendPercent: profile.splitPercentSpend,
                      shortPercent: profile.splitPercentShort,

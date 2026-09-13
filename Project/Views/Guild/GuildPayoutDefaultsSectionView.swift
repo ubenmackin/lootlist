@@ -134,13 +134,13 @@ struct GuildPayoutDefaultsSectionView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .font(.title3.weight(.bold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color(DesignSystemConstants.Colors.accentBlue) : Color.secondary)
                     .padding(.top, 2)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Image(systemName: policy.iconSystemName)
-                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                            .foregroundStyle(isSelected ? Color(DesignSystemConstants.Colors.accentBlue) : Color.secondary)
                         Text(policy.displayName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color.primary)
@@ -162,7 +162,7 @@ struct GuildPayoutDefaultsSectionView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                    .strokeBorder(isSelected ? Color(DesignSystemConstants.Colors.accentBlue).opacity(0.8) : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)

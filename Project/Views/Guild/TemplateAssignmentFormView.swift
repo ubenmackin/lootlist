@@ -88,11 +88,11 @@ struct TemplateAssignmentFormView: View {
                     .foregroundStyle(.secondary)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                        ForEach(AppConstants.Rewards.rewardPresetsPennies, id: \.self) { preset in
                             PresetPill(
-                                text: CurrencyFormatter.presetString(preset),
-                                isSelected: goldOverrideText == preset,
-                                action: { goldOverrideText = preset }
+                                text: CurrencyFormatter.string(pennies: preset),
+                                isSelected: CurrencyFormatter.pennies(from: goldOverrideText) == preset,
+                                action: { goldOverrideText = CurrencyFormatter.editingString(preset) }
                             )
                         }
                     }
@@ -104,7 +104,7 @@ struct TemplateAssignmentFormView: View {
                 )
                 .keyboardType(.decimalPad)
                 .focused($isAmountFocused)
-                .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+                .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: $goldOverrideText)
             }
 
             // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.

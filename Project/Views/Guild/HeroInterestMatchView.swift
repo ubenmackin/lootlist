@@ -26,13 +26,13 @@ struct HeroInterestMatchView: View {
 
     @State private var interestEnabled: Bool
     @State private var interestBucket: BucketKind
-    @State private var interestRatePercent: Double
+    @State private var interestRateBps: Int
     @State private var isCompound: Bool
 
     // MARK: - Match State
 
     @State private var matchEnabled: Bool
-    @State private var matchRatePercent: Double
+    @State private var matchRateBps: Int
     @State private var matchCapDollars: String
 
     @State private var isSaving: Bool = false
@@ -51,11 +51,11 @@ struct HeroInterestMatchView: View {
 
         _interestEnabled = State(initialValue: hero.interestEnabled)
         _interestBucket = State(initialValue: hero.interestBucket.flatMap { BucketKind(rawValue: $0) } ?? .longTermSave)
-        _interestRatePercent = State(initialValue: hero.interestRateBps > 0 ? Double(hero.interestRateBps) / 100.0 : 5.0)
+        _interestRateBps = State(initialValue: hero.interestRateBps > 0 ? hero.interestRateBps : 500)
         _isCompound = State(initialValue: hero.interestIsCompound)
 
         _matchEnabled = State(initialValue: hero.matchEnabled)
-        _matchRatePercent = State(initialValue: hero.matchRateBps > 0 ? Double(hero.matchRateBps) / 100.0 : 100.0)
+        _matchRateBps = State(initialValue: hero.matchRateBps > 0 ? hero.matchRateBps : 10000)
         if let cap = hero.matchMonthlyCapPennies {
             _matchCapDollars = State(initialValue: CurrencyFormatter.editingString(cap))
         } else {
@@ -64,11 +64,11 @@ struct HeroInterestMatchView: View {
     }
 
     private var currentInterestRateBps: Int {
-        max(0, Int((interestRatePercent * 100).rounded()))
+        max(0, interestRateBps)
     }
 
     private var currentMatchRateBps: Int {
-        max(0, Int((matchRatePercent * 100).rounded()))
+        max(0, matchRateBps)
     }
 
     private var parsedMatchCapPennies: Int64? {
@@ -95,21 +95,54 @@ struct HeroInterestMatchView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        Task { await save() }
+                        // WHY snapshot: @State values cross suspension; Sendable copies ride the Task.
+                        let zoneIDSnapshot = appState.resolvedFamilyZoneID(fallbackRecord: activeHero)
+                        let profileSnapshot = activeHero.toProfile(zoneID: zoneIDSnapshot)
+                        let interestSnapshot = (enabled: interestEnabled, bucket: interestBucket, rateBps: currentInterestRateBps, compound: isCompound)
+                        let matchSnapshot = (enabled: matchEnabled, rateBps: currentMatchRateBps, cap: parsedMatchCapPennies)
+                        let displayNameSnapshot = activeHero.displayName
+                        // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
+                        Task { @MainActor [interestService, matchService, profileSnapshot, interestSnapshot, matchSnapshot, displayNameSnapshot, toastManager, dismiss, logger] in
+                            isSaving = true
+                            defer { isSaving = false }
+                            do {
+                                _ = try await interestService.updateInterestConfig(
+                                    profile: profileSnapshot,
+                                    enabled: interestSnapshot.enabled,
+                                    bucket: interestSnapshot.enabled ? interestSnapshot.bucket : nil,
+                                    rateBps: interestSnapshot.rateBps,
+                                    isCompound: interestSnapshot.compound
+                                )
+                                _ = try await matchService.updateMatchConfig(
+                                    profile: profileSnapshot,
+                                    enabled: matchSnapshot.enabled,
+                                    rateBps: matchSnapshot.rateBps,
+                                    monthlyCapPennies: matchSnapshot.enabled ? matchSnapshot.cap : nil
+                                )
+                                toastManager.show(message: "\(displayNameSnapshot)'s savings settings saved.", type: .success)
+                                dismiss()
+                            } catch {
+                                logger.error("Failed to save interest/match config: \(error, privacy: .private)")
+                                toastManager.show(
+                                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                                    type: .error
+                                )
+                            }
+                        }
                     }
                     .disabled(isSaving)
                     .fontWeight(.semibold)
                 }
             }
-            .decimalPadDoneToolbar(isFocused: $isCapFocused)
+            .decimalPadDoneToolbar(isFocused: $isCapFocused, amountText: $matchCapDollars)
             .onChange(of: heroRows.first) { _, updatedHero in
                 guard let updatedHero, !isSaving else { return }
                 interestEnabled = updatedHero.interestEnabled
                 interestBucket = updatedHero.interestBucket.flatMap { BucketKind(rawValue: $0) } ?? .longTermSave
-                interestRatePercent = updatedHero.interestRateBps > 0 ? Double(updatedHero.interestRateBps) / 100.0 : 5.0
+                interestRateBps = updatedHero.interestRateBps > 0 ? updatedHero.interestRateBps : 500
                 isCompound = updatedHero.interestIsCompound
                 matchEnabled = updatedHero.matchEnabled
-                matchRatePercent = updatedHero.matchRateBps > 0 ? Double(updatedHero.matchRateBps) / 100.0 : 100.0
+                matchRateBps = updatedHero.matchRateBps > 0 ? updatedHero.matchRateBps : 10000
                 if let cap = updatedHero.matchMonthlyCapPennies {
                     matchCapDollars = CurrencyFormatter.editingString(cap)
                 } else {
@@ -166,10 +199,10 @@ struct HeroInterestMatchView: View {
                     Text("Monthly Rate")
                     Spacer()
                     Stepper(
-                        "\(String(format: "%g", interestRatePercent))%",
-                        value: $interestRatePercent,
-                        in: 0.5 ... 50.0,
-                        step: 0.5
+                        CurrencyFormatter.percentString(bps: interestRateBps),
+                        value: $interestRateBps,
+                        in: 50 ... 5000,
+                        step: 50
                     )
                 }
 
@@ -187,12 +220,13 @@ struct HeroInterestMatchView: View {
     }
 
     private var interestExplainerRow: some View {
-        let sampleBalance = 20.0
-        let monthlyGain = sampleBalance * (interestRatePercent / 100.0)
+        let samplePennies: Int64 = 2000
+        // WHY single source: preview shares truncate math with InterestService.
+        let gainPennies = InterestService.interestPennies(basePennies: samplePennies, rateBps: currentInterestRateBps)
         return HStack(spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-            Text("A \(CurrencyFormatter.string(sampleBalance)) balance earns \(CurrencyFormatter.string(monthlyGain)) each month.")
+            Text("A \(CurrencyFormatter.string(samplePennies)) balance earns \(CurrencyFormatter.string(gainPennies)) each month.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -213,10 +247,10 @@ struct HeroInterestMatchView: View {
                     Text("Match Rate")
                     Spacer()
                     Stepper(
-                        "\(String(format: "%g", matchRatePercent))%",
-                        value: $matchRatePercent,
-                        in: 10.0 ... 200.0,
-                        step: 10.0
+                        CurrencyFormatter.percentString(bps: matchRateBps),
+                        value: $matchRateBps,
+                        in: 1000 ... 20000,
+                        step: 1000
                     )
                 }
 
@@ -242,51 +276,16 @@ struct HeroInterestMatchView: View {
     }
 
     private var matchExplainerRow: some View {
-        let sampleSave = 10.0
-        let matchAmount = sampleSave * (matchRatePercent / 100.0)
+        let samplePennies: Int64 = 1000
+        // WHY single source: preview shares truncate math with MatchService.
+        let matchPennies = MatchService.matchPennies(contributionPennies: samplePennies, rateBps: currentMatchRateBps)
         return HStack(spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-            Text("When \(activeHero.displayName) saves \(CurrencyFormatter.string(sampleSave)), you contribute \(CurrencyFormatter.string(matchAmount)).")
+            Text("When \(activeHero.displayName) saves \(CurrencyFormatter.string(samplePennies)), you contribute \(CurrencyFormatter.string(matchPennies)).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
-    }
-
-    // MARK: - Helpers & Save
-
-    @MainActor
-    private func save() async {
-        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: activeHero)
-        isSaving = true
-        defer { isSaving = false }
-
-        do {
-            let profile = activeHero.toProfile(zoneID: zoneID)
-            _ = try await interestService.updateInterestConfig(
-                profile: profile,
-                enabled: interestEnabled,
-                bucket: interestEnabled ? interestBucket : nil,
-                rateBps: currentInterestRateBps,
-                isCompound: isCompound
-            )
-
-            _ = try await matchService.updateMatchConfig(
-                profile: profile,
-                enabled: matchEnabled,
-                rateBps: currentMatchRateBps,
-                monthlyCapPennies: matchEnabled ? parsedMatchCapPennies : nil
-            )
-
-            toastManager.show(message: "\(activeHero.displayName)'s savings settings saved.", type: .success)
-            dismiss()
-        } catch {
-            logger.error("Failed to save interest/match config: \(error, privacy: .private)")
-            toastManager.show(
-                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
-                type: .error
-            )
-        }
     }
 }

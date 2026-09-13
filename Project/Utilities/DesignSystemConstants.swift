@@ -33,6 +33,9 @@ enum DesignSystemConstants {
         /// Light #D9A834 / Dark #E8C05C asset-backed semantic gold token.
         static let gold = "gold"
 
+        /// Light #EAEAF0 / Dark #3A3A3E — chip and suggestion-row fills.
+        static let tertiaryFill = "tertiaryFill"
+
         // Rarity palette semantic asset tokens for QuestRarity.
         static let rarityCommon = "rarityCommon"
         static let rarityRare = "rarityRare"

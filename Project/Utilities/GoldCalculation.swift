@@ -44,7 +44,11 @@ enum GoldCalculation: Sendable {
 
         let perUnit = Decimal(max(0, xpReward)) / Decimal(safeTarget)
         let total = perUnit * Decimal(capped)
-        return Int(NSDecimalNumber(decimal: total).doubleValue)
+        // WHY truncate: fractional XP drops with no Double round-trip.
+        var rounded = Decimal()
+        var source = total
+        NSDecimalRound(&rounded, &source, 0, .down)
+        return NSDecimalNumber(decimal: rounded).intValue
     }
 
     /// Convenience for the CloudKit `Quest` model.

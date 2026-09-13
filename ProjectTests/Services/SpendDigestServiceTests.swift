@@ -50,9 +50,11 @@ struct SpendDigestServiceTests {
         fromBucket: String? = nil,
         toBucket: String? = nil
     ) -> LedgerEntry {
-        LedgerEntry(
+        // WHY Decimal canon: test amounts quantize via Decimal so fixtures never drift through Double.
+        let decimal = Decimal(string: String(describing: amount), locale: Locale(identifier: "en_US_POSIX")) ?? NSDecimalNumber(value: amount).decimalValue
+        return LedgerEntry(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
-            amount: CurrencyFormatter.dollarsToPennies(amount),
+            amount: CurrencyFormatter.quantizeToPennies(decimal) ?? 0,
             description: record,
             date: date,
             source: source,
@@ -125,11 +127,11 @@ struct SpendDigestServiceTests {
         let summary = try #require(digest.buildDigestSummary(now: now))
         #expect(summary.contains("Maya"))
         #expect(summary.contains("Leo"))
-        #expect(summary.contains(CurrencyFormatter.string(4.50)))
-        #expect(summary.contains(CurrencyFormatter.string(2.00)))
+        #expect(summary.contains(CurrencyFormatter.string(pennies: 450)))
+        #expect(summary.contains(CurrencyFormatter.string(pennies: 200)))
         #expect(summary.contains("2 spends"))
         #expect(summary.contains("1 spend"))
-        #expect(!summary.contains(CurrencyFormatter.string(9.00)))
+        #expect(!summary.contains(CurrencyFormatter.string(pennies: 900)))
 
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
