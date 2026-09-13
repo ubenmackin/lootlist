@@ -13,6 +13,20 @@ import os
 
 extension QuestCompletionService {
     @discardableResult
+    func verify(questLog: QuestCompletionCache, by parent: Profile) async throws -> QuestCompletion {
+        // WHY service-owned conversion: views pass cache rows so domain structs never cross presentation.
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: questLog)
+        return try await verify(questLog: questLog.toQuestCompletion(zoneID: zoneID), by: parent)
+    }
+
+    @discardableResult
+    func reject(questLog: QuestCompletionCache, by parent: Profile) async throws -> QuestCompletion {
+        // WHY service-owned conversion: views pass cache rows so domain structs never cross presentation.
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: questLog)
+        return try await reject(questLog: questLog.toQuestCompletion(zoneID: zoneID), by: parent)
+    }
+
+    @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
         // WHY single gate: parent identity plus scope share one helper so unauthorized versus scope-violation never drifts.
         do {

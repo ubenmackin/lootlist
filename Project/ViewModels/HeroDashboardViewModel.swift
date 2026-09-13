@@ -150,10 +150,10 @@ final class HeroDashboardViewModel {
         let heroLogs = logs.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroLogs)
         // WHY row-first: payout policy must mirror @Query rows so pending math never disagrees with gating.
-        let payoutPolicy: PayoutPolicy? = if viewerRow != nil || familyRow != nil {
-            viewerRow?.payoutPolicyEnum ?? familyRow?.payoutPolicyEnum
+        let payoutPolicy: PayoutPolicy = if viewerRow != nil || familyRow != nil {
+            viewerRow?.payoutPolicyEnum ?? familyRow?.payoutPolicyEnum ?? .perQuest
         } else {
-            appState.currentProfile?.payoutPolicy ?? appState.family?.payoutPolicy
+            appState.currentProfile?.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
         }
         earnedThisWeek = Self.earnedThisWeek(
             logs: heroLogs,
@@ -217,7 +217,7 @@ final class HeroDashboardViewModel {
         quests: [QuestCache],
         allowancePeriods: [AllowancePeriodCache],
         profileRecordName: String,
-        payoutPolicy: PayoutPolicy?,
+        payoutPolicy: PayoutPolicy,
         payoutDay: PayoutDay,
         templatesByID: [String: QuestTemplateCache]
     ) -> Int64 {

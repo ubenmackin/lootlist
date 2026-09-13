@@ -420,8 +420,18 @@ final class QuestService {
     }
 
     @discardableResult
+    func verify(questLog: QuestCompletionCache, by parent: Profile) async throws -> QuestCompletion {
+        try await completionService.verify(questLog: questLog, by: parent)
+    }
+
+    @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
         try await completionService.verify(questLog: questLog, by: parent)
+    }
+
+    @discardableResult
+    func reject(questLog: QuestCompletionCache, by parent: Profile) async throws -> QuestCompletion {
+        try await completionService.reject(questLog: questLog, by: parent)
     }
 
     @discardableResult

@@ -150,6 +150,21 @@ final class FamilyDashboardViewModel {
         await lifecycleCoordinator.performManualSync()
     }
 
+    /// Centralized early-payout entry point. Routes through the lifecycle coordinator so sync plus single-flight payout ordering apply.
+    func requestEarlyPayout(
+        heroRows: [ProfileCache],
+        familyRow: FamilyCache?
+    ) async -> (settled: Int, failed: [String]) {
+        if let lifecycleCoordinator {
+            return await lifecycleCoordinator.requestEarlyPayout(heroRows: heroRows, familyRow: familyRow)
+        }
+        return await treasury.settleDuePayouts(
+            heroRows: heroRows,
+            familyRow: familyRow,
+            allowEarlyCurrentWeek: true
+        )
+    }
+
     /// Resolves role-specific share presentation via the invitation coordinator (zone owner only).
     func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation? {
         await invitationCoordinator.prepareInviteShare(for: role)
@@ -430,10 +445,13 @@ struct WeekendSummary: Equatable {
     /// Whole pennies.
     let totalEarned: Int64
 
+    /// WHY family fallback: unset profile policy inherits the guild default before per-quest.
+    let familyPayoutPolicy: PayoutPolicy?
+
     /// Quest gold awaiting weekly payout settlement for non-real-time heroes.
     var pendingPayoutAmount: Int64 {
         heroSummaries.reduce(into: 0) { acc, hero in
-            if (hero.profile.payoutPolicyEnum ?? .perQuest) != .realTime {
+            if (hero.profile.payoutPolicyEnum ?? familyPayoutPolicy ?? .perQuest) != .realTime {
                 acc += hero.weeklyQuestGold
             }
         }

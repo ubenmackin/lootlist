@@ -442,14 +442,7 @@ final class TreasuryService {
             resolvedFamily = family
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
-                // Closes empty allowance period so rollover advances correctly.
-                updated.status = .paid
-                updated.paidDate = Date()
-                updated.paidAmount = 0
-                updated.totalEarned = breakdown.totalEarned
-                updated.questsCompleted = breakdown.questsCount
-                await cacheService.upsertAllowancePeriod(updated)
-                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "TreasuryService.runPayout.zero")
+                // WHY open stays open: closing an empty week poisons rollover with paid-zero.
                 return
             }
             updated.totalEarned = breakdown.totalEarned
