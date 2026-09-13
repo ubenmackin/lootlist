@@ -245,25 +245,68 @@ enum ActiveFamilyScopeGuard {
         return AppConstants.Security.legacyPlaceholderCreators.contains(owner)
     }
 
+    /// WHY single anchor: one resolved-owner predicate keeps guard, heal, and scope from drifting.
+    static func resolvedOwnerAnchor(
+        zoneOwnerName: String?,
+        creator: String?,
+        currentUserRecordName: String?
+    ) -> Bool? {
+        if let zoneOwnerName, isPlaceholderOwner(zoneOwnerName) {
+            // WHY placeholder proves private: local zone marker carries no cross-scope ambiguity.
+            return true
+        }
+        if let creator, isResolvedCreatorAnchor(creator),
+           let currentUserRecordName, isResolvedCreatorAnchor(currentUserRecordName)
+        {
+            return isUserRecordNameMatch(currentUserRecordName, creator)
+        }
+        return nil
+    }
+
     /// WHY anchor: nil session routes to shared so owner-gated writes stay audited, never guessed.
     @MainActor
     static func resolvedIsOwner(appState: AppState?) -> Bool {
         guard let appState else { return false }
-        if let zoneOwner = appState.familyZoneID?.ownerName,
-           isPlaceholderOwner(zoneOwner)
-        {
-            // Placeholder zone owner (e.g. CKCurrentUserDefaultName / __defaultOwner__)
-            // proves this zone is in the local private database.
-            return true
-        }
-        if let creator = appState.family?.creatorUserRecordName,
-           isResolvedCreatorAnchor(creator),
-           let current = appState.currentProfile,
-           isResolvedCreatorAnchor(current.iCloudUserID.recordName)
-        {
-            return isUserRecordNameMatch(current.iCloudUserID.recordName, creator)
+        if let resolved = resolvedOwnerAnchor(
+            zoneOwnerName: appState.familyZoneID?.ownerName,
+            creator: appState.family?.creatorUserRecordName,
+            currentUserRecordName: appState.currentProfile?.iCloudUserID.recordName
+        ) {
+            return resolved
         }
         return appState.isZoneOwner
+    }
+
+    @MainActor
+    static func healStoredOwnerIfAnchorResolved(
+        appState: AppState?,
+        cloudKit: any CloudKitServiceProtocol
+    ) -> Bool {
+        guard let appState,
+              let resolved = resolvedOwnerAnchor(
+                  zoneOwnerName: appState.familyZoneID?.ownerName,
+                  creator: appState.family?.creatorUserRecordName,
+                  currentUserRecordName: appState.currentProfile?.iCloudUserID.recordName
+              )
+        else { return false }
+        let stored = appState.isZoneOwner
+        let cloud = cloudKit.activeIsOwner
+        guard stored != resolved || cloud != resolved else { return false }
+        appState.isZoneOwner = resolved
+        appState.sessionStorage.isZoneOwner = resolved
+        cloudKit.activeIsOwner = resolved
+        // WHY single log: divergent flags heal once, later mismatches still fail closed.
+        logger.warning("healed stored owner: stored=\(stored) resolved=\(resolved) cloudKit=\(cloud)")
+        return true
+    }
+
+    @MainActor
+    static func isOwnerAnchorResolved(appState: AppState) -> Bool {
+        resolvedOwnerAnchor(
+            zoneOwnerName: appState.familyZoneID?.ownerName,
+            creator: appState.family?.creatorUserRecordName,
+            currentUserRecordName: appState.currentProfile?.iCloudUserID.recordName
+        ) != nil
     }
 
     @MainActor
@@ -287,7 +330,7 @@ enum ActiveFamilyScopeGuard {
     /// A creator anchor is usable only when non-empty and not one of the legacy
     /// placeholder values written before the anchor existed — placeholders
     /// resolve nothing, so deny.
-    private static func isResolvedCreatorAnchor(_ creator: String) -> Bool {
+    static func isResolvedCreatorAnchor(_ creator: String) -> Bool {
         !creator.isEmpty && !AppConstants.Security.legacyPlaceholderCreators.contains(creator)
     }
 

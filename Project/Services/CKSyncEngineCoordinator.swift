@@ -158,7 +158,12 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         }
 
         cloudKitService.activeFamilyZoneID = zoneID
-        cloudKitService.activeIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let didHeal = ActiveFamilyScopeGuard.healStoredOwnerIfAnchorResolved(appState: appState, cloudKit: cloudKitService)
+        let resolvedIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        cloudKitService.activeIsOwner = resolvedIsOwner
+        if didHeal {
+            logger.info("Healed stored owner flag during engine initialization")
+        }
         setupEngines()
     }
 
@@ -177,10 +182,10 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             return
         }
 
+        let didHeal = ActiveFamilyScopeGuard.healStoredOwnerIfAnchorResolved(appState: appState, cloudKit: cloudKitService)
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("CKSyncEngineCoordinator.setupEngines isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        if didHeal {
+            logger.info("Healed stored owner flag during engine setup")
         }
         if isOwner {
             sharedSyncEngine = nil

@@ -67,6 +67,7 @@ extension AppLifecycleCoordinator {
         }
 
         await reconcileCacheFromCloudKit()
+        healStaleOwnerFlag()
 
         if let zoneID = appState?.familyZoneID {
             let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
@@ -133,6 +134,7 @@ extension AppLifecycleCoordinator {
         // jetsam or throttled silent push.
         AppDelegate.scheduleSyncProcessingTask()
         await reconcileCacheFromCloudKit()
+        healStaleOwnerFlag()
         await evaluateTrophiesCatchup()
 
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator, concrete.syncError == nil {

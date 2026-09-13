@@ -118,9 +118,8 @@ final class SessionStorage {
               let zoneOwnerName = familyZoneOwnerName
         else { return nil }
         let storedOwner = isZoneOwner
-        let isPlaceholder = ActiveFamilyScopeGuard.isPlaceholderOwner(zoneOwnerName)
-        // WHY deny-by-default: legacy placeholder zones prove nothing about ownership.
-        let resolvedOwner: Bool = isPlaceholder ? false : storedOwner
+        // WHY single anchor: placeholder zone owner resolves through the guard.
+        let resolvedOwner: Bool = ActiveFamilyScopeGuard.resolvedOwnerAnchor(zoneOwnerName: zoneOwnerName, creator: nil, currentUserRecordName: nil) ?? storedOwner
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
         return PersistedSession(
             profileRecordName: profileRecordName,
