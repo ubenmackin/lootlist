@@ -125,13 +125,16 @@ final class AuthenticationCoordinator {
             // WHY family before zoneID: the zone notification must see a consistent family.
             appState.family = familyResult
             appState.currentProfile = profile
+            appState.familyZoneID = zoneID
+            // WHY heal after zone lands: placeholder resolution needs the final zone before correcting stored/cloud flags.
+            let didHeal = ActiveFamilyScopeGuard.healStoredOwnerIfAnchorResolved(appState: appState, cloudKit: cloudKit)
             let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
             appState.isZoneOwner = resolvedOwner
-            if resolvedOwner != isOwner {
-                appState.sessionStorage.isZoneOwner = resolvedOwner
-                cloudKit.activeIsOwner = resolvedOwner
+            appState.sessionStorage.isZoneOwner = resolvedOwner
+            cloudKit.activeIsOwner = resolvedOwner
+            if didHeal {
+                logger.info("Healed stored owner flag during session restore")
             }
-            appState.familyZoneID = zoneID
 
             appState.authStatus = .authenticated
             await appState.authStateMachine.send(.sessionRestored)
@@ -191,13 +194,13 @@ final class AuthenticationCoordinator {
                 await discoverExistingCloudState(cloudKit: cloudKit)
                 return
             }
-            if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+            if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit) {
                 logger.info("Unrecoverable CloudKit session error and no cache available — clearing session and running cloud discovery")
                 await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
                 await appState.authStateMachine.transition(.restoreFailed)
                 await discoverExistingCloudState(cloudKit: cloudKit)
             }
-        } else if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+        } else if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit) {
             appState.authStatus = .offlineEmptyCache
         }
     }
@@ -219,7 +222,7 @@ final class AuthenticationCoordinator {
             await discoverExistingCloudState(cloudKit: cloudKit)
             return
         }
-        if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+        if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit) {
             return
         }
         await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
@@ -257,7 +260,8 @@ final class AuthenticationCoordinator {
         profileRecordName: String,
         familyRecordName: String,
         zoneID: CKRecordZone.ID,
-        isOwner: Bool
+        isOwner _: Bool,
+        cloudKit: any CloudKitServiceProtocol
     ) -> Bool {
         guard let appState,
               let cache = appState.cacheService
@@ -272,12 +276,16 @@ final class AuthenticationCoordinator {
         // WHY family before zoneID: the zone notification must not fire before family context exists.
         appState.family = cachedFamily.toFamily(zoneID: zoneID)
         appState.currentProfile = cachedProfile.toProfile(zoneID: zoneID)
+        appState.familyZoneID = zoneID
+        // WHY heal after zone lands: placeholder resolution needs the final zone before correcting stored/cloud flags.
+        let didHeal = ActiveFamilyScopeGuard.healStoredOwnerIfAnchorResolved(appState: appState, cloudKit: cloudKit)
         let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         appState.isZoneOwner = resolvedOwner
-        if resolvedOwner != isOwner {
-            appState.sessionStorage.isZoneOwner = resolvedOwner
+        appState.sessionStorage.isZoneOwner = resolvedOwner
+        cloudKit.activeIsOwner = resolvedOwner
+        if didHeal {
+            logger.info("Healed stored owner flag during cache restore")
         }
-        appState.familyZoneID = zoneID
         appState.authStatus = .authenticated
         logger.info("Session restored from local cache (offline mode)")
         let freshnessScope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: resolvedOwner)

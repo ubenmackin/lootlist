@@ -61,6 +61,8 @@ extension AppLifecycleCoordinator {
         familyRow: FamilyCache?
     ) async -> (settled: Int, failed: [String]) {
         await performManualSync()
+        // WHY settle on healed scope: snapshot may have corrected the owner flag, so payout targets the right database.
+        healStaleOwnerFlag()
         guard let autoPayoutCoordinator else { return (0, []) }
         return await autoPayoutCoordinator.processEarlyPayout(heroRows: heroRows, familyRow: familyRow)
     }
@@ -102,6 +104,7 @@ extension AppLifecycleCoordinator {
         }
 
         await reconcileCacheFromCloudKit(forceSnapshot: true)
+        healStaleOwnerFlag()
 
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let db = cloudKitService.database(isOwner: isOwner)
@@ -166,6 +169,27 @@ extension AppLifecycleCoordinator {
         // jetsam or throttled silent push.
         AppDelegate.scheduleSyncProcessingTask()
         await reconcileCacheFromCloudKit(forceSnapshot: forceSnapshot)
+        healStaleOwnerFlag()
         logger.info("Core sync sequence completed in \(Date().timeIntervalSince(start))s forceSnapshot=\(forceSnapshot)")
+    }
+
+    /// WHY cache-first anchor: snapshot writes Family to cache only, so refresh memory before healing the stored flag.
+    func healStaleOwnerFlag() {
+        if let appState,
+           let family = appState.family,
+           let zoneID = appState.familyZoneID,
+           let cached = appState.cacheService?.fetchFamily(recordName: family.id.recordName),
+           let creator = cached.creatorUserRecordName,
+           ActiveFamilyScopeGuard.isResolvedCreatorAnchor(creator),
+           appState.family?.creatorUserRecordName != creator
+        {
+            appState.family = cached.toFamily(zoneID: zoneID)
+        }
+        if let appState {
+            let didHeal = ActiveFamilyScopeGuard.healStoredOwnerIfAnchorResolved(appState: appState, cloudKit: cloudKitService)
+            if didHeal {
+                logger.info("Healed stale owner flag after snapshot")
+            }
+        }
     }
 }
