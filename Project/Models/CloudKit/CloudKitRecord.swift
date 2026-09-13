@@ -44,11 +44,15 @@ extension CKRecord {
         if let number = raw as? NSNumber {
             let objCType = String(cString: number.objCType)
             if objCType == "d" || objCType == "f" {
-                return CurrencyFormatter.dollarsToPennies(number.doubleValue)
+                // WHY legacy dollars: old rows store Double dollars so decode rides the legacy path.
+                if let quantized = CurrencyFormatter.legacyDollarsToPennies(number.doubleValue) {
+                    return quantized
+                }
+                throw CKDecodingError.invalidValue(key)
             }
             return number.int64Value
         }
-        throw CKDecodingError.missingField(key)
+        throw CKDecodingError.invalidValue(key)
     }
 
     func penniesOptional(forKey key: String) -> Int64? {
@@ -276,4 +280,7 @@ enum CKDecodingError: Error, Equatable, Sendable {
     case unexpectedRecordType(expected: String, actual: String)
 
     case missingField(String)
+
+    /// WHY invalidValue: present-but-bad pennies fail closed apart from missing.
+    case invalidValue(String)
 }

@@ -74,6 +74,8 @@ struct Goal: Identifiable, Equatable, Sendable {
         // as NSNumber, so coerce instead of failing whole-record ingestion.
         if let penniesNumber = record["targetAmountPennies"] as? NSNumber {
             targetAmountPennies = penniesNumber.int64Value
+        } else if record["targetAmountPennies"] != nil {
+            throw CKDecodingError.invalidValue("targetAmountPennies")
         } else {
             throw CKDecodingError.missingField("targetAmountPennies")
         }

@@ -130,7 +130,7 @@ struct TrophyCardView: View {
         }
         switch req {
         case .gold100, .gold500:
-            return "Earn \(CurrencyFormatter.string(Double(achievement.requirementValue))) lifetime"
+            return "Earn \(CurrencyFormatter.string(pennies: Int64(achievement.requirementValue) * 100)) lifetime"
         default:
             return achievement.achievementDescription
         }
@@ -158,7 +158,7 @@ struct TrophyCardView: View {
         case .goalGetter:
             return "Reach a savings goal"
         case .gold100, .gold500:
-            return "\(CurrencyFormatter.string(Double(achievement.requirementValue))) earned"
+            return "\(CurrencyFormatter.string(pennies: Int64(achievement.requirementValue) * 100)) earned"
         case .ledgerCount10:
             return "\(achievement.requirementValue) ledger entries"
         case .ledgerWeeks4:

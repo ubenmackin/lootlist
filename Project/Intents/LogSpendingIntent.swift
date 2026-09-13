@@ -44,9 +44,10 @@ struct LogSpendingIntent: AppIntent, Sendable {
         let locationValue = trimmedLocation.flatMap { $0.isEmpty ? nil : $0 }
 
         do {
-            // WHY dollarsToPennies: intent amount arrives as dollars but the ledger
-            // stores whole pennies, so quantize here to keep a single money path.
-            let amountPennies = CurrencyFormatter.dollarsToPennies(amount)
+            // WHY single source: intent amounts share CurrencyFormatter penny canon.
+            guard let amountPennies = CurrencyFormatter.legacyDollarsToPennies(amount), amountPennies > 0 else {
+                return .result(dialog: "Please specify a valid spending amount.")
+            }
             _ = try await dep.spendingService.logManual(
                 profile: profile,
                 family: family,

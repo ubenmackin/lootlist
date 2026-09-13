@@ -343,7 +343,7 @@ struct GuildSettingsView: View {
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .padding(.horizontal)
-        .decimalPadDoneToolbar(isFocused: $isHistoryAmountFocused)
+        .decimalPadDoneToolbar(isFocused: $isHistoryAmountFocused, amountText: $historyMinAmountText)
     }
 
     private func shiftHistoryMonth(by delta: Int) {
@@ -369,7 +369,24 @@ struct GuildSettingsView: View {
                 if viewerIsGuildMaster {
                     if isEditingFamilyName {
                         Button("Save") {
-                            Task { await saveFamilyName() }
+                            // WHY snapshot: name and family cross suspension; Sendable copies ride the Task.
+                            let trimmedSnapshot = draftFamilyName.trimmingCharacters(in: .whitespaces)
+                            let familySnapshot = appState.family
+                            // WHY MainActor view: editing flag mutates on the isolated task so Sendable captures stay race-free.
+                            Task { @MainActor [familyService, trimmedSnapshot, familySnapshot, toastManager, logger] in
+                                guard let familySnapshot else { return }
+                                guard !trimmedSnapshot.isEmpty else {
+                                    isEditingFamilyName = false
+                                    return
+                                }
+                                do {
+                                    try await familyService.updateFamilyName(family: familySnapshot, newName: trimmedSnapshot)
+                                    isEditingFamilyName = false
+                                } catch {
+                                    logger.error("Failed to rename family: \(error, privacy: .private)")
+                                    toastManager.show(message: "Could not rename the family. Please try again.", type: .error)
+                                }
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("settings.familyNameSave")
@@ -423,23 +440,6 @@ struct GuildSettingsView: View {
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .padding(.horizontal)
-    }
-
-    @MainActor
-    private func saveFamilyName() async {
-        guard let family = appState.family else { return }
-        let trimmed = draftFamilyName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else {
-            isEditingFamilyName = false
-            return
-        }
-        do {
-            try await familyService.updateFamilyName(family: family, newName: trimmed)
-            isEditingFamilyName = false
-        } catch {
-            logger.error("Failed to rename family: \(error, privacy: .private)")
-            toastManager.show(message: "Could not rename the family. Please try again.", type: .error)
-        }
     }
 
     @MainActor

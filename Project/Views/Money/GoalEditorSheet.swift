@@ -94,61 +94,65 @@ struct GoalEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: DesignSystemConstants.Padding.large) {
-                    emojiPickerSection
-                    nameSection
-                    targetAmountSection
-                    bucketPickerSection
-                    categorySection
-                    targetDateSection
-                    wishlistLinkSection
-
-                    if shouldShowPurchase {
-                        purchaseSection
-                    }
-
-                    if onDelete != nil {
-                        deleteSection
-                    }
-                }
-                .padding(.horizontal, DesignSystemConstants.Padding.standard)
-                .padding(.vertical, DesignSystemConstants.Padding.standard)
-            }
-            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-            .navigationTitle(initialGoal != nil ? "Edit Goal" : "New Goal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isSaving || isDeleting || isPurchasing)
-                        .accessibilityIdentifier("goalEditor.cancelButton")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { saveGoal() }
-                        .disabled(!isValid || isSaving || isDeleting || isPurchasing)
-                        .accessibilityIdentifier("goalEditor.saveButton")
-                }
-            }
-            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
-            .alert("Delete Goal?", isPresented: $showDeleteConfirmation) {
-                Button("Delete", role: .destructive) {
-                    deleteGoal()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Are you sure you want to delete “\(nameText)”? This action cannot be undone.")
-            }
-            .alert("Mark Purchased?", isPresented: $showPurchaseConfirmation) {
-                Button("Mark Purchased") {
-                    purchaseGoal()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                // WHY region currency: purchase copy renders the target through CurrencyFormatter.
-                Text("This will deduct \(purchaseAmountText) from your savings bucket and archive this goal.")
-            }
+            editorContent
+                .navigationTitle(initialGoal != nil ? "Edit Goal" : "New Goal")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { editorToolbar }
+                .modifier(editorDialogs)
         }
+    }
+
+    /// WHY split editor chrome: NavigationStack plus alerts widen body inference.
+    private var editorContent: some View {
+        ScrollView {
+            VStack(spacing: DesignSystemConstants.Padding.large) {
+                emojiPickerSection
+                nameSection
+                targetAmountSection
+                bucketPickerSection
+                categorySection
+                targetDateSection
+                wishlistLinkSection
+
+                if shouldShowPurchase {
+                    purchaseSection
+                }
+
+                if onDelete != nil {
+                    deleteSection
+                }
+            }
+            .padding(.horizontal, DesignSystemConstants.Padding.standard)
+            .padding(.vertical, DesignSystemConstants.Padding.standard)
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+    }
+
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { dismiss() }
+                .disabled(isSaving || isDeleting || isPurchasing)
+                .accessibilityIdentifier("goalEditor.cancelButton")
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Save") { saveGoal() }
+                .disabled(!isValid || isSaving || isDeleting || isPurchasing)
+                .accessibilityIdentifier("goalEditor.saveButton")
+        }
+    }
+
+    private var editorDialogs: some ViewModifier {
+        GoalEditorDialogsModifier(
+            showDeleteConfirmation: $showDeleteConfirmation,
+            showPurchaseConfirmation: $showPurchaseConfirmation,
+            isAmountFocused: $isAmountFocused,
+            targetAmountText: $targetAmountText,
+            nameText: nameText,
+            purchaseAmountText: purchaseAmountText,
+            onDelete: { deleteGoal() },
+            onPurchase: { purchaseGoal() }
+        )
     }
 
     /// Purchase is available when editing an unarchived goal with a purchase handler.
@@ -160,8 +164,7 @@ struct GoalEditorSheet: View {
 
     /// Target formatted for purchase confirmation copy.
     private var purchaseAmountText: String {
-        // WHY stored target: purchase deducts the saved target,
-        // so unsaved edits never mismatch the confirmation copy.
+        // WHY stored target: confirmation deducts saved target so unsaved edits never mismatch.
         guard let goal = initialGoal else { return CurrencyFormatter.string(0) }
         return CurrencyFormatter.string(goal.targetAmountPennies)
     }
@@ -561,21 +564,30 @@ struct GoalEditorSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 } else if let suggested = suggestedPrice {
-                    Button {
-                        targetAmountText = CurrencyFormatter.editingString(suggested.amount)
-                        validateAmount(targetAmountText)
-                    } label: {
-                        Label("Use suggested price \(CurrencyFormatter.string(suggested.amount))", systemImage: "dollarsign.circle.fill")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(Color(DesignSystemConstants.Colors.primaryGreen))
-                    .accessibilityIdentifier("goalEditor.useSuggestedPriceButton")
+                    suggestedPriceButton(suggested)
                 }
             }
             .padding(DesignSystemConstants.Padding.medium)
             .background(cardBackground)
         }
+    }
+
+    private func suggestedPriceButton(_ suggested: ExtractedPrice) -> some View {
+        // WHY pennies once: editing and display share one quantized value so copy never drifts.
+        let pennies = suggested.amountPennies
+        return Button {
+            targetAmountText = CurrencyFormatter.editingString(pennies)
+            validateAmount(targetAmountText)
+        } label: {
+            Label(
+                "Use suggested price \(CurrencyFormatter.string(pennies: pennies))",
+                systemImage: "dollarsign.circle.fill"
+            )
+            .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .tint(Color(DesignSystemConstants.Colors.primaryGreen))
+        .accessibilityIdentifier("goalEditor.useSuggestedPriceButton")
     }
 
     // MARK: - Purchase Section
@@ -676,8 +688,9 @@ struct GoalEditorSheet: View {
         suggestedPrice = nil
         isExtractingPrice = false
         resolvedImageURL = nil
-        // WHY snapshot: link fetch suspends; Sendable URL rides the Task while @State stays on MainActor.
-        Task { [url] in
+        // WHY snapshot: link fetch suspends; Sendable URL rides the Task.
+        // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [url] in
             if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
                 if let title = metadata.title, !title.isEmpty {
                     resolvedTitle = title
@@ -731,7 +744,8 @@ struct GoalEditorSheet: View {
 
         isSaving = true
         // WHY snapshot: draft crosses suspension; Sendable copy rides the Task.
-        Task { [draft] in
+        // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [draft, onSave, dismiss] in
             do {
                 try await onSave(draft)
                 dismiss()
@@ -747,8 +761,8 @@ struct GoalEditorSheet: View {
     private func deleteGoal() {
         guard let onDelete else { return }
         isDeleting = true
-        // WHY MainActor hop: @State mutations resume on MainActor after suspension.
-        Task {
+        // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [onDelete, dismiss] in
             do {
                 try await onDelete()
                 dismiss()
@@ -763,8 +777,8 @@ struct GoalEditorSheet: View {
     private func purchaseGoal() {
         guard let onPurchase else { return }
         isPurchasing = true
-        // WHY MainActor hop: @State mutations resume on MainActor after suspension.
-        Task {
+        // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [onPurchase, dismiss] in
             do {
                 try await onPurchase()
                 dismiss()
@@ -774,6 +788,43 @@ struct GoalEditorSheet: View {
                     ?? error.localizedDescription
                 isPurchasing = false
             }
+        }
+    }
+}
+
+// MARK: - Editor dialogs (extracted to keep body shallow for the Swift 6 type-checker)
+
+private extension GoalEditorSheet {
+    /// WHY split dialogs into a typed modifier: alerts plus toolbar widen body inference.
+    struct GoalEditorDialogsModifier: ViewModifier {
+        @Binding var showDeleteConfirmation: Bool
+        @Binding var showPurchaseConfirmation: Bool
+        var isAmountFocused: FocusState<Bool>.Binding
+        var targetAmountText: Binding<String>
+        let nameText: String
+        let purchaseAmountText: String
+        let onDelete: () -> Void
+        let onPurchase: () -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .decimalPadDoneToolbar(isFocused: isAmountFocused, amountText: targetAmountText)
+                .alert("Delete Goal?", isPresented: $showDeleteConfirmation) {
+                    Button("Delete", role: .destructive) {
+                        onDelete()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Are you sure you want to delete “\(nameText)”? This action cannot be undone.")
+                }
+                .alert("Mark Purchased?", isPresented: $showPurchaseConfirmation) {
+                    Button("Mark Purchased") {
+                        onPurchase()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This will deduct \(purchaseAmountText) from your savings bucket and archive this goal.")
+                }
         }
     }
 }

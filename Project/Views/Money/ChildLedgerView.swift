@@ -220,7 +220,7 @@ struct ChildLedgerView: View {
 
             Spacer()
 
-            Text(formattedAmount(entry.amount, isCredit: isCredit))
+            Text(formattedAmount(entry.amount))
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(
@@ -240,7 +240,7 @@ struct ChildLedgerView: View {
         .hoverEffect(.highlight)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(entry.entryDescription): \(CurrencyFormatter.string(entry.amount))"
+            "\(entry.entryDescription): \(formattedAmount(entry.amount))"
         )
         .accessibilityIdentifier("ledger.row-\(entry.recordName)")
     }
@@ -328,14 +328,9 @@ struct ChildLedgerView: View {
         }
     }
 
-    /// Returns a signed amount string: "+$X.XX" for credits, "-$X.XX" for debits,
-    /// absolute-value for zero.
-    private func formattedAmount(_ amount: Int64, isCredit: Bool) -> String {
-        if amount == 0 {
-            return CurrencyFormatter.string(0)
-        }
-        let prefix = isCredit ? "+" : ""
-        return prefix + CurrencyFormatter.string(amount)
+    /// WHY single source: signed money rides FormatStyle minus via penny canon.
+    private func formattedAmount(_ amount: Int64) -> String {
+        CurrencyFormatter.signed(pennies: amount)
     }
 
     /// Returns a human-readable date label. Today/Yesterday buckets show the

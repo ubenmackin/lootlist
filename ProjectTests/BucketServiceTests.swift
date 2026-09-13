@@ -103,7 +103,7 @@ struct BucketServiceTests {
 
     @Test
     func `sweep of configurations always sums to the total`() {
-        let totals = [0, 1, 7, 99, 100, 250, 2500, 123_456]
+        let totals: [Int64] = [0, 1, 7, 99, 100, 250, 2500, 123_456]
         let configs: [SplitConfig] = [
             SplitConfig(spend: 100, short: 0, long: 0),
             SplitConfig(spend: 0, short: 100, long: 0),
@@ -144,10 +144,10 @@ struct BucketServiceTests {
             recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
         )
 
-        func entry(_ name: String, amount: Double, bucketKind: String?) -> LedgerEntry {
+        func entry(_ name: String, pennies: Int64, bucketKind: String?) -> LedgerEntry {
             LedgerEntry(
                 profile: profileRef,
-                amount: CurrencyFormatter.dollarsToPennies(amount),
+                amount: pennies,
                 description: name,
                 source: "quest",
                 bucketKind: bucketKind,
@@ -156,14 +156,14 @@ struct BucketServiceTests {
             )
         }
 
-        await cache.upsertLedgerEntry(entry("a-spend", amount: 15.0, bucketKind: BucketKind.spend.rawValue))
-        await cache.upsertLedgerEntry(entry("b-short", amount: 6.25, bucketKind: BucketKind.shortTermSave.rawValue))
+        await cache.upsertLedgerEntry(entry("a-spend", pennies: 1500, bucketKind: BucketKind.spend.rawValue))
+        await cache.upsertLedgerEntry(entry("b-short", pennies: 625, bucketKind: BucketKind.shortTermSave.rawValue))
         // Negative amounts are spending drawn out of an attributed bucket.
-        await cache.upsertLedgerEntry(entry("c-spend-drain", amount: -5.0, bucketKind: BucketKind.spend.rawValue))
+        await cache.upsertLedgerEntry(entry("c-spend-drain", pennies: -500, bucketKind: BucketKind.spend.rawValue))
         // Legacy unattributed row predating V8 stays out of bucket totals.
-        await cache.upsertLedgerEntry(entry("d-legacy", amount: 9.0, bucketKind: nil))
+        await cache.upsertLedgerEntry(entry("d-legacy", pennies: 900, bucketKind: nil))
         // Unknown raw values must never silently become a bucket.
-        await cache.upsertLedgerEntry(entry("e-vault", amount: 4.0, bucketKind: "vault"))
+        await cache.upsertLedgerEntry(entry("e-vault", pennies: 400, bucketKind: "vault"))
 
         let balances = buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
         #expect(balances[.spend] == 1000)

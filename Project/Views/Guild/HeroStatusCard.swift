@@ -106,7 +106,7 @@ struct HeroStatusCard: View {
 
     private var footerRow: some View {
         HStack(spacing: 10) {
-            MoneyBadge(amount: summary.weeklyGoldEarned, size: .small)
+            MoneyBadge(pennies: summary.weeklyGoldEarned, size: .small)
             Spacer()
             trophyChip
         }

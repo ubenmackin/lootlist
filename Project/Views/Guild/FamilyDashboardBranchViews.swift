@@ -47,7 +47,7 @@ struct FamilyDashboardSparklineCard: View {
                 Chart(points) { point in
                     BarMark(
                         x: .value("Week", point.label),
-                        y: .value("Earned", Double(point.amount))
+                        y: .value("Earned", Decimal(point.amount))
                     )
                     .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                     .cornerRadius(4)

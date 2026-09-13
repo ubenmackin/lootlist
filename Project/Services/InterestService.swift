@@ -115,9 +115,9 @@ final class InterestService {
 
     /// Whole-penny interest, always rounded down so rounding can never mint
     /// value that wasn't earned.
-    static func interestPennies(basePennies: Int, rateBps: Int) -> Int {
+    static func interestPennies(basePennies: Int64, rateBps: Int) -> Int64 {
         guard basePennies > 0, rateBps > 0 else { return 0 }
-        return basePennies * rateBps / 10000
+        return basePennies * Int64(rateBps) / 10000
     }
 
     /// Applies monthly interest credit using idempotent record ID: interest-{profile}-{yyyy-MM}.
@@ -162,13 +162,13 @@ final class InterestService {
             profileRecordName: profile.id.recordName,
             familyRecordName: family.id.recordName
         )
-        var basePennies = Int(balances[bucket] ?? 0)
+        var basePennies = balances[bucket] ?? 0
         if !profile.interestIsCompound {
             // Simple interest ignores prior credits: only deposits earn
             // interest, never interest already paid into the bucket.
             let priorInterestPennies = cachedEntries
                 .filter { $0.sourceEnum == .interest && $0.bucketKind == bucket.rawValue }
-                .reduce(0) { $0 + Int($1.amount) }
+                .reduce(Int64(0)) { $0 + $1.amount }
             basePennies -= priorInterestPennies
         }
 
@@ -177,7 +177,7 @@ final class InterestService {
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: Int64(creditPennies),
+            amount: creditPennies,
             description: Self.entryDescription,
             date: date,
             source: LedgerSource.interest.rawValue,
@@ -187,7 +187,7 @@ final class InterestService {
         )
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "InterestService.applyInterest")
-        let formattedAmount = CurrencyFormatter.string(pennies: Int64(creditPennies))
+        let formattedAmount = CurrencyFormatter.string(pennies: creditPennies)
         logger
             .info(
                 "Credited \(formattedAmount, privacy: .public) monthly interest for \(profile.id.recordName, privacy: .private) in month \(Self.monthKey(for: date), privacy: .public)"
@@ -203,9 +203,9 @@ final class InterestService {
     /// Month-by-month credits powering the plain-language explainer table.
     /// Simple keeps the principal fixed every month; compound folds each
     /// credit back in so the next month earns on it too.
-    static func projectionPennies(startingPennies: Int, rateBps: Int, isCompound: Bool, months: Int) -> [Int] {
+    static func projectionPennies(startingPennies: Int64, rateBps: Int, isCompound: Bool, months: Int) -> [Int64] {
         var principalPennies = startingPennies
-        var credits: [Int] = []
+        var credits: [Int64] = []
         for _ in 0 ..< max(0, months) {
             let credit = interestPennies(basePennies: principalPennies, rateBps: rateBps)
             credits.append(credit)

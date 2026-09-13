@@ -54,14 +54,12 @@ enum BadgeSize: Sendable {
 }
 
 struct MoneyBadge: View {
-    let amount: Double?
     let pennies: Int64?
 
     var size: BadgeSize = .medium
 
-    init(amount: Int64?, size: BadgeSize = .medium) {
-        self.amount = nil
-        self.pennies = amount
+    init(pennies: Int64?, size: BadgeSize = .medium) {
+        self.pennies = pennies
         self.size = size
     }
 
@@ -70,7 +68,7 @@ struct MoneyBadge: View {
             Text(amountText)
                 .font(size.valueFont)
                 .monospacedDigit()
-                .foregroundStyle((amount == nil && pennies == nil) ? Color.secondary : Color.primary)
+                .foregroundStyle(pennies == nil ? Color.secondary : Color.primary)
                 .contentTransition(.numericText())
         }
         .padding(.horizontal, size.hPadding)
@@ -87,15 +85,12 @@ struct MoneyBadge: View {
     }
 
     private var amountText: String {
-        if let pennies {
-            return CurrencyFormatter.magnitude(pennies: pennies)
-        }
-        guard let amount else { return "—" }
-        return CurrencyFormatter.magnitude(amount)
+        guard let pennies else { return "—" }
+        return CurrencyFormatter.magnitude(pennies: pennies)
     }
 
     private var accessibilityLabel: String {
-        guard amount != nil || pennies != nil else { return "Money loading" }
+        guard pennies != nil else { return "Money loading" }
         return "Money \(amountText)"
     }
 }

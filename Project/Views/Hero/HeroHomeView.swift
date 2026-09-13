@@ -353,7 +353,7 @@ struct HeroHomeView: View {
             HeroHomePlayerCardView(
                 row: row,
                 progress: xpService.levelProgress(profileCache: row),
-                earned: Double(viewModel?.earnedThisWeek ?? 0),
+                pennies: viewModel?.earnedThisWeek ?? 0,
                 streak: row.dailyLoginStreakDays,
                 shields: row.streakShields,
                 completed: viewModel?.completedQuestCount ?? 0,

@@ -91,7 +91,7 @@ extension TreasuryService {
     /// WHY single helper: batch and real-time splits share one splitPennies mint plus FIFO cascade.
     func mintSplitLedgerEntries(_ context: SplitMintContext) async {
         // WHY whole-penny math: shares sum to the exact settlement total regardless of rounding.
-        let totalPennies = Int(context.amount)
+        let totalPennies = context.amount
         let receiving = BucketService.splitPennies(totalPennies, profile: context.profile)
             .filter { $0.pennies > 0 }
         guard !receiving.isEmpty else { return }
@@ -120,12 +120,12 @@ extension TreasuryService {
     private func accumulateBucket(
         _ twins: [LedgerEntryCache],
         baseRecordName: String
-    ) -> (totals: [String: Int], names: [String: [String]]) {
-        var totals: [String: Int] = [:]
+    ) -> (totals: [String: Int64], names: [String: [String]]) {
+        var totals: [String: Int64] = [:]
         var names: [String: [String]] = [:]
         for twin in twins {
             let key = bucketKey(for: twin, baseRecordName: baseRecordName)
-            totals[key, default: 0] += Int(twin.amount)
+            totals[key, default: 0] += twin.amount
             names[key, default: []].append(twin.recordName)
         }
         return (totals, names)
@@ -202,7 +202,7 @@ extension TreasuryService {
         receiving: [BucketService.BucketShare],
         existingIsEmpty: Bool,
         primary: inout [String: String],
-        totals: inout [String: Int],
+        totals: inout [String: Int64],
         expected: inout Set<String>,
         zoneID: CKRecordZone.ID,
         weekLabel: String
@@ -210,7 +210,7 @@ extension TreasuryService {
         for share in receiving {
             let key = share.kind.rawValue
             let target: String
-            let newTotal: Int
+            let newTotal: Int64
             if let current = primary[key] {
                 target = current
                 newTotal = (totals[key] ?? 0) + share.pennies
@@ -241,7 +241,7 @@ extension TreasuryService {
         _ context: SplitMintContext,
         allNames: [String: [String]],
         primary: [String: String],
-        totals: [String: Int],
+        totals: [String: Int64],
         deltaKinds: Set<String>,
         zoneID: CKRecordZone.ID,
         weekLabel: String
@@ -290,7 +290,7 @@ extension TreasuryService {
     private func upsertPayoutEntry(
         _ context: SplitMintContext,
         recordName: String,
-        totalPennies: Int,
+        totalPennies: Int64,
         kind: BucketKind,
         weekLabel: String,
         zoneID: CKRecordZone.ID,
@@ -305,7 +305,7 @@ extension TreasuryService {
         }
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: context.profile.id, action: .none),
-            amount: Int64(totalPennies),
+            amount: totalPennies,
             description: description,
             date: context.date,
             source: LedgerSource.quest.rawValue,
@@ -370,7 +370,7 @@ extension TreasuryService {
         for share in saveShares {
             do {
                 _ = try await goalService.contributeToBucket(
-                    amountPennies: Int64(share.pennies),
+                    amountPennies: share.pennies,
                     profile: context.profile,
                     family: familyDomain,
                     bucketKind: share.kind,

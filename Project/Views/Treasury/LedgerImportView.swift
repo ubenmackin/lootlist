@@ -123,7 +123,7 @@ struct LedgerImportView: View {
                     .font(.subheadline.weight(.bold))
                     .padding(.vertical, 10)
                     .padding(.horizontal, 18)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.accentColor.opacity(0.15)))
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15)))
             }
             .accessibilityIdentifier("import.chooseFileButton")
             if let message = viewModel.errorMessage {
@@ -307,13 +307,13 @@ private struct StagedRowEditor: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
 
-                TextField("Amount", text: binding(get: \.amountText, onChange: onAmountChange))
+                TextField("Amount", text: amountBinding)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption.monospacedDigit())
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
                     .frame(width: 90)
-                    .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+                    .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: amountBinding)
 
                 TextField("Date", text: binding(get: \.dateText, onChange: onDateChange))
                     .textFieldStyle(.roundedBorder)
@@ -358,6 +358,10 @@ private struct StagedRowEditor: View {
             get: { childOptions.first { $0.recordName == row.assignedProfileRecordName } },
             set: { onAssign($0) }
         )
+    }
+
+    private var amountBinding: Binding<String> {
+        binding(get: \.amountText, onChange: onAmountChange)
     }
 
     private func binding(

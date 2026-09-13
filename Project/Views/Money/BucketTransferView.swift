@@ -112,7 +112,7 @@ struct BucketTransferView: View {
                     .accessibilityIdentifier("transfer.confirmButton")
                 }
             }
-            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused, amountText: $amountText)
             .interactiveDismissDisabled(isSaving)
             .alert("Confirm Transfer", isPresented: $showConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -243,7 +243,14 @@ struct BucketTransferView: View {
             return
         }
 
-        Task {
+        // WHY snapshot: @State values cross suspension; Sendable copies ride the Task.
+        let amountSnapshot = amount
+        let fromSnapshot = fromBucket
+        let toSnapshot = toBucket
+        let profileSnapshot = profile
+        let familySnapshot = family
+        // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
+        Task { @MainActor [bucketService, amountSnapshot, fromSnapshot, toSnapshot, profileSnapshot, familySnapshot, toastManager, dismiss] in
             isSaving = true
             defer { isSaving = false }
             do {
@@ -253,11 +260,11 @@ struct BucketTransferView: View {
                 // TOCTOU where view and service mint mismatched IDs.
                 let now = Date()
                 _ = try await bucketService.transfer(
-                    from: fromBucket,
-                    to: toBucket,
-                    amount: amount,
-                    profile: profile,
-                    family: family,
+                    from: fromSnapshot,
+                    to: toSnapshot,
+                    amount: amountSnapshot,
+                    profile: profileSnapshot,
+                    family: familySnapshot,
                     at: now
                 )
                 HapticsService.rigid()

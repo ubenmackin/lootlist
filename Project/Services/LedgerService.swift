@@ -277,8 +277,8 @@ final class LedgerService {
     // device for identical payloads so CloudKit dedupes money movements.
     // All discriminating fields must be folded into the hash — never a random UUID.
     private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Int64, description: String, location _: String?, date: Date) -> String {
-        let ms = Int(date.timeIntervalSince1970 * 1000)
-        let cents = Int(clamping: amount.magnitude)
+        let ms = Int64(date.timeIntervalSince1970 * 1000)
+        let cents = Int64(clamping: amount.magnitude)
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         // WHY legacy base: trimmed-only hash keeps historic rows matching so re-mints dedupe.
         let hashInput = trimmed
@@ -291,7 +291,7 @@ final class LedgerService {
     // WHY: collision suffixes must converge cross-device, so one helper owns
     // the hex+msSuffix extension instead of duplicated inline blocks.
     private func extendedRecordName(base: String, payload: String, date: Date) -> String {
-        let ms = Int(date.timeIntervalSince1970 * 1000)
+        let ms = Int64(date.timeIntervalSince1970 * 1000)
         let hash = SHA256.hash(data: Data(payload.utf8))
         let hex = hash.hexPrefix(4)
         let msSuffix = ms % 1000
@@ -323,8 +323,8 @@ final class LedgerService {
             // Payload must include every field that participates in base-record
             // collisions (description + ms) so hash-colliding descriptions cannot
             // still collide after the suffix.
-            let ms = Int(date.timeIntervalSince1970 * 1000)
-            let cents = Int(clamping: amount.magnitude)
+            let ms = Int64(date.timeIntervalSince1970 * 1000)
+            let cents = Int64(clamping: amount.magnitude)
             let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let trimmedLower = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let payload = "\(trimmedLower)|\(ms)|\(cents)|\(normalizedLocation)|\(source)"
@@ -417,12 +417,14 @@ final class LedgerService {
 
         // WHY: whole-penny math keeps bucket shares summing to the exact deposit
         // total regardless of how percentages round.
-        let totalPennies = Int(clamping: amount.magnitude)
+        // WHY clamp: magnitude is UInt64 so clamp keeps splitPennies on Int64 canon.
+        let totalPennies = Int64(clamping: amount.magnitude)
         guard totalPennies > 0 else {
             throw SpendingServiceError.invalidAmount
         }
-        let shares = BucketService.splitPennies(totalPennies, profile: profile)
-            .filter { $0.pennies > 0 }
+        // WHY split steps: separate split from filter so checker stays fast.
+        let allShares = BucketService.splitPennies(totalPennies, profile: profile)
+        let shares = allShares.filter { $0.pennies > 0 }
         guard !shares.isEmpty else {
             throw SpendingServiceError.invalidAmount
         }
@@ -446,7 +448,7 @@ final class LedgerService {
             let candidate = isSingle ? base : "\(base)-\(share.kind.rawValue)"
             let bucketSuffix = isSingle ? "" : " · \(share.kind.displayName)"
             let shareDescription = "\(trimmedDesc)\(bucketSuffix)"
-            let shareAmount = Int64(share.pennies)
+            let shareAmount = share.pennies
             var recordName = candidate
             if let existing = cacheService.fetchLedgerEntry(recordName: candidate, family: family.id.recordName),
                existing.source != depositSource
@@ -457,7 +459,7 @@ final class LedgerService {
             {
                 // WHY: extend deterministically so same divergent payload yields
                 // same recordName on any device, never a random UUID.
-                let ms = Int(date.timeIntervalSince1970 * 1000)
+                let ms = Int64(date.timeIntervalSince1970 * 1000)
                 let trimmedLower = trimmedDesc.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 let locationPart = normalizedLocation ?? ""
                 let payload = "\(trimmedLower)|\(ms)|\(share.pennies)|\(locationPart)|\(depositSource)|\(share.kind.rawValue)"
@@ -485,7 +487,10 @@ final class LedgerService {
 
         // WHY: save-bucket portions cascade into FIFO goals so bucket totals and
         // goal progress stay consistent; surplus past all goals rests in the bucket.
-        let saveShares = shares.filter { $0.kind == .shortTermSave || $0.kind == .longTermSave }
+        // WHY split filter: single-predicate filters keep checker fast.
+        let shortShares = shares.filter { $0.kind == .shortTermSave }
+        let longShares = shares.filter { $0.kind == .longTermSave }
+        let saveShares = shortShares + longShares
         if !saveShares.isEmpty {
             let goalService = GoalService(
                 cloudKit: cloudKit,
@@ -496,7 +501,7 @@ final class LedgerService {
             for share in saveShares {
                 do {
                     _ = try await goalService.contributeToBucket(
-                        amountPennies: Int64(share.pennies),
+                        amountPennies: share.pennies,
                         profile: profile,
                         family: family,
                         bucketKind: share.kind,
