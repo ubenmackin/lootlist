@@ -10,6 +10,20 @@ import Foundation
 import os
 import Synchronization
 
+/// WHY value snapshot: background refresh and toasts share one rollover tally, so counts ride one Sendable value.
+struct RolloverOutcome: Sendable {
+    let settled: Int
+    let swept: Int
+    let carried: Int
+    let skipReason: RolloverSkipReason?
+}
+
+/// WHY typed skip: idle zero-work weeks carry nil while gated skips name the gate, so callers never infer contention from a zero.
+enum RolloverSkipReason: String, Sendable {
+    case notParentOrNoFamily = "not-parent-or-no-family"
+    case alreadyProcessing = "already-processing"
+}
+
 @MainActor
 final class AutoPayoutCoordinator {
     private let logger = Logger(category: "AutoPayoutCoordinator")
@@ -71,13 +85,13 @@ final class AutoPayoutCoordinator {
     /// Evaluates whether payouts or quest sweeps are due for any hero in the active family
     /// and executes them atomically. Safe to call on cold launch, scene foreground, or background refresh.
     @discardableResult
-    func processPendingPayoutsIfDue(now: Date = Date()) async -> Int {
+    func processPendingPayoutsIfDue(now: Date = Date()) async -> RolloverOutcome {
         guard let currentProfile = appState.currentProfile,
               currentProfile.role.isParent,
               let family = appState.family
         else {
             logger.debug("Active profile is not a parent or family missing. Skipping auto-payout.")
-            return 0
+            return RolloverOutcome(settled: 0, swept: 0, carried: 0, skipReason: .notParentOrNoFamily)
         }
 
         // Atomic check-and-set via Mutex so concurrent callers (scenePhase .active + BGAppRefreshTask) cannot
@@ -88,11 +102,13 @@ final class AutoPayoutCoordinator {
             return true
         }) else {
             logger.debug("Auto-payout evaluation already in progress. Skipping.")
-            return 0
+            return RolloverOutcome(settled: 0, swept: 0, carried: 0, skipReason: .alreadyProcessing)
         }
         defer { isProcessing.withLock { $0 = false } }
 
         var processedCount = 0
+        var sweptCount = 0
+        var carriedCount = 0
 
         do {
             let heroes = try await familyService.fetchHeroes(for: family)
@@ -119,20 +135,34 @@ final class AutoPayoutCoordinator {
             if !allSweptQuests.isEmpty {
                 logger.info("Swept \(allSweptQuests.count) expired quests for family \(family.name, privacy: .private)")
             }
+            sweptCount = allSweptQuests.count
 
             // Recurring quest carry-forward: roll template-backed quests from the previous week into the current
             // week so a parent doesn't have to reassign recurring chores each week.
-            await carryForwardRecurringQuests(
+            let carryResult = await carryForwardRecurringQuests(
                 family: family,
                 heroes: heroes,
                 currentProfile: currentProfile,
                 now: now
             )
+            carriedCount = carryResult.count
         } catch {
             logger.error("Failed during auto-payout evaluation: \(error, privacy: .private)")
         }
 
-        return processedCount
+        if processedCount + sweptCount + carriedCount > 0 {
+            let payoutNoun = processedCount == 1 ? "" : "s"
+            let sweptNoun = sweptCount == 1 ? "" : "s"
+            let carriedNoun = carriedCount == 1 ? "" : "s"
+            toastManager?.show(
+                message: "New week ready: \(processedCount) payout\(payoutNoun) settled, "
+                    + "\(sweptCount) old quest\(sweptNoun) retired, "
+                    + "\(carriedCount) quest\(carriedNoun) carried forward.",
+                type: .info
+            )
+        }
+
+        return RolloverOutcome(settled: processedCount, swept: sweptCount, carried: carriedCount, skipReason: nil)
     }
 
     /// Carries forward recurring template-backed quests from the previous week into the current week.
@@ -141,10 +171,10 @@ final class AutoPayoutCoordinator {
         heroes: [Profile],
         currentProfile: Profile,
         now: Date
-    ) async {
+    ) async -> (count: Int, perAssignee: [String: Int]) {
         guard let cache = appState.cacheService else {
             logger.debug("Cache unavailable; skipping weekly quest carry-forward.")
-            return
+            return (0, [:])
         }
 
         let familyName = family.id.recordName
@@ -211,11 +241,11 @@ final class AutoPayoutCoordinator {
             }
         }
 
-        guard totalCarriedCount > 0 else { return }
+        guard totalCarriedCount > 0 else { return (0, [:]) }
 
         logger.info("Carried forward \(totalCarriedCount) quest(s) for family \(family.name, privacy: .private)")
-        toastManager?.show(message: "Carried forward \(totalCarriedCount) quest(s) for the new week.", type: .info)
         notifyCarriedForwardQuests(totalCarriedPerAssignee, heroByRecordName: heroByRecordName)
+        return (totalCarriedCount, totalCarriedPerAssignee)
     }
 
     /// Groups previous-week quests into unique `(template, assignee)` tuples,

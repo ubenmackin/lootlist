@@ -628,6 +628,30 @@ struct iCloudStatusView: View {
                     .padding(.vertical, 2)
                 }
 
+                // WHY read-only: background rollover outcomes are session diagnostics, so the overlay renders them verbatim.
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Last Background Rollover")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(relativeText(for: lifecycleCoordinator?.lastBackgroundRolloverAt))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text(absoluteText(for: lifecycleCoordinator?.lastBackgroundRolloverAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    Text(lifecycleCoordinator?.lastBackgroundRolloverStatus ?? "—")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+                .accessibilityIdentifier("icloudStatus.lastBackgroundRollover")
+
                 // Per-scope freshness — ✅/❌ chips per CachedRecordType
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Per-Scope Freshness")
