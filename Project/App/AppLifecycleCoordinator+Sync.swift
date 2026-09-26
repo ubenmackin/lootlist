@@ -31,6 +31,7 @@ extension AppLifecycleCoordinator {
         if !didScheduleForegroundPayout {
             logger.warning("Foreground sync: payout scheduler failed")
         }
+        await scheduleRolloverNudgeIfParent()
         logger.info("Foreground sync completed")
     }
 
@@ -124,6 +125,7 @@ extension AppLifecycleCoordinator {
         if !didScheduleZoneChangePayout {
             logger.warning("Family zone change: payout scheduler failed")
         }
+        await scheduleRolloverNudgeIfParent()
 
         // If this zone change completed the hero-recovery bootstrap, mark it done
         // so subsequent foreground/remote syncs are not permanently skipped.
@@ -150,12 +152,29 @@ extension AppLifecycleCoordinator {
 
     /// Centralized background task handler for weekly payout refresh.
     func handleWeeklyPayoutBackgroundRefresh() async -> Bool {
-        await autoPayoutCoordinator?.processPendingPayoutsIfDue()
+        // WHY sync-first: stale cache must heal before payout evaluation so due weeks settle in background.
+        await executeCoreSyncSequence()
+        let outcome = await autoPayoutCoordinator?.processPendingPayoutsIfDue()
         let payoutDay = appState?.family?.payoutDay ?? .sunday
         let didSchedule = payoutScheduler(payoutDay)
+        await scheduleRolloverNudgeIfParent()
+        lastBackgroundRolloverAt = Date()
         if !didSchedule {
-            logger.warning("Background payout refresh: payout scheduler failed")
+            lastBackgroundRolloverStatus = "failed scheduler"
+            logger.warning("Background payout refresh failed: failed scheduler")
+            return didSchedule
         }
+        // WHY skip-typed: zero work is ok with nil reason, so only a proven gate maps to skipped.
+        if let skipReason = outcome?.skipReason {
+            lastBackgroundRolloverStatus = "skipped \(skipReason.rawValue)"
+            logger.warning("Background payout refresh skipped: skipped \(skipReason.rawValue)")
+            return didSchedule
+        }
+        let settled = outcome?.settled ?? 0
+        let swept = outcome?.swept ?? 0
+        let carried = outcome?.carried ?? 0
+        lastBackgroundRolloverStatus = "ok settled=\(settled) swept=\(swept) carried=\(carried)"
+        logger.info("Background payout refresh ok: ok settled=\(settled) swept=\(swept) carried=\(carried)")
         return didSchedule
     }
 

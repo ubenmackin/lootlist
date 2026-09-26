@@ -10,6 +10,8 @@ import Foundation
 @testable import LootList
 import Testing
 
+// swiftlint:disable file_length
+
 @MainActor
 struct AutoPayoutCoordinatorTests {
     private struct TestContext {
@@ -136,7 +138,7 @@ struct AutoPayoutCoordinatorTests {
         }
         ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
 
-        let count = await ctx.coordinator.processPendingPayoutsIfDue(now: now)
+        let count = await ctx.coordinator.processPendingPayoutsIfDue(now: now).settled
 
         #expect(count == 0)
     }
@@ -150,7 +152,7 @@ struct AutoPayoutCoordinatorTests {
         let payoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
         let payoutDayDate = Calendar.iso8601UTC.startOfDay(for: payoutDate)
 
-        let count = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutDayDate)
+        let count = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutDayDate).settled
 
         #expect(count == 0)
 
@@ -368,7 +370,11 @@ struct AutoPayoutCoordinatorTests {
         #expect(currentWeekQuests.first?.templateRecordName == template.id.recordName)
         #expect(currentWeekQuests.first?.assigneeRecordName == ctx.heroProfile.id.recordName)
 
-        #expect(ctx.toastManager.toasts.contains { $0.message == "Carried forward 1 quest(s) for the new week." })
+        let unified = ctx.toastManager.toasts.filter { $0.message.hasPrefix("New week ready:") }
+        #expect(unified.count == 1)
+        #expect(unified.first?.message == "New week ready: 0 payouts settled, 1 old quest retired, 1 quest carried forward.")
+        #expect(unified.first?.type == .info)
+        #expect(!ctx.toastManager.toasts.contains { $0.message == "Carried forward 1 quest(s) for the new week." })
     }
 
     @Test
@@ -395,6 +401,10 @@ struct AutoPayoutCoordinatorTests {
         #expect(currentWeekQuests.isEmpty)
 
         #expect(!ctx.toastManager.toasts.contains { $0.message.contains("Carried forward") })
+        let unifiedInactive = ctx.toastManager.toasts.filter { $0.message.hasPrefix("New week ready:") }
+        #expect(unifiedInactive.count == 1)
+        #expect(unifiedInactive.first?.message == "New week ready: 0 payouts settled, 1 old quest retired, 0 quests carried forward.")
+        #expect(unifiedInactive.first?.type == .info)
     }
 
     @Test
@@ -434,6 +444,10 @@ struct AutoPayoutCoordinatorTests {
         )
         #expect(currentWeekQuests.isEmpty)
         #expect(!ctx.toastManager.toasts.contains { $0.message.contains("Carried forward") })
+        let unifiedDeleted = ctx.toastManager.toasts.filter { $0.message.hasPrefix("New week ready:") }
+        #expect(unifiedDeleted.count == 1)
+        #expect(unifiedDeleted.first?.message == "New week ready: 0 payouts settled, 1 old quest retired, 0 quests carried forward.")
+        #expect(unifiedDeleted.first?.type == .info)
     }
 
     @Test
@@ -460,6 +474,10 @@ struct AutoPayoutCoordinatorTests {
         )
         #expect(currentWeekQuests.isEmpty)
         #expect(!ctx.toastManager.toasts.contains { $0.message.contains("Carried forward") })
+        let unifiedRemoved = ctx.toastManager.toasts.filter { $0.message.hasPrefix("New week ready:") }
+        #expect(unifiedRemoved.count == 1)
+        #expect(unifiedRemoved.first?.message == "New week ready: 0 payouts settled, 1 old quest retired, 0 quests carried forward.")
+        #expect(unifiedRemoved.first?.type == .info)
     }
 
     @Test
@@ -762,13 +780,13 @@ struct AutoPayoutCoordinatorTests {
 
         let nextMondayNoon = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
 
-        let saturdayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: saturdayNoon)
+        let saturdayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: saturdayNoon).settled
         #expect(saturdayCount == 0)
 
-        let sundayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: sundayNoon)
+        let sundayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: sundayNoon).settled
         #expect(sundayCount == 0)
 
-        let mondayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: nextMondayNoon)
+        let mondayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: nextMondayNoon).settled
         #expect(mondayCount >= 1)
     }
 
@@ -856,7 +874,7 @@ extension AutoPayoutCoordinatorTests {
         try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 2500)
 
         let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
-        let processed = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        let processed = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment).settled
         #expect(processed == 1)
 
         // The AllowancePeriod must close as paid with the full pre-split amount.
@@ -899,7 +917,7 @@ extension AutoPayoutCoordinatorTests {
         try seedWeekEarnings(ctx: tiedCtx, weekOf: weekStart, goldReward: 10)
 
         let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
-        let processed = await tiedCtx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        let processed = await tiedCtx.coordinator.processPendingPayoutsIfDue(now: payoutMoment).settled
         #expect(processed == 1)
 
         let tiedEntries = tiedCtx.cache.fetchLedgerEntries(
@@ -944,7 +962,7 @@ extension AutoPayoutCoordinatorTests {
         try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 2500)
 
         let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
-        let firstRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        let firstRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment).settled
         #expect(firstRun == 1)
 
         let entriesAfterFirst = ctx.cache.fetchLedgerEntries(
@@ -955,7 +973,7 @@ extension AutoPayoutCoordinatorTests {
 
         // The paid AllowancePeriod skip-guard makes the second pass a no-op —
         // no re-minted entries, no double-credited wallet.
-        let secondRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        let secondRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment).settled
         #expect(secondRun == 0)
 
         let entriesAfterSecond = ctx.cache.fetchLedgerEntries(
@@ -964,5 +982,65 @@ extension AutoPayoutCoordinatorTests {
         )
         #expect(entriesAfterSecond.count == 3)
         #expect(Set(entriesAfterSecond.map(\.recordName)) == Set(entriesAfterFirst.map(\.recordName)))
+    }
+
+    // MARK: - Unified parent-open rollover summary toast
+
+    @Test
+    func `settled-plus-swept-plus-carried shows exactly one unified info toast`() async throws {
+        let ctx = try setupServices(heroSplitSpend: 60, heroSplitShort: 25, heroSplitLong: 15)
+
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 2500)
+
+        let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
+        let processed = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment).settled
+        #expect(processed == 1)
+
+        let unified = ctx.toastManager.toasts.filter { $0.message.hasPrefix("New week ready:") }
+        #expect(unified.count == 1)
+        #expect(unified.first?.message == "New week ready: 1 payout settled, 1 old quest retired, 1 quest carried forward.")
+        #expect(unified.first?.type == .info)
+        #expect(!ctx.toastManager.toasts.contains { $0.message == "Carried forward 1 quest(s) for the new week." })
+    }
+
+    @Test
+    func `zero work shows zero toasts`() async throws {
+        let ctx = try setupServices(heroPayoutPolicy: .realTime)
+
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let count = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek).settled
+
+        #expect(count == 0)
+        #expect(ctx.toastManager.toasts.isEmpty)
+    }
+
+    @Test
+    func `carry-only shows unified text with zeros for settled and swept`() async throws {
+        let ctx = try setupServices(heroPayoutPolicy: .realTime)
+
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek))
+
+        _ = try await seedActiveTemplateAndPastQuest(
+            ctx: ctx,
+            assignee: ctx.heroProfile.id,
+            weekOf: pastWeek
+        )
+
+        _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
+
+        let currentWeekQuests = ctx.cache.fetchQuests(
+            family: ctx.family.id.recordName,
+            weekInRange: WeekMath.weekRange(starting: currentWeek)
+        )
+        #expect(currentWeekQuests.count == 1)
+
+        let unified = ctx.toastManager.toasts.filter { $0.message.hasPrefix("New week ready:") }
+        #expect(unified.count == 1)
+        #expect(unified.first?.message == "New week ready: 0 payouts settled, 0 old quests retired, 1 quest carried forward.")
+        #expect(unified.first?.type == .info)
     }
 }

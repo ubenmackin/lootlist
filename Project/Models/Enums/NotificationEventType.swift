@@ -41,6 +41,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
     case spendDailyDigest
     case trophyEarned
     case streakMilestone
+    case rolloverNudge
 
     var displayName: String {
         switch self {
@@ -57,6 +58,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         case .spendDailyDigest: "Daily Spend Report"
         case .trophyEarned: "Trophy Earned"
         case .streakMilestone: "Streak Milestone"
+        case .rolloverNudge: "Weekly Rollover Reminder"
         }
     }
 
@@ -73,6 +75,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         case .spendDailyDigest: "sunrise.fill"
         case .trophyEarned: "trophy.fill"
         case .streakMilestone: "flame.fill"
+        case .rolloverNudge: "calendar.badge.clock"
         }
     }
 
@@ -82,14 +85,14 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
             .quests
         case .levelUp, .trophyEarned, .streakMilestone:
             .rewards
-        case .goldEarned, .spendingLogged, .spendDailyDigest:
+        case .goldEarned, .spendingLogged, .spendDailyDigest, .rolloverNudge:
             .treasury
         }
     }
 
     var isRelevantForParent: Bool {
         switch self {
-        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .spendDailyDigest, .trophyEarned, .streakMilestone:
+        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .spendDailyDigest, .trophyEarned, .streakMilestone, .rolloverNudge:
             true
         case .questAssigned, .questCompleted, .questRejected, .questMissed:
             false
@@ -100,7 +103,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         switch self {
         case .questAssigned, .questCompleted, .questRejected, .questMissed, .levelUp, .goldEarned, .trophyEarned, .streakMilestone:
             true
-        case .questNeedsReview, .spendingLogged, .spendDailyDigest:
+        case .questNeedsReview, .spendingLogged, .spendDailyDigest, .rolloverNudge:
             false
         }
     }

@@ -62,6 +62,7 @@ extension AppLifecycleCoordinator {
             if !didSchedule {
                 logger.warning("Bootstrap scheduler failed without an authenticated family scope")
             }
+            await scheduleRolloverNudgeIfParent()
             logger.info("Initial bootstrap paused without an authenticated family scope")
             return
         }
@@ -91,6 +92,7 @@ extension AppLifecycleCoordinator {
             logger.warning("Bootstrap not marked completed: payout scheduler failed")
             return
         }
+        await scheduleRolloverNudgeIfParent()
 
         await evaluateTrophiesCatchup()
 

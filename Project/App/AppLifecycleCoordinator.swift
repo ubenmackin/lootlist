@@ -265,6 +265,12 @@ final class AppLifecycleCoordinator {
         Self.reconnectSyncMinimumInterval
     }
 
+    // MARK: - Background Rollover Status
+
+    /// WHY in-memory: background refresh outcomes are session diagnostics, so they live on the coordinator, never in UserDefaults.
+    var lastBackgroundRolloverAt: Date?
+    var lastBackgroundRolloverStatus: String?
+
     // MARK: - Test Accessors
 
     /// Exposed for tests to assert the coordinator's current phase via the public enum.

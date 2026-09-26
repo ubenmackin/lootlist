@@ -74,6 +74,10 @@ struct SpendDigestServiceTests {
 
     @Test
     func `multiple spends roll up into one daily digest`() async throws {
+        guard await TestNotificationGate.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
         let defaults = UserDefaults.ephemeral()
         let zoneID = makeZoneID()
         let cache = try CacheService(inMemory: true, defaults: defaults)
@@ -154,6 +158,10 @@ struct SpendDigestServiceTests {
 
     @Test
     func `ingested manual spends send no immediate notifications`() async throws {
+        guard await TestNotificationGate.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
         let defaults = UserDefaults.ephemeral()
         let zoneID = makeZoneID()
         let cache = try CacheService(inMemory: true, defaults: defaults)

@@ -462,6 +462,7 @@ extension NotificationEventType {
         case .spendDailyDigest: "spendDailyDigestEnabled"
         case .trophyEarned: "trophyEarnedNotificationsEnabled"
         case .streakMilestone: "streakMilestoneNotificationsEnabled"
+        case .rolloverNudge: "rolloverNudgeNotificationsEnabled"
         }
     }
 }
