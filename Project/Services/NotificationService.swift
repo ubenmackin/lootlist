@@ -215,6 +215,7 @@ final class NotificationService {
               body: String,
               distinct: Bool = false) async throws
     {
+        guard shouldDeliverLocally(eventType: eventType, forTargetRecordName: profile.id.recordName) else { return }
         let familyRecordName = profile.family.recordID.recordName
         guard isNotificationEnabled(for: eventType, profileRecordName: profile.id.recordName, familyRecordName: familyRecordName) else { return }
 
@@ -244,6 +245,17 @@ final class NotificationService {
         }
     }
 
+    /// WHY single owner: a device banners only its owner's role-relevant events; peers are reached via the sync-ingest path.
+    private func shouldDeliverLocally(eventType: NotificationEventType, forTargetRecordName targetRecordName: String) -> Bool {
+        guard let currentProfile = appState.currentProfile,
+              currentProfile.id.recordName == targetRecordName
+        else { return false }
+        if currentProfile.role.isParent {
+            return eventType.isRelevantForParent
+        }
+        return eventType.isRelevantForHero
+    }
+
     func deliverSyncNotification(eventType: NotificationEventType,
                                  title: String,
                                  body: String,
@@ -256,6 +268,8 @@ final class NotificationService {
             // Skip self-notifications — the acting user already sees the result.
             return
         }
+        // WHY receiver relevance: ingest already targeted this device, so only the owner's role relevance remains.
+        guard shouldDeliverLocally(eventType: eventType, forTargetRecordName: currentProfile.id.recordName) else { return }
         let familyRecordName = appState.family?.id.recordName ?? currentProfile.family.recordID.recordName
         guard isNotificationEnabled(for: eventType, profileRecordName: currentProfile.id.recordName, familyRecordName: familyRecordName) else { return }
 
@@ -290,6 +304,7 @@ final class NotificationService {
                            family: Family,
                            weekOf: Date) async throws
     {
+        guard shouldDeliverLocally(eventType: .goldEarned, forTargetRecordName: profile.id.recordName) else { return }
         guard isNotificationEnabled(for: .goldEarned, profileRecordName: profile.id.recordName, familyRecordName: family.id.recordName) else { return }
 
         let title = "🎁 Allowance Day"
@@ -306,6 +321,7 @@ final class NotificationService {
                               to parent: Profile,
                               distinct: Bool = false) async throws
     {
+        guard shouldDeliverLocally(eventType: .questNeedsReview, forTargetRecordName: parent.id.recordName) else { return }
         guard isNotificationEnabled(
             for: .questNeedsReview,
             profileRecordName: parent.id.recordName,
@@ -346,6 +362,7 @@ final class NotificationService {
     }
 
     func sendQuestRejected(questLog _: QuestCompletion, to hero: Profile) async throws {
+        guard shouldDeliverLocally(eventType: .questRejected, forTargetRecordName: hero.id.recordName) else { return }
         guard isNotificationEnabled(
             for: .questRejected,
             profileRecordName: hero.id.recordName,

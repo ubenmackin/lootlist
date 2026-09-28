@@ -116,17 +116,14 @@ extension QuestCompletionService {
     // MARK: - Post-Transition Notification & Settlement Helpers
 
     func dispatchParentReviewNotification(for log: QuestCompletion, quest: Quest) {
-        guard let currentProfile = appState.currentProfile, currentProfile.role.isParent else { return }
-        let completerRecordName = log.completedBy.recordID.recordName
-        guard currentProfile.id.recordName != completerRecordName else { return }
-        let familyName = quest.family.recordID.recordName
-        if let parent = resolveParent(recordID: quest.createdBy.recordID, familyRecordName: familyName) {
-            guard parent.role.isParent else { return }
-            guard parent.id.recordName != completerRecordName else { return }
+        if let currentProfile = appState.currentProfile, currentProfile.role.isParent {
+            let completerRecordName = log.completedBy.recordID.recordName
+            guard currentProfile.id.recordName != completerRecordName else { return }
+            // WHY device-owner targeting: instant banner goes only to this device's parent; other parents ride the sync path.
             if let notificationService {
-                Task { [logger, notificationService, log, parent] in
+                Task { [logger, notificationService, log, currentProfile] in
                     do {
-                        try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
+                        try await notificationService.sendQuestNeedsReview(questLog: log, to: currentProfile)
                     } catch {
                         logger.error("Failed to send quest review notification: \(error, privacy: .private)")
                     }
@@ -134,6 +131,8 @@ extension QuestCompletionService {
             }
             return
         }
+        let familyName = quest.family.recordID.recordName
+        let completerRecordName = log.completedBy.recordID.recordName
         if let parent = resolveParentViaCacheScan(familyRecordName: familyName),
            let notificationService
         {
@@ -238,13 +237,6 @@ extension QuestCompletionService {
                 }
             }
         }
-    }
-
-    private func resolveParent(recordID: CKRecord.ID, familyRecordName: String) -> Profile? {
-        if let cached = cacheService.fetchProfile(recordName: recordID.recordName, family: familyRecordName) {
-            return cached.toProfile(zoneID: recordID.zoneID)
-        }
-        return nil
     }
 
     /// Cache-first quest resolution for the reward step of `verify`.

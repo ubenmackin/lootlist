@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 @testable import LootList
 import Testing
+import UserNotifications
 
 // swiftlint:disable file_length
 
@@ -1042,5 +1043,89 @@ extension AutoPayoutCoordinatorTests {
         #expect(unified.count == 1)
         #expect(unified.first?.message == "New week ready: 0 payouts settled, 0 old quests retired, 1 quest carried forward.")
         #expect(unified.first?.type == .info)
+    }
+}
+
+// MARK: - Parent-device local-delivery regression
+
+extension AutoPayoutCoordinatorTests {
+    @Test
+    func `carry-forward on parent device keeps questAssigned off the parent notification center`() async throws {
+        guard await TestNotificationGate.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (notification center would hang)")
+            return
+        }
+        let ctx = try setupServices(heroPayoutPolicy: .realTime)
+        #expect(ctx.appState.currentProfile?.id.recordName == ctx.parentProfile.id.recordName)
+        // WHY hero opt-in: cached enabled=true lets the send path reach the center so silence proves device ownership.
+        await ctx.cache.upsertNotificationPreference(
+            NotificationPreference(
+                profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+                eventType: .questAssigned,
+                enabled: true,
+                family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+                id: CKRecord.ID(recordName: "pref-hero-1-family-1-questAssigned", zoneID: ctx.family.id.zoneID)
+            )
+        )
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek))
+        seedPaidPeriod(ctx: ctx, weekOf: pastWeek)
+        for index in 0 ..< 3 {
+            _ = try await seedActiveTemplateAndPastQuest(
+                ctx: ctx,
+                templateRecordName: "template-cf-silent-\(index)",
+                questRecordName: "past-quest-cf-silent-\(index)",
+                templateName: "Silent Carry \(index)",
+                assignee: ctx.heroProfile.id,
+                weekOf: pastWeek
+            )
+        }
+
+        let outcome = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
+        #expect(outcome.carried == 3)
+        let currentWeekQuests = ctx.cache.fetchQuests(
+            family: ctx.family.id.recordName,
+            weekInRange: WeekMath.weekRange(starting: currentWeek)
+        )
+        #expect(currentWeekQuests.count == 3)
+
+        // WHY detached fan-out: carry-forward notifies on detached tasks, so settle before asserting silence.
+        try await Task.sleep(for: .milliseconds(1000))
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.filter { $0.identifier.hasPrefix("\(NotificationEventType.questAssigned.rawValue):") }.isEmpty)
+    }
+
+    @Test
+    func `assignment notification for a child target stays silent while the parent assigns`() async throws {
+        guard await TestNotificationGate.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (notification center would hang)")
+            return
+        }
+        let ctx = try setupServices(heroPayoutPolicy: .realTime)
+        #expect(ctx.appState.currentProfile?.id.recordName == ctx.parentProfile.id.recordName)
+        // WHY hero opt-in: cached enabled=true lets the send path reach the center so silence proves device ownership.
+        await ctx.cache.upsertNotificationPreference(
+            NotificationPreference(
+                profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+                eventType: .questAssigned,
+                enabled: true,
+                family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+                id: CKRecord.ID(recordName: "pref-hero-1-family-1-questAssigned", zoneID: ctx.family.id.zoneID)
+            )
+        )
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        ctx.questService.sendAssignmentNotification(to: ctx.heroProfile, questName: "Silent Quest")
+
+        // WHY detached send: assignment notifies off the call stack, so settle before asserting silence.
+        try await Task.sleep(for: .milliseconds(1000))
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.filter { $0.identifier.hasPrefix("\(NotificationEventType.questAssigned.rawValue):") }.isEmpty)
     }
 }
