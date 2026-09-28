@@ -396,7 +396,6 @@ struct NotificationServiceTests {
         let app = AppState(defaults: defaults)
         let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
         let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
-        app.currentProfile = hero
         app.family = family
 
         let parent = Profile(
@@ -408,6 +407,9 @@ struct NotificationServiceTests {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: ExhaustiveCacheFixtures.id("parent1", zoneID: zoneID)
         )
+
+        // WHY device owner: the ownership gate requires the send to run on the target's device.
+        app.currentProfile = parent
 
         // WHY disabled recipient preference must suppress delivery.
         let pref = NotificationPreference(
@@ -561,7 +563,6 @@ struct NotificationServiceTests {
         let app = AppState(defaults: defaults)
         let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
         let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
-        app.currentProfile = hero
         app.family = family
 
         let parent = Profile(
@@ -573,6 +574,9 @@ struct NotificationServiceTests {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: ExhaustiveCacheFixtures.id("parent1", zoneID: zoneID)
         )
+
+        // WHY device owner: the ownership gate requires the send to run on the target's device.
+        app.currentProfile = parent
 
         let pref = NotificationPreference(
             profile: CKRecord.Reference(recordID: parent.id, action: .none),
@@ -703,5 +707,267 @@ struct NotificationServiceTests {
             ?? deliveredNotifications.first(where: { $0.request.identifier.hasPrefix("\(NotificationEventType.goldEarned.rawValue):") })?.request
         let body = try #require(request?.content.body)
         #expect(body == "Your weekly allowance is ready!")
+    }
+
+    // MARK: - Device ownership matrix
+
+    @Test
+    func `parent device suppresses child-targeted local sends`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
+        app.currentProfile = parent
+        app.family = family
+
+        // WHY prefs on: suppression must come from ownership, not disabled prefs.
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questAssignedNotificationsEnabled")
+        defaults.set(true, forKey: "questVerifiedNotificationsEnabled")
+        defaults.set(true, forKey: "questRejectedNotificationsEnabled")
+        defaults.set(true, forKey: "weeklySummaryNotificationsEnabled")
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let log = QuestCompletion(
+            quest: ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: ExhaustiveCacheFixtures.id("log-ownership-suppressed", zoneID: zoneID)
+        )
+
+        try await service.send(.questAssigned, to: hero, title: "Assigned", body: "Body")
+        try await service.send(.questCompleted, to: hero, title: "Completed", body: "Body")
+        try await service.sendQuestRejected(questLog: log, to: hero)
+        try await service.sendWeeklySummary(to: hero, family: family, weekOf: Date())
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.isEmpty, "Parent device must not banner child-targeted local sends")
+    }
+
+    @Test
+    func `child device delivers self-targeted hero events`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
+        app.currentProfile = hero
+        app.family = family
+
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questAssignedNotificationsEnabled")
+        defaults.set(true, forKey: "questRejectedNotificationsEnabled")
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let log = QuestCompletion(
+            quest: ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: ExhaustiveCacheFixtures.id("log-ownership-delivered", zoneID: zoneID)
+        )
+
+        try await service.send(.questAssigned, to: hero, title: "Assigned", body: "Body")
+        try await service.sendQuestRejected(questLog: log, to: hero)
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(
+            pending.contains(where: { $0.identifier.hasPrefix("\(NotificationEventType.questAssigned.rawValue):\(hero.id.recordName)") }),
+            "Child device must banner its own questAssigned event"
+        )
+        #expect(
+            pending.contains(where: { $0.identifier.hasPrefix("\(NotificationEventType.questRejected.rawValue):\(hero.id.recordName)") }),
+            "Child device must banner its own questRejected event"
+        )
+    }
+
+    @Test
+    func `parent device delivers self-targeted questNeedsReview`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
+        app.currentProfile = parent
+        app.family = family
+
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questNeedsReviewNotificationsEnabled")
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let log = QuestCompletion(
+            quest: ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: ExhaustiveCacheFixtures.id("log-ownership-review", zoneID: zoneID)
+        )
+
+        try await service.sendQuestNeedsReview(questLog: log, to: parent)
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(
+            pending.contains(where: { $0.identifier.hasPrefix("\(NotificationEventType.questNeedsReview.rawValue):\(parent.id.recordName):") }),
+            "Parent device must banner its own questNeedsReview event"
+        )
+    }
+
+    @Test
+    func `owner device suppresses role-irrelevant event`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
+        app.family = family
+
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questAssignedNotificationsEnabled")
+        defaults.set(true, forKey: "questNeedsReviewNotificationsEnabled")
+
+        // WHY hero-irrelevant on owner device: questNeedsReview never banners a hero, even self-targeted.
+        app.currentProfile = hero
+        var service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let log = QuestCompletion(
+            quest: ExhaustiveCacheFixtures.ref("quest1", zoneID: zoneID),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: ExhaustiveCacheFixtures.id("log-ownership-irrelevant", zoneID: zoneID)
+        )
+
+        try await service.sendQuestNeedsReview(questLog: log, to: hero)
+        var pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.isEmpty, "Hero device must suppress questNeedsReview even when self-targeted")
+
+        // WHY parent-irrelevant on owner device: questAssigned never banners a parent, even self-targeted.
+        app.currentProfile = parent
+        service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        try await service.send(.questAssigned, to: parent, title: "Assigned", body: "Body")
+        pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.isEmpty, "Parent device must suppress questAssigned even when self-targeted")
+    }
+
+    @Test
+    func `deliverSyncNotification honors receiver role relevance`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let parent = ExhaustiveCacheFixtures.sharedParent(zoneID: zoneID)
+        let hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID)
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner1")
+        app.family = family
+
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questNeedsReviewNotificationsEnabled")
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        // WHY parent receiver: questNeedsReview is parent-relevant, so the sync path banners.
+        app.currentProfile = parent
+        var service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        try await service.deliverSyncNotification(
+            eventType: .questNeedsReview,
+            title: "Quest Needs Review",
+            body: "A hero has completed a quest.",
+            profileID: hero.id.recordName
+        )
+        var pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(
+            pending.contains(where: { $0.identifier.hasPrefix("\(NotificationEventType.questNeedsReview.rawValue):") }),
+            "Parent device must banner questNeedsReview arriving via the sync path"
+        )
+
+        // WHY hero receiver: questNeedsReview is hero-irrelevant, so the sync path stays silent.
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        app.currentProfile = hero
+        service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        try await service.deliverSyncNotification(
+            eventType: .questNeedsReview,
+            title: "Quest Needs Review",
+            body: "A hero has completed a quest.",
+            profileID: parent.id.recordName
+        )
+        pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.isEmpty, "Hero device must suppress questNeedsReview arriving via the sync path")
     }
 }
