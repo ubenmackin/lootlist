@@ -12,20 +12,34 @@ import Testing
 
 @MainActor
 struct QuestManagerViewModelTests {
-    private func makeDependencies() -> (QuestService, FamilyService, AppState) { // swiftlint:disable:this large_tuple
+    private struct Dependencies {
+        let questService: QuestService
+        let familyService: FamilyService
+        let appState: AppState
+    }
+
+    private func makeDependencies() -> Dependencies {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService)
-        return (questService, familyService, appState)
+        return Dependencies(
+            questService: questService,
+            familyService: familyService,
+            appState: appState
+        )
     }
 
     @Test
     func `initial quest manager state`() {
-        let (questService, familyService, appState) = makeDependencies()
-        let vm = QuestManagerViewModel(questService: questService, familyService: familyService, appState: appState)
+        let deps = makeDependencies()
+        let vm = QuestManagerViewModel(
+            questService: deps.questService,
+            familyService: deps.familyService,
+            appState: deps.appState
+        )
 
         #expect(vm.templates.isEmpty)
         #expect(vm.activeAssignments.isEmpty)
@@ -35,8 +49,12 @@ struct QuestManagerViewModelTests {
 
     @Test
     func `load clears state when family is nil`() async {
-        let (questService, familyService, appState) = makeDependencies()
-        let vm = QuestManagerViewModel(questService: questService, familyService: familyService, appState: appState)
+        let deps = makeDependencies()
+        let vm = QuestManagerViewModel(
+            questService: deps.questService,
+            familyService: deps.familyService,
+            appState: deps.appState
+        )
 
         await vm.load()
 
@@ -54,15 +72,23 @@ struct QuestManagerViewModelTests {
 
     @Test
     func `locked fields gate includes isAllOrNothing`() {
-        let (questService, familyService, appState) = makeDependencies()
-        let vm = QuestManagerViewModel(questService: questService, familyService: familyService, appState: appState)
+        let deps = makeDependencies()
+        let vm = QuestManagerViewModel(
+            questService: deps.questService,
+            familyService: deps.familyService,
+            appState: deps.appState
+        )
         #expect(vm.templates.isEmpty)
     }
 
     @Test
     func `updateQuest propagateToTemplate defaults to false`() {
-        let (questService, familyService, appState) = makeDependencies()
-        let vm = QuestManagerViewModel(questService: questService, familyService: familyService, appState: appState)
+        let deps = makeDependencies()
+        let vm = QuestManagerViewModel(
+            questService: deps.questService,
+            familyService: deps.familyService,
+            appState: deps.appState
+        )
         #expect(vm.activeAssignments.isEmpty)
     }
 }

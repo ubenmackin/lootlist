@@ -181,11 +181,11 @@ Code should be self-documenting: clear naming and structure over commentary. Com
 
 - The public share link is **not** a family-join mechanism; it carries no membership grant. A user joins only after the Guild Master adds them as an explicit `.readWrite` participant via `UICloudSharingController` (Apple Messages invite). The share URL is therefore not a bearer credential — there is no public link to leak or rotate.
 - Every added participant joins as `.readWrite`, so Hero/Ranger writes work identically to non-owner paths.
-- Role-targeted invitations are minted as distinct `CKShare` records against the same family root, one per role. Titles follow `"<familyName>: Hero Invitation"` / `"<familyName>: Co-Parent Invitation"` (`UserRole.shareTitleSuffix`); `fetchOrCreateShare(for:role:)` reuses an existing role-matching share or mints a new one.
-- At accept time the joiner's role is decoded from the share's title (`UserRole.fromShareTitle`); an unrecognized title falls back to `.hero` — recoverable, since the Guild Master can re-issue a role-targeted invite.
+- Exactly one `CKShare` exists per family zone. Resolution is owned solely by `CloudKitService.resolveFamilyShare(root:using:)`, which reads the root's `share` reference; `fetchOrCreateShare(for:role:)` reuses the resolved share and mints via `createShare(for:role:)` only when resolution returns nil. Never save a second share for one root.
+- Permission drift is corrected only via `correctSharePermissionToNone`, which preserves participants across the correction. Titles (`UserRole.shareTitleSuffix`) are display-only; joins are share-agnostic — fresh profiles mint as `.hero`, reactivations preserve the stored role and record name, and later role changes go only through `updateMemberRole`.
 - Role-based rules are enforced client-side only; CloudKit provides no server-side business-rule validation. See Authorization Model below.
 
-**Do not "fix" the `.none` permission thinking it breaks hero writes, do not add a public join link, and do not remove role decoding from share titles.**
+**Do not "fix" the `.none` permission thinking it breaks hero writes, do not add a public join link, and do not decode roles from share titles at join time.**
 
 ---
 
@@ -220,7 +220,7 @@ This register codifies deliberate, load-bearing security decisions that are **ac
 **Status:** Current, intentional design.
 
 - There is no public bearer link: joining happens only via explicit per-participant invites added by the Guild Master through `UICloudSharingController`. No link exists to leak or rotate.
-- Role-targeted invites are distinct `CKShare` records titled with `UserRole.shareTitleSuffix`; roles decode at accept time via `UserRole.fromShareTitle`. Participants join `.readWrite` so non-owner writes work fully.
+- Exactly one `CKShare` exists per family zone, resolved solely by `resolveFamilyShare` with mint-only-on-nil; titles carry display-only copy via `UserRole.shareTitleSuffix` and joins are share-agnostic (fresh `.hero`, reactivation preserves the stored role). Participants join `.readWrite` so non-owner writes work fully.
 
 **Remaining residual risk:** a legitimately joined participant can still forge the client-side `Profile.role` field; the immutable `creatorUserRecordName` owner anchor defends the irreversible operations. See AR-002.
 

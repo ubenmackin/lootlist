@@ -26,7 +26,7 @@ struct MockCloudKitServiceTests {
     }
 
     @Test
-    func `cloud kit service mints distinct role-titled shares on happy path`() async throws {
+    func `repeated fetchOrCreateShare calls for different roles return the same share`() async throws {
         let cloudKit = MockCloudKitService()
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let rootID = ExhaustiveCacheFixtures.id("root", zoneID: zoneID)
@@ -34,44 +34,36 @@ struct MockCloudKitServiceTests {
         let rangerShare = try await cloudKit.fetchOrCreateShare(for: rootID, role: .ranger)
         let heroShare = try await cloudKit.fetchOrCreateShare(for: rootID, role: .hero)
 
-        let rangerTitle = rangerShare[CKShare.SystemFieldKey.title] as? String
-        let heroTitle = heroShare[CKShare.SystemFieldKey.title] as? String
-        #expect(UserRole.fromShareTitle(rangerTitle) == .ranger)
-        #expect(UserRole.fromShareTitle(heroTitle) == .hero)
-        #expect(rangerTitle != heroTitle)
+        #expect(rangerShare.recordID == heroShare.recordID)
+        #expect(cloudKit.mockShares.filter { $0.recordID.zoneID == zoneID }.count == 1)
     }
 
     @Test
-    func `removeParticipant by identity revokes from both hero and ranger shares`() async throws {
+    func `removeParticipant by identity revokes from the single family share`() async throws {
         let mock = MockCloudKitService()
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let rootID = ExhaustiveCacheFixtures.id("root", zoneID: zoneID)
 
-        // A family root carries two coexisting role shares; the same identity
-        // ("memberKid") can be invited onto both. CloudKit cannot fabricate
+        // The family holds exactly one share; simulated memberships for any
+        // role land on that same share. CloudKit cannot fabricate
         // `CKShare.Participant` instances in unit tests, so the mock seeds its
         // simulated membership with the identity keys the sharing service uses.
-        let heroShare = try await mock.simulateParticipation(key: "record:memberKid", rootRecordID: rootID, role: .hero)
-        let rangerShare = try await mock.simulateParticipation(key: "record:memberKid", rootRecordID: rootID, role: .ranger)
-        // An unrelated member on the Ranger share must survive the revocation.
+        let share = try await mock.simulateParticipation(key: "record:memberKid", rootRecordID: rootID, role: .hero)
         _ = try await mock.simulateParticipation(key: "record:otherParent", rootRecordID: rootID, role: .ranger)
+        #expect(mock.mockShares.filter { $0.recordID.zoneID == zoneID }.count == 1)
 
-        let heroShareID = heroShare.recordID
-        let rangerShareID = rangerShare.recordID
-        #expect(mock.mockShareMemberships[heroShareID]?.contains("record:memberKid") == true)
-        #expect(mock.mockShareMemberships[rangerShareID]?.contains("record:memberKid") == true)
+        let shareID = share.recordID
+        #expect(mock.mockShareMemberships[shareID]?.contains("record:memberKid") == true)
+        #expect(mock.mockShareMemberships[shareID]?.contains("record:otherParent") == true)
         #expect(mock.revokedShareIDs.isEmpty)
 
         try await mock.removeParticipant(iCloudUserRecordName: "memberKid", from: rootID)
 
-        // Revocation must span every role share — removing from only the first
-        // match would leave the member with live access through the second.
-        #expect(mock.revokedShareIDs.count == 2)
-        #expect(Set(mock.revokedShareIDs) == [heroShareID, rangerShareID])
-        #expect(mock.mockShareMemberships[heroShareID]?.contains("record:memberKid") == false)
-        #expect(mock.mockShareMemberships[rangerShareID]?.contains("record:memberKid") == false)
+        #expect(mock.revokedShareIDs.count == 1)
+        #expect(mock.revokedShareIDs.first == shareID)
+        #expect(mock.mockShareMemberships[shareID]?.contains("record:memberKid") == false)
         // Only the revoked identity was stripped; the other member is untouched.
-        #expect(mock.mockShareMemberships[rangerShareID]?.contains("record:otherParent") == true)
+        #expect(mock.mockShareMemberships[shareID]?.contains("record:otherParent") == true)
     }
 
     @Test
@@ -122,5 +114,5 @@ struct MockCloudKitServiceTests {
         #expect(MockPredicateEvaluator.recordMatches(record, predicate: nonMatchingPredicate) == false)
     }
 
-    // No-match revocations throw shareFailed when no matching role share contains the identity.
+    // No-match revocations throw shareFailed when no share contains the identity.
 }

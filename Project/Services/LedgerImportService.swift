@@ -311,11 +311,10 @@ final class LedgerImportService {
                 } else {
                     Self.staticLogger.error("LedgerImportService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
                 }
-                self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
             #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("LedgerImportService requires a sync coordinator in production")
+                Self.staticLogger.fault("LedgerImportService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
             #endif
+            self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: NoopSyncEnqueuing())
         }
     }
 

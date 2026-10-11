@@ -105,12 +105,14 @@ struct FamilyServiceIdentityDedupeTests {
 
     // MARK: - Fixtures
 
-    private func makeFixture() -> ( // swiftlint:disable:this large_tuple
-        zoneID: CKRecordZone.ID,
-        family: Family,
-        familyRef: CKRecord.Reference,
-        userID: CKRecord.ID
-    ) {
+    private struct DedupeFixture {
+        let zoneID: CKRecordZone.ID
+        let family: Family
+        let familyRef: CKRecord.Reference
+        let userID: CKRecord.ID
+    }
+
+    private func makeFixture() -> DedupeFixture {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         // The join flow is driven with `nil` metadata (see `makeJoiningProfile`'s
         // note), so `joinFamilyViaAcceptedShare` falls back to the `"root"` record name
@@ -124,7 +126,7 @@ struct FamilyServiceIdentityDedupeTests {
             id: familyID
         )
         let userID = CKRecord.ID(recordName: Self.mockUserRecordName, zoneID: zoneID)
-        return (zoneID, family, familyRef, userID)
+        return DedupeFixture(zoneID: zoneID, family: family, familyRef: familyRef, userID: userID)
     }
 
     private func makeJoinService(zoneID: CKRecordZone.ID) -> JoinDedupeCloudKitService {
@@ -225,7 +227,7 @@ struct FamilyServiceIdentityDedupeTests {
     }
 
     @Test
-    func `joinFamilyViaAcceptedShare updates role on reactivated profile when re-invited with different role`() async throws {
+    func `joinFamilyViaAcceptedShare preserves stored role when reactivating inactive profile`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         var seededRanger = Profile(
@@ -248,8 +250,8 @@ struct FamilyServiceIdentityDedupeTests {
 
         #expect(result.profile.id.recordName == "hero1")
         #expect(result.profile.isActive == true)
-        #expect(result.profile.role == .hero)
-        #expect(cloudKit.savedProfiles.first?.role == .hero)
+        #expect(result.profile.role == .ranger)
+        #expect(cloudKit.savedProfiles.first?.role == .ranger)
     }
 
     // MARK: - Branch 3: Brand-New Profile Creation

@@ -223,11 +223,11 @@ struct DashboardLoadingPlaceholder: View {
 }
 
 struct DashboardInviteButton: View {
-    @Binding var showRolePicker: Bool
+    let onInvite: () -> Void
 
     var body: some View {
         Button {
-            showRolePicker = true
+            onInvite()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "person.badge.plus")
@@ -245,7 +245,7 @@ struct DashboardInviteButton: View {
                     )
             )
         }
-        .accessibilityLabel("Invite Members. Tap to invite a Hero or Co-Parent.")
+        .accessibilityLabel("Invite Members. Tap to invite a Hero.")
         .accessibilityIdentifier("dashboard.inviteButton")
     }
 }

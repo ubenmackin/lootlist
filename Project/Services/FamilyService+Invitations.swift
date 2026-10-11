@@ -89,7 +89,7 @@ extension FamilyService {
 
     // MARK: Share Operations
 
-    /// Creates or fetches the role-specific `CKShare` for the family.
+    /// Creates or fetches the family's single `CKShare`.
     func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare {
         try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
     }
@@ -221,7 +221,7 @@ extension FamilyService {
     }
 
     /// Returns the role map keyed by identity (record name or identity key)
-    /// that was encoded into each share's title at mint time.
+    /// that was encoded into the single share's title at mint time.
     func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole] {
         try await cloudKit.fetchShareParticipantRoles(for: family.id)
     }

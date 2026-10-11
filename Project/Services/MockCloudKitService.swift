@@ -50,6 +50,8 @@ class MockCloudKitService: CloudKitServiceProtocol {
     var mockShareMemberships: [CKRecord.ID: Set<String>] = [:]
     var mockRemovedMemberships: Set<String> = []
     var revokedShareIDs: [CKRecord.ID] = []
+    var mockSharedZones: [CKRecordZone] = []
+    var mockSharedZonesError: Error?
 
     init() {}
 
@@ -254,10 +256,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
-        // WHY: untitled shares still grant access as .hero so hero reuse finds them instead of minting a duplicate.
-        if let existing = mockShares
-            .first(where: { share in share.recordID.zoneID == rootRecordID.zoneID && (UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero) == role })
-        {
+        if let existing = mockShares.first(where: { $0.recordID.zoneID == rootRecordID.zoneID }) {
             return existing
         }
         return try await createShare(for: rootRecordID, role: role)
@@ -265,6 +264,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
 
     @discardableResult
     func simulateParticipation(key: String, rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
+        // WHY single share: role no longer selects a share since the family has exactly one per zone.
         let share = try await fetchOrCreateShare(for: rootRecordID, role: role)
         var set = mockShareMemberships[share.recordID] ?? Set<String>()
         set.insert(key)
@@ -316,7 +316,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
             }
         }
         guard removed else {
-            throw CloudKitServiceError.shareFailed("No role share contains a participant matching this identity — the revocation was not performed")
+            throw CloudKitServiceError.shareFailed("No share contains a participant matching this identity — the revocation was not performed")
         }
     }
 
@@ -389,7 +389,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
             }
         }
         guard removed else {
-            throw CloudKitServiceError.shareFailed("No role share contains a participant matching this identity — the revocation was not performed")
+            throw CloudKitServiceError.shareFailed("No share contains a participant matching this identity — the revocation was not performed")
         }
     }
 
@@ -433,7 +433,10 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func fetchSharedZones() async throws -> [CKRecordZone] {
-        []
+        if let mockSharedZonesError {
+            throw mockSharedZonesError
+        }
+        return mockSharedZones
     }
 
     func deleteZone(_ zoneID: CKRecordZone.ID) async throws {

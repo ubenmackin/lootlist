@@ -105,11 +105,10 @@ final class GoalService {
                 } else {
                     Self.staticLogger.error("GoalService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
                 }
-                coord = NoopSyncEnqueuing()
             #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("GoalService requires a sync coordinator in production")
+                Self.staticLogger.fault("GoalService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
             #endif
+            coord = NoopSyncEnqueuing()
         }
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord, achievementService: achievementService, celebrationManager: celebrationManager)
     }

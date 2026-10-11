@@ -610,8 +610,8 @@ struct SpendingServiceTests {
         let amount: Int64 = 450
         let location = "Cafe"
 
-        /// WHY dedupe: identical payloads must converge to one deterministic ID.
         func makeService() throws -> SpendingService {
+            // WHY dedupe: identical payloads must converge to one deterministic ID.
             let ck = MockCloudKitService()
             ck.activeFamilyZoneID = zoneID
             let cache = try CacheService(inMemory: true)
@@ -661,8 +661,8 @@ struct SpendingServiceTests {
         )
         let baseName = baseEntry.id.recordName
 
-        /// WHY deterministic extension: divergent payloads need distinct stable names.
         func divergentRecordName(location: String) async throws -> String {
+            // WHY deterministic extension: divergent payloads need distinct stable names.
             let ck2 = MockCloudKitService()
             ck2.activeFamilyZoneID = zoneID
             let cache2 = try CacheService(inMemory: true)

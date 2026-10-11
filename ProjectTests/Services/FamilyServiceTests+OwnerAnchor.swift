@@ -20,58 +20,58 @@ extension FamilyServiceTests {
 
     @Test
     func `updateFamilyName succeeds when a non-parent hero is the owner anchor`() async throws {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        familyService.cacheService = cache
+        deps.familyService.cacheService = cache
 
         // Anchor the family to the mock's current iCloud user, then fetch it
         // back so the server-stamped creator round-trips onto the struct.
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockUserRecordName)
-        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        let fixtures = makeStandardFixtures()
+        deps.cloudKit.seedMockRecords([fixtures.family], creatorUserRecordName: Self.mockUserRecordName)
+        let anchoredFamily = try await deps.cloudKit.fetch(Family.self, id: fixtures.family.id)
         #expect(anchoredFamily.creatorUserRecordName == Self.mockUserRecordName)
 
         await cache.upsertFamily(anchoredFamily)
-        appState.family = anchoredFamily
+        deps.appState.family = anchoredFamily
         // The acting profile is a HERO — a non-parent role. Only the owner
         // anchor (server-authenticated creator match) can authorize this.
-        appState.currentProfile = hero
+        deps.appState.currentProfile = fixtures.hero
 
-        let updated = try await familyService.updateFamilyName(family: anchoredFamily, newName: "Anchored Guild")
+        let updated = try await deps.familyService.updateFamilyName(family: anchoredFamily, newName: "Anchored Guild")
         #expect(updated.name == "Anchored Guild")
     }
 
     @Test
     func `updatePayoutPolicy succeeds when owner anchor grants a hero actor`() async throws {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        familyService.cacheService = cache
+        deps.familyService.cacheService = cache
 
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockUserRecordName)
-        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        let fixtures = makeStandardFixtures()
+        deps.cloudKit.seedMockRecords([fixtures.family], creatorUserRecordName: Self.mockUserRecordName)
+        let anchoredFamily = try await deps.cloudKit.fetch(Family.self, id: fixtures.family.id)
         await cache.upsertFamily(anchoredFamily)
-        appState.family = anchoredFamily
-        appState.currentProfile = hero
+        deps.appState.family = anchoredFamily
+        deps.appState.currentProfile = fixtures.hero
 
-        let updated = try await familyService.updatePayoutPolicy(family: anchoredFamily, policy: .allOrNothing)
+        let updated = try await deps.familyService.updatePayoutPolicy(family: anchoredFamily, policy: .allOrNothing)
         #expect(updated.payoutPolicy == .allOrNothing)
     }
 
     @Test
     func `updatePayoutDay succeeds when family is anchored to the acting user`() async throws {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        familyService.cacheService = cache
+        deps.familyService.cacheService = cache
 
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockUserRecordName)
-        let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        let fixtures = makeStandardFixtures()
+        deps.cloudKit.seedMockRecords([fixtures.family], creatorUserRecordName: Self.mockUserRecordName)
+        let anchoredFamily = try await deps.cloudKit.fetch(Family.self, id: fixtures.family.id)
         await cache.upsertFamily(anchoredFamily)
-        appState.family = anchoredFamily
-        appState.currentProfile = hero
+        deps.appState.family = anchoredFamily
+        deps.appState.currentProfile = fixtures.hero
 
-        let updated = try await familyService.updatePayoutDay(family: anchoredFamily, day: .friday)
+        let updated = try await deps.familyService.updatePayoutDay(family: anchoredFamily, day: .friday)
         #expect(updated.payoutDay == .friday)
     }
 
@@ -79,43 +79,43 @@ extension FamilyServiceTests {
 
     @Test
     func `updateFamilyName throws unauthorized for a hero who is not the owner anchor`() async {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
-        let (_, _, family, hero, _) = makeStandardFixtures()
+        let deps = makeDependencies()
+        let fixtures = makeStandardFixtures()
         // The family's server stamp points at a DIFFERENT iCloud user than the
         // acting identity, so neither the parent-role check nor the owner
         // anchor authorizes the mutation.
-        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
-        let anchoredFamily = try? await cloudKit.fetch(Family.self, id: family.id)
-        appState.currentProfile = hero
+        deps.cloudKit.seedMockRecords([fixtures.family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try? await deps.cloudKit.fetch(Family.self, id: fixtures.family.id)
+        deps.appState.currentProfile = fixtures.hero
 
         await #expect(throws: FamilyServiceError.unauthorized) {
-            _ = try await familyService.updateFamilyName(family: anchoredFamily ?? family, newName: "Hijacked Guild")
+            _ = try await deps.familyService.updateFamilyName(family: anchoredFamily ?? fixtures.family, newName: "Hijacked Guild")
         }
     }
 
     @Test
     func `updatePayoutPolicy throws unauthorized for a hero who is not the owner anchor`() async {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
-        let anchoredFamily = try? await cloudKit.fetch(Family.self, id: family.id)
-        appState.currentProfile = hero
+        let deps = makeDependencies()
+        let fixtures = makeStandardFixtures()
+        deps.cloudKit.seedMockRecords([fixtures.family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try? await deps.cloudKit.fetch(Family.self, id: fixtures.family.id)
+        deps.appState.currentProfile = fixtures.hero
 
         await #expect(throws: FamilyServiceError.unauthorized) {
-            _ = try await familyService.updatePayoutPolicy(family: anchoredFamily ?? family, policy: .allOrNothing)
+            _ = try await deps.familyService.updatePayoutPolicy(family: anchoredFamily ?? fixtures.family, policy: .allOrNothing)
         }
     }
 
     @Test
     func `updatePayoutDay throws unauthorized for a hero who is not the owner anchor`() async {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
-        let anchoredFamily = try? await cloudKit.fetch(Family.self, id: family.id)
-        appState.currentProfile = hero
+        let deps = makeDependencies()
+        let fixtures = makeStandardFixtures()
+        deps.cloudKit.seedMockRecords([fixtures.family], creatorUserRecordName: "someoneElse")
+        let anchoredFamily = try? await deps.cloudKit.fetch(Family.self, id: fixtures.family.id)
+        deps.appState.currentProfile = fixtures.hero
 
         await #expect(throws: FamilyServiceError.unauthorized) {
-            _ = try await familyService.updatePayoutDay(family: anchoredFamily ?? family, day: .friday)
+            _ = try await deps.familyService.updatePayoutDay(family: anchoredFamily ?? fixtures.family, day: .friday)
         }
     }
 
@@ -123,18 +123,18 @@ extension FamilyServiceTests {
 
     @Test
     func `deposit throws unauthorized when the actor is a non-parent hero`() async throws {
-        let (_, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        let spending = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let spending = SpendingService(cloudKit: deps.cloudKit, cacheService: cache, appState: deps.appState)
 
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        appState.currentProfile = hero
+        let fixtures = makeStandardFixtures()
+        deps.appState.currentProfile = fixtures.hero
 
         do {
             _ = try await spending.depositEntries(
-                profile: hero,
-                family: family,
-                familyRecordName: family.id.recordName,
+                profile: fixtures.hero,
+                family: fixtures.family,
+                familyRecordName: fixtures.family.id.recordName,
                 description: "Gift from Grandpa",
                 amount: 2500
             )
@@ -144,24 +144,24 @@ extension FamilyServiceTests {
         }
 
         // The rejected deposit must not write a ledger entry.
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: fixtures.hero.id.recordName, family: fixtures.family.id.recordName)
         #expect(cached.isEmpty)
     }
 
     @Test
     func `withdraw throws unauthorized when the actor is a non-parent hero`() async throws {
-        let (_, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        let spending = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let spending = SpendingService(cloudKit: deps.cloudKit, cacheService: cache, appState: deps.appState)
 
-        let (_, _, family, hero, _) = makeStandardFixtures()
-        appState.currentProfile = hero
+        let fixtures = makeStandardFixtures()
+        deps.appState.currentProfile = fixtures.hero
 
         do {
             _ = try await spending.withdraw(
-                profile: hero,
-                family: family,
-                familyRecordName: family.id.recordName,
+                profile: fixtures.hero,
+                family: fixtures.family,
+                familyRecordName: fixtures.family.id.recordName,
                 description: "Camp cash",
                 amount: 1000
             )
@@ -171,7 +171,7 @@ extension FamilyServiceTests {
         }
 
         // The rejected withdraw must not write a ledger entry.
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: fixtures.hero.id.recordName, family: fixtures.family.id.recordName)
         #expect(cached.isEmpty)
     }
 }

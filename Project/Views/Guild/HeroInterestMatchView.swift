@@ -102,7 +102,7 @@ struct HeroInterestMatchView: View {
                         let matchSnapshot = (enabled: matchEnabled, rateBps: currentMatchRateBps, cap: parsedMatchCapPennies)
                         let displayNameSnapshot = activeHero.displayName
                         // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
-                        Task { @MainActor [interestService, matchService, profileSnapshot, interestSnapshot, matchSnapshot, displayNameSnapshot, toastManager, dismiss, logger] in
+                        Task { [interestService, matchService, profileSnapshot, interestSnapshot, matchSnapshot, displayNameSnapshot, toastManager, dismiss, logger] in
                             isSaving = true
                             defer { isSaving = false }
                             do {

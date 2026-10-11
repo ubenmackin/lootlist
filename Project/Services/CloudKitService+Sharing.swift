@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import Synchronization
 
 extension CloudKitService {
     func deleteZone(_ zoneID: CKRecordZone.ID) async throws {
@@ -48,8 +49,9 @@ extension CloudKitService {
 
     // MARK: - CKShare Support
 
-    /// Mints a role-targeted share for the family root. The title carries the role token (`"<familyName>:
-    /// Hero Invitation"` / `": Co-Parent Invitation"`) that the joiner side parses via
+    /// Mints the family's single share for the family root. The title carries display-only role copy
+    /// (`role.shareTitleSuffix`); joins are share-agnostic — fresh profiles mint as `.hero`, reactivations
+    /// preserve the stored role and record name, and later changes go only through `updateMemberRole`.
     func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
@@ -82,29 +84,25 @@ extension CloudKitService {
         return share
     }
 
-    /// GM-side helper for "the role-specific share I want to present": returns the existing share whose
-    /// title carries `role`, or mints one via `createShare(for:role:)`.
+    /// GM-side helper for the family's single share: returns the existing share
+    /// resolved from the root, or mints one via `createShare(for:role:)` when none exists.
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
         let targetID = resolveShareTargetID(for: rootRecordID)
-        _ = try await serverRoot(for: rootRecordID, using: pvtDB)
+        let root = try await serverRoot(for: rootRecordID, using: pvtDB)
         let existing: CKShare?
         do {
-            existing = try await roleMatchingShare(in: targetID.zoneID, role: role, using: pvtDB)
+            existing = try await resolveFamilyShare(root: root, using: pvtDB)
         } catch {
             logger.error("Failed to inspect existing \(role.displayName) share: \(error, privacy: .private)")
             throw error
         }
         if let existing {
             if existing.publicPermission != .none {
-                // Legacy bearer share would otherwise propagate as a public link — the URL is not a join grant.
                 logger.info("Correcting \(role.displayName) CKShare publicPermission to .none in zone '\(targetID.zoneID.zoneName, privacy: .private)'")
-                existing.publicPermission = .none
-                let root = try await serverRoot(for: rootRecordID, using: pvtDB)
-                _ = try await persistShare(existing, with: root, using: pvtDB)
-                return try await fetchSavedShare(forID: existing.recordID, using: pvtDB)
+                return try await correctSharePermissionToNone(existing, root: root, using: pvtDB)
             }
             // Reuse even with no non-owner participants — rotating the share would invalidate previously sent links.
             logger.info("Found \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)' — reusing existing share")
@@ -112,6 +110,136 @@ extension CloudKitService {
         }
         logger.info("Minting new \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'...")
         return try await createShare(for: rootRecordID, role: role)
+    }
+
+    /// Saving a share with .none drops every participant server-side, so the
+    /// re-add set is resolved before the save wipes anything: a fetch failure
+    /// leaves the share untouched instead of stranded participant-less.
+    private func correctSharePermissionToNone(_ share: CKShare, root: CKRecord, using pvtDB: CKDatabase) async throws -> CKShare {
+        var lookupInfos: [CKUserIdentity.LookupInfo] = []
+        for participant in share.participants where participant.role != .owner {
+            guard let lookup = singleLookup(for: participant) else {
+                throw CloudKitServiceError.shareFailed(
+                    "Could not preserve share participants while correcting permissions. Please try again."
+                )
+            }
+            lookupInfos.append(lookup)
+        }
+        guard !lookupInfos.isEmpty else {
+            share.publicPermission = .none
+            _ = try await persistShare(share, with: root, using: pvtDB)
+            return try await fetchSavedShare(forID: share.recordID, using: pvtDB)
+        }
+        let fetched = try await fetchedParticipants(for: lookupInfos)
+        share.publicPermission = .none
+        _ = try await persistShare(share, with: root, using: pvtDB)
+        var refreshed = try await fetchSavedShare(forID: share.recordID, using: pvtDB)
+        for participant in fetched {
+            participant.permission = .readWrite
+            refreshed.addParticipant(participant)
+        }
+        // The first save advanced the root's change tag, so the atomic second
+        // save needs a freshly fetched root.
+        let freshRoot = try await serverRoot(for: root.recordID, using: pvtDB)
+        _ = try await persistShare(refreshed, with: freshRoot, using: pvtDB)
+        refreshed = try await fetchSavedShare(forID: refreshed.recordID, using: pvtDB)
+        for lookup in lookupInfos {
+            guard hasParticipant(matching: lookup, in: refreshed) else {
+                throw CloudKitServiceError.shareFailed(
+                    "Could not preserve share participants while correcting permissions. Please try again."
+                )
+            }
+        }
+        return refreshed
+    }
+
+    /// One lookup per participant: accepted participants round-trip by user
+    /// record ID, pending invites by email or phone.
+    private func singleLookup(for participant: CKShare.Participant) -> CKUserIdentity.LookupInfo? {
+        let identity = participant.userIdentity
+        if let recordID = identity.userRecordID {
+            return CKUserIdentity.LookupInfo(userRecordID: recordID)
+        }
+        if let email = identity.lookupInfo?.emailAddress {
+            return CKUserIdentity.LookupInfo(emailAddress: email)
+        }
+        if let phone = identity.lookupInfo?.phoneNumber {
+            return CKUserIdentity.LookupInfo(phoneNumber: phone)
+        }
+        return nil
+    }
+
+    private func hasParticipant(matching lookup: CKUserIdentity.LookupInfo, in share: CKShare) -> Bool {
+        for participant in share.participants where participant.role != .owner {
+            if let wanted = lookup.userRecordID,
+               participant.userIdentity.userRecordID == wanted
+            {
+                return true
+            }
+            if let wanted = lookup.emailAddress,
+               participant.userIdentity.lookupInfo?.emailAddress == wanted
+            {
+                return true
+            }
+            if let wanted = lookup.phoneNumber,
+               participant.userIdentity.lookupInfo?.phoneNumber == wanted
+            {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Serial single-identity fetches: each participant travels back over its
+    /// own continuation, so concurrent operation callbacks never funnel
+    /// non-Sendable values through shared mutable state.
+    private func fetchedParticipants(for lookupInfos: [CKUserIdentity.LookupInfo]) async throws -> [CKShare.Participant] {
+        var collected: [CKShare.Participant] = []
+        collected.reserveCapacity(lookupInfos.count)
+        for lookup in lookupInfos {
+            try await collected.append(fetchParticipant(for: lookup))
+        }
+        return collected
+    }
+
+    private func fetchParticipant(for lookup: CKUserIdentity.LookupInfo) async throws -> CKShare.Participant {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CKShare.Participant, Error>) in
+            // Sendable-only flag: the participant itself is never stored here.
+            let resumed = Mutex(false)
+            let operation = CKFetchShareParticipantsOperation(userIdentityLookupInfos: [lookup])
+            operation.perShareParticipantResultBlock = { _, result in
+                let first = resumed.withLock { (done: inout Bool) -> Bool in
+                    guard !done else { return false }
+                    done = true
+                    return true
+                }
+                guard first else { return }
+                switch result {
+                case let .success(participant):
+                    continuation.resume(returning: participant)
+                case .failure:
+                    continuation.resume(
+                        throwing: CloudKitServiceError.shareFailed(
+                            "Could not preserve share participants while correcting permissions. Please try again."
+                        )
+                    )
+                }
+            }
+            operation.fetchShareParticipantsResultBlock = { _ in
+                let first = resumed.withLock { (done: inout Bool) -> Bool in
+                    guard !done else { return false }
+                    done = true
+                    return true
+                }
+                guard first else { return }
+                continuation.resume(
+                    throwing: CloudKitServiceError.shareFailed(
+                        "Could not preserve share participants while correcting permissions. Please try again."
+                    )
+                )
+            }
+            self.container.add(operation)
+        }
     }
 
     /// Resolves the share target's record ID: an explicit family-zone ID is
@@ -155,45 +283,35 @@ extension CloudKitService {
         }
     }
 
-    /// Finds the family's share whose title carries the given role token.
-    private func roleMatchingShare(in zoneID: CKRecordZone.ID, role: UserRole, using pvtDB: CKDatabase) async throws -> CKShare? {
-        let shares = try await allShares(in: zoneID, using: pvtDB)
-        return shares.first { share in
-            // WHY: untitled shares still grant access as .hero so hero reuse finds them instead of minting a duplicate.
-            (UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero) == role
-        }
-    }
-
-    /// Fetches every `CKShare` record in the given zone. A family root can have
-    /// multiple role-targeted shares (Hero + Ranger), so all of them are queried.
-    private func allShares(in zoneID: CKRecordZone.ID, using pvtDB: CKDatabase) async throws -> [CKShare] {
-        let predicate = NSPredicate(value: true)
-        let query = CKQuery(recordType: "cloudkit.share", predicate: predicate)
-
-        let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
+    /// Resolves the family's single share from the root's share reference.
+    /// Returns nil only when the root carries no reference. A dangling
+    /// reference or any failed re-fetch throws: minting a replacement would
+    /// collide with the existing share, so callers fail closed.
+    private func resolveFamilyShare(root: CKRecord, using pvtDB: CKDatabase) async throws -> CKShare? {
+        guard let reference = root["share"] as? CKRecord.Reference else { return nil }
         do {
-            (matchResults, _) = try await pvtDB.records(
-                matching: query,
-                inZoneWith: zoneID,
-                resultsLimit: 100
-            )
-        } catch {
-            let wrapped = wrapError(error)
-            switch wrapped {
-            case .notFound:
-                return []
-            case let .invalidArguments(msg) where msg.contains("not marked queryable") || msg.contains("not marked indexable") || msg.contains("recordName"):
-                return []
-            default:
-                throw wrapped
+            let record = try await retrying {
+                try await pvtDB.record(for: reference.recordID)
             }
-        }
-
-        return matchResults.compactMap { _, result in
-            guard case let .success(record) = result, let share = record as? CKShare else {
-                return nil
+            guard let share = record as? CKShare else {
+                throw CloudKitServiceError.shareFailed(
+                    "Could not resolve the iCloud share. Please try again."
+                )
             }
             return share
+        } catch let serviceError as CloudKitServiceError {
+            if case .shareFailed = serviceError {
+                throw serviceError
+            }
+            // WHY fail closed: a second share for one root collides on save, so surface instead of minting.
+            throw CloudKitServiceError.shareFailed(
+                "Could not resolve the iCloud share. Please try again."
+            )
+        } catch {
+            // WHY fail closed: a second share for one root collides on save, so surface instead of minting.
+            throw CloudKitServiceError.shareFailed(
+                "Could not resolve the iCloud share. Please try again."
+            )
         }
     }
 
@@ -260,53 +378,51 @@ extension CloudKitService {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
-        let targetID = resolveShareTargetID(for: rootRecordID)
-        let shares = try await allShares(in: targetID.zoneID, using: pvtDB)
-
-        var revokedAnyShare = false
-        for share in shares {
-            guard let participant = share.participants.first(where: { $0.userIdentity.userRecordID?.recordName == iCloudUserRecordName })
-            else { continue }
-            share.removeParticipant(participant)
-            // Keep empty role shares so previously sent invite links stay valid.
-            _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
-            revokedAnyShare = true
-        }
-
-        guard revokedAnyShare else {
+        let root = try await serverRoot(for: rootRecordID, using: pvtDB)
+        guard let share = try await resolveFamilyShare(root: root, using: pvtDB) else {
             throw CloudKitServiceError.shareFailed(
-                "No role share contains a participant matching this identity — the revocation was not performed"
+                "No share contains a participant matching this identity — the revocation was not performed"
             )
         }
+        guard let participant = share.participants.first(where: { $0.userIdentity.userRecordID?.recordName == iCloudUserRecordName }) else {
+            throw CloudKitServiceError.shareFailed(
+                "No share contains a participant matching this identity — the revocation was not performed"
+            )
+        }
+        share.removeParticipant(participant)
+        // Keep the empty share so previously sent invite links stay valid.
+        _ = try await persistShare(share, with: root, using: pvtDB)
     }
 
-    /// Aggregates every `CKShare` participant across the family's role shares,
+    /// Returns every `CKShare` participant on the family's single share,
     /// deduplicated by identity (iCloud record name, or email/phone fallback for
     /// not-yet-accepted invites). Drives the in-app Invitations panel.
     func fetchShareParticipants(for rootRecordID: CKRecord.ID) async throws -> [CKShare.Participant] {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
-        let targetID = resolveShareTargetID(for: rootRecordID)
-        let shares = try await allShares(in: targetID.zoneID, using: pvtDB)
+        let root = try await serverRoot(for: rootRecordID, using: pvtDB)
+        guard let share = try await resolveFamilyShare(root: root, using: pvtDB) else {
+            throw CloudKitServiceError.shareFailed(
+                "Could not resolve the iCloud share. Please try again."
+            )
+        }
 
         var seen = Set<String>()
         var participants: [CKShare.Participant] = []
-        for share in shares {
-            for participant in share.participants {
-                guard participant.role != .owner else { continue }
-                // Participants with no stable identity key (no record name, email, phone, or participant ID) cannot be
-                // matched across fetches and can never be revoked; exclude them rather than surfacing an unrevocable
-                guard let key = ShareParticipantKey.key(for: participant) else { continue }
-                if seen.insert(key).inserted {
-                    participants.append(participant)
-                }
+        for participant in share.participants {
+            guard participant.role != .owner else { continue }
+            // Participants with no stable identity key (no record name, email, phone, or participant ID) cannot be
+            // matched across fetches and can never be revoked; exclude them rather than surfacing an unrevocable
+            guard let key = ShareParticipantKey.key(for: participant) else { continue }
+            if seen.insert(key).inserted {
+                participants.append(participant)
             }
         }
         return participants
     }
 
-    /// Testable identity + acceptance summary of every aggregated share participant (see
+    /// Testable identity + acceptance summary of the single share's participants (see
     /// `fetchShareParticipants` for the deduplication rule).
     func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus] {
         let participants = try await fetchShareParticipants(for: rootRecordID)
@@ -320,65 +436,58 @@ extension CloudKitService {
     }
 
     /// Maps each share participant's stable identity key or record name to the
-    /// target `UserRole` decoded from the title of the `CKShare` they belong to.
+    /// target `UserRole` decoded from the title of the family's single `CKShare`.
     func fetchShareParticipantRoles(for rootRecordID: CKRecord.ID) async throws -> [String: UserRole] {
         guard let pvtDB = privateDatabase else { return [:] }
-        let targetID = resolveShareTargetID(for: rootRecordID)
-        let shares: [CKShare]
+        let root = try await serverRoot(for: rootRecordID, using: pvtDB)
+        let share: CKShare?
         do {
-            shares = try await allShares(in: targetID.zoneID, using: pvtDB)
+            share = try await resolveFamilyShare(root: root, using: pvtDB)
         } catch {
             logger.error("Failed to fetch shares for participant roles: \(error, privacy: .private)")
             throw error
         }
+        guard let share else { return [:] }
 
+        // WHY: untitled/legacy shares still grant access, so role decode falls back to .hero instead of dropping the participant.
+        let role = UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero
         var rolesByIdentity: [String: UserRole] = [:]
-        for share in shares {
-            // WHY: untitled/legacy shares still grant access, so role decode falls back to .hero instead of dropping the participant.
-            let role = UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero
-            for participant in share.participants where participant.role != .owner {
-                if let key = ShareParticipantKey.key(for: participant) {
-                    rolesByIdentity[key] = role
-                }
-                if let recordName = participant.userIdentity.userRecordID?.recordName {
-                    rolesByIdentity[recordName] = role
-                }
+        for participant in share.participants where participant.role != .owner {
+            if let key = ShareParticipantKey.key(for: participant) {
+                rolesByIdentity[key] = role
+            }
+            if let recordName = participant.userIdentity.userRecordID?.recordName {
+                rolesByIdentity[recordName] = role
             }
         }
         return rolesByIdentity
     }
 
     /// Removes a specific participant (matched by identity, so pending invites without an iCloud record
-    /// name can be revoked too) from every matching role share.
+    /// name can be revoked too) from the family's single share.
     func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
-        let targetID = resolveShareTargetID(for: rootRecordID)
-        let shares = try await allShares(in: targetID.zoneID, using: pvtDB)
-
         // Require a stable participant identity key (record name, email, phone, or participant ID).
         guard let key = ShareParticipantKey.key(for: participant) else {
             throw CloudKitServiceError.shareFailed(
                 "Cannot revoke a share participant with no CloudKit identity (no user record name, email, phone, or participant ID)"
             )
         }
-
-        var revokedAnyShare = false
-        for share in shares {
-            guard let match = share.participants.first(where: { ShareParticipantKey.key(for: $0) == key }) else { continue }
-            share.removeParticipant(match)
-            // Keep empty role shares so previously sent invite links stay valid.
-            _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
-            revokedAnyShare = true
-        }
-
-        // The revoke must never be a silent no-op: if no role share contained a
-        // matching participant, the revocation truly could not be performed.
-        guard revokedAnyShare else {
+        let root = try await serverRoot(for: rootRecordID, using: pvtDB)
+        guard let share = try await resolveFamilyShare(root: root, using: pvtDB) else {
             throw CloudKitServiceError.shareFailed(
-                "No role share contains a participant matching this identity — the revocation was not performed"
+                "No share contains a participant matching this identity — the revocation was not performed"
             )
         }
+        guard let match = share.participants.first(where: { ShareParticipantKey.key(for: $0) == key }) else {
+            throw CloudKitServiceError.shareFailed(
+                "No share contains a participant matching this identity — the revocation was not performed"
+            )
+        }
+        share.removeParticipant(match)
+        // Keep the empty share so previously sent invite links stay valid.
+        _ = try await persistShare(share, with: root, using: pvtDB)
     }
 }

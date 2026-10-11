@@ -250,7 +250,7 @@ struct BucketTransferView: View {
         let profileSnapshot = profile
         let familySnapshot = family
         // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [bucketService, amountSnapshot, fromSnapshot, toSnapshot, profileSnapshot, familySnapshot, toastManager, dismiss] in
+        Task { [bucketService, amountSnapshot, fromSnapshot, toSnapshot, profileSnapshot, familySnapshot, toastManager, dismiss] in
             isSaving = true
             defer { isSaving = false }
             do {

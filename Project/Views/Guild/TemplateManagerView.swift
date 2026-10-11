@@ -244,7 +244,7 @@ struct TemplateManagerView: View {
         let onCancelSnapshot = onCancel
         isSaving = true
         // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, detailSnapshot, planSnapshot, templateSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+        Task { [viewModel, detailSnapshot, planSnapshot, templateSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             do {
                 if var updated = templateSnapshot {
                     updated.name = detailSnapshot.name

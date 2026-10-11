@@ -22,6 +22,11 @@ final class FamilyShareReconciler {
     /// propagation for freshly joined members.
     private let absenceThreshold = AppConstants.CloudKit.shareAbsenceThreshold
 
+    private enum DeactivationReason {
+        case revoked
+        case absenceThreshold
+    }
+
     private var isStarted = false
     // WHY: handle must stay cancellable from nonisolated deinit without hopping to MainActor.
     private nonisolated let observerTask = Mutex<Task<Void, Never>?>(nil)
@@ -105,7 +110,7 @@ final class FamilyShareReconciler {
                     // share: the revoke is authoritative, so the profile is
                     // deactivated immediately regardless of convergence marks.
                     clearAbsenceMark(family: family, identityKey: identityKey)
-                    await deactivate(profile)
+                    await deactivate(profile, reason: .revoked)
                     rosterMutated = true
                     continue
                 }
@@ -122,7 +127,7 @@ final class FamilyShareReconciler {
                 let observedAbsences = recordAbsence(family: family, identityKey: identityKey)
                 if observedAbsences >= absenceThreshold {
                     clearAbsenceMark(family: family, identityKey: identityKey)
-                    await deactivate(profile)
+                    await deactivate(profile, reason: .absenceThreshold)
                     rosterMutated = true
                 }
             }
@@ -153,12 +158,22 @@ final class FamilyShareReconciler {
         "shareReconciler.absence.\(familyRecordName).\(identityKey)"
     }
 
-    private func deactivate(_ profile: Profile) async {
+    private func deactivate(_ profile: Profile, reason: DeactivationReason) async {
         do {
             try await familyService.deactivateMemberAfterShareRevocation(profile)
-            logger.info("Deactivated \(profile.displayName, privacy: .private) — share access was revoked")
+            switch reason {
+            case .revoked:
+                logger.info("Deactivated \(profile.displayName, privacy: .private) — share access was revoked")
+            case .absenceThreshold:
+                logger.info("Deactivated \(profile.displayName, privacy: .private) — share identity absent for \(self.absenceThreshold, privacy: .private) consecutive passes")
+            }
         } catch {
-            logger.error("Failed to deactivate \(profile.displayName, privacy: .private) after share revocation: \(error, privacy: .private)")
+            switch reason {
+            case .revoked:
+                logger.error("Failed to deactivate \(profile.displayName, privacy: .private) after share revocation: \(error, privacy: .private)")
+            case .absenceThreshold:
+                logger.error("Failed to deactivate \(profile.displayName, privacy: .private) after absence threshold: \(error, privacy: .private)")
+            }
         }
     }
 }

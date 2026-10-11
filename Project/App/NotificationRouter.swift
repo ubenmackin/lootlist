@@ -51,13 +51,10 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
                 logger.warning("NotificationRouter.shared accessed before container in tests; returning ephemeral with no retained route")
                 return NotificationRouter()
             }
-            // WHY trap-only-DEBUG: mis-wiring surfaces in development, Release stays launchable.
-            preconditionFailure("NotificationRouter.shared requires AppDependencies")
-        #else
-            // WHY ephemeral-plus-fault: Release stays launchable while diagnostics capture mis-wiring.
-            logger.fault("NotificationRouter.shared accessed before container; returning ephemeral with no retained route")
-            return NotificationRouter()
         #endif
+        // WHY ephemeral-plus-fault: App stays launchable while diagnostics capture mis-wiring.
+        logger.fault("NotificationRouter.shared accessed before container; returning ephemeral with no retained route")
+        return NotificationRouter()
     }
 
     /// Hands the retained cold-start route to the first consumer and clears it.

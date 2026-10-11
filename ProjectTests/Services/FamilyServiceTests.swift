@@ -13,7 +13,14 @@ import Testing
 
 @MainActor
 struct FamilyServiceTests {
-    func makeDependencies() -> (FamilyService, MockCloudKitService, AppState, QuestService) { // swiftlint:disable:this large_tuple
+    struct Dependencies {
+        let familyService: FamilyService
+        let cloudKit: MockCloudKitService
+        let appState: AppState
+        let questService: QuestService
+    }
+
+    func makeDependencies() -> Dependencies {
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
@@ -27,16 +34,23 @@ struct FamilyServiceTests {
         let xpService = XPService(cloudKit: cloudKit, appState: appState)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService)
-        return (familyService, cloudKit, appState, questService)
+        return Dependencies(
+            familyService: familyService,
+            cloudKit: cloudKit,
+            appState: appState,
+            questService: questService
+        )
     }
 
-    func makeStandardFixtures(zoneName: String = ExhaustiveCacheFixtures.sharedZoneID.zoneName) -> ( // swiftlint:disable:this large_tuple
-        zoneID: CKRecordZone.ID,
-        familyRef: CKRecord.Reference,
-        family: Family,
-        hero: Profile,
-        parent: Profile
-    ) {
+    struct StandardFixtures {
+        let zoneID: CKRecordZone.ID
+        let familyRef: CKRecord.Reference
+        let family: Family
+        let hero: Profile
+        let parent: Profile
+    }
+
+    func makeStandardFixtures(zoneName: String = ExhaustiveCacheFixtures.sharedZoneID.zoneName) -> StandardFixtures {
         let zoneID = zoneName == ExhaustiveCacheFixtures.sharedZoneID.zoneName
             ? ExhaustiveCacheFixtures.sharedZoneID
             : CKRecordZone.ID(zoneName: zoneName, ownerName: "TestOwner")
@@ -50,7 +64,13 @@ struct FamilyServiceTests {
             recordName: "gm1",
             iCloudRecordName: "gm1"
         )
-        return (zoneID, familyRef, family, hero, parent)
+        return StandardFixtures(
+            zoneID: zoneID,
+            familyRef: familyRef,
+            family: family,
+            hero: hero,
+            parent: parent
+        )
     }
 
     @Test
@@ -75,7 +95,7 @@ struct FamilyServiceTests {
 
     @Test
     func `create family empty name validation`() async {
-        let (familyService, _, _, _) = makeDependencies()
+        let deps = makeDependencies()
         let dummyZone = ExhaustiveCacheFixtures.sharedZoneID
         let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: dummyZone)
         let profile = Profile(
@@ -88,7 +108,7 @@ struct FamilyServiceTests {
         )
 
         do {
-            _ = try await familyService.createFamily(name: "   ", ownerProfile: profile)
+            _ = try await deps.familyService.createFamily(name: "   ", ownerProfile: profile)
             #expect(Bool(false), "Expected empty name error")
         } catch let error as FamilyServiceError {
             #expect(error == FamilyServiceError.creationFailed)
@@ -404,9 +424,9 @@ struct FamilyServiceTests {
 
     @Test
     func `kickMember removes hero from active roster`() async throws {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        familyService.cacheService = cache
+        deps.familyService.cacheService = cache
 
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
@@ -429,26 +449,26 @@ struct FamilyServiceTests {
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
-        appState.family = family
-        appState.currentProfile = guildMaster
+        deps.cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
+        deps.appState.family = family
+        deps.appState.currentProfile = guildMaster
 
-        try await familyService.kickMember(profile: hero)
+        try await deps.familyService.kickMember(profile: hero)
 
         // (a) The hero is deactivated — reflected by the cache write-through.
         let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
         #expect(cachedHero?.isActive == false)
 
         // (b) The active roster no longer contains the removed hero.
-        let heroes = try await familyService.fetchHeroes(for: family)
+        let heroes = try await deps.familyService.fetchHeroes(for: family)
         #expect(!heroes.contains { $0.id == hero.id })
     }
 
     @Test
     func `kickMember share-revocation failure returns partial result without re-deactivating`() async throws {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        familyService.cacheService = cache
+        deps.familyService.cacheService = cache
 
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
@@ -469,15 +489,15 @@ struct FamilyServiceTests {
         )
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
-        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
-        appState.family = family
-        appState.currentProfile = guildMaster
+        deps.cloudKit.seedMockRecords([family, hero], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
+        deps.appState.family = family
+        deps.appState.currentProfile = guildMaster
 
         // The hero has NO share participation, so the share-revocation step
         // throws (the mock only revokes identities actually present on a role
         // share). The kick must surface the partial outcome rather than throw or
         // roll back the already-succeeded deactivation.
-        let result = try await familyService.kickMember(profile: hero)
+        let result = try await deps.familyService.kickMember(profile: hero)
 
         guard case let .partialRevocationFailed(error) = result else {
             #expect(Bool(false), "Expected a partial-revocation failure, got \(result)")
@@ -496,9 +516,9 @@ struct FamilyServiceTests {
 
     @Test
     func `hero self-leave unassigns their active quests instead of orphaning them`() async throws {
-        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        familyService.cacheService = cache
+        deps.familyService.cacheService = cache
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
@@ -530,13 +550,13 @@ struct FamilyServiceTests {
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
         await cache.upsertQuest(quest)
-        cloudKit.seedMockRecords([family, hero, quest], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
+        deps.cloudKit.seedMockRecords([family, hero, quest], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         // unassignActiveQuests guards on appState.family being set.
-        appState.family = family
+        deps.appState.family = family
         // The acting profile is the hero performing self-service leave.
-        appState.currentProfile = hero
+        deps.appState.currentProfile = hero
 
-        try await familyService.leaveFamily(profile: hero)
+        try await deps.familyService.leaveFamily(profile: hero)
 
         // (a) The hero's profile is deactivated.
         let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
@@ -546,7 +566,7 @@ struct FamilyServiceTests {
         #expect(cache.fetchQuest(recordName: quest.id.recordName, family: "fam1") == nil)
 
         // (c) Self-leave does not mutate share participant list directly.
-        #expect(cloudKit.revokedShareIDs.isEmpty)
+        #expect(deps.cloudKit.revokedShareIDs.isEmpty)
     }
 
     @Test
@@ -573,7 +593,7 @@ struct FamilyServiceTests {
 
     @Test
     func `updateFamilyName with empty name throws persistenceFailed`() async {
-        let (familyService, _, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID)
@@ -584,10 +604,10 @@ struct FamilyServiceTests {
             family: familyRef,
             id: ExhaustiveCacheFixtures.id("gm1", zoneID: zoneID)
         )
-        appState.currentProfile = parent
+        deps.appState.currentProfile = parent
 
         do {
-            _ = try await familyService.updateFamilyName(family: family, newName: "   ")
+            _ = try await deps.familyService.updateFamilyName(family: family, newName: "   ")
             #expect(Bool(false), "Expected empty-name persistence error")
         } catch let error as FamilyServiceError {
             #expect(error == .persistenceFailed)
@@ -598,7 +618,7 @@ struct FamilyServiceTests {
 
     @Test
     func `updateProfileDisplayName with empty name throws persistenceFailed`() async {
-        let (familyService, _, appState, _) = makeDependencies()
+        let deps = makeDependencies()
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: zoneID)
         let hero = Profile(
@@ -608,10 +628,10 @@ struct FamilyServiceTests {
             family: familyRef,
             id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedHeroRecordName, zoneID: zoneID)
         )
-        appState.currentProfile = hero
+        deps.appState.currentProfile = hero
 
         do {
-            _ = try await familyService.updateProfileDisplayName(profile: hero, newName: "  ")
+            _ = try await deps.familyService.updateProfileDisplayName(profile: hero, newName: "  ")
             #expect(Bool(false), "Expected empty-name persistence error")
         } catch let error as FamilyServiceError {
             #expect(error == .persistenceFailed)

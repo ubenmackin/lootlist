@@ -530,7 +530,7 @@ struct QuestAssignmentView: View {
         let onCancelSnapshot = onCancel
         isSubmitting = true
         // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, templateSnapshot, heroSnapshot, overridesSnapshot, weekSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+        Task { [viewModel, templateSnapshot, heroSnapshot, overridesSnapshot, weekSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             do {
                 try await viewModel.assignQuest(
                     template: templateSnapshot,
@@ -608,7 +608,7 @@ struct QuestAssignmentView: View {
         let onCancelSnapshot = onCancel
         isSubmitting = true
         // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, heroSnapshot, inputSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+        Task { [viewModel, heroSnapshot, inputSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             let input = QuestManagerViewModel.QuickQuestInput(
                 name: inputSnapshot.name,
                 description: inputSnapshot.description,
@@ -660,7 +660,7 @@ struct QuestAssignmentView: View {
         let onCancelSnapshot = onCancel
         isSubmitting = true
         // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, nameSnapshot, descriptionSnapshot, goldSnapshot, xpSnapshot, approvalSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+        Task { [viewModel, nameSnapshot, descriptionSnapshot, goldSnapshot, xpSnapshot, approvalSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             do {
                 try await viewModel.postQuestToBoard(
                     name: nameSnapshot,
@@ -740,7 +740,7 @@ struct QuestAssignmentView: View {
         let onCancelSnapshot = onCancel
         isSubmitting = true
         // WHY MainActor view: isSubmitting mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, questSnapshot, heroSnapshot, inputSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
+        Task { [viewModel, questSnapshot, heroSnapshot, inputSnapshot, onCancelSnapshot, toastManager, dismiss, logger] in
             let input = QuestManagerViewModel.UpdateQuestInput(
                 name: inputSnapshot.name,
                 descriptionText: inputSnapshot.description,

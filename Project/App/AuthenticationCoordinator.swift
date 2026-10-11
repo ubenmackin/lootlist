@@ -25,6 +25,22 @@ final class AuthenticationCoordinator {
         self.appState = appState
     }
 
+    enum SharedZonePresence {
+        case listed
+        case absent
+        case unknown
+    }
+
+    static func sharedZoneStillListed(cloudKit: any CloudKitServiceProtocol, zoneID: CKRecordZone.ID) async -> SharedZonePresence {
+        do {
+            let zones = try await cloudKit.fetchSharedZones()
+            return zones.contains(where: { $0.zoneID.zoneName == zoneID.zoneName }) ? .listed : .absent
+        } catch {
+            // WHY unknown on throw: an unlistable share must not read as a revocation.
+            return .unknown
+        }
+    }
+
     // MARK: - Session Clearing
 
     func clearSession() {
@@ -187,6 +203,16 @@ final class AuthenticationCoordinator {
                let cloudKitError = error as? CloudKitServiceError,
                case .zoneNotFound = cloudKitError
             {
+                // WHY listing-gated revocation: a fetch can fail while the share still exists.
+                switch await Self.sharedZoneStillListed(cloudKit: cloudKit, zoneID: zoneID) {
+                case .listed, .unknown:
+                    if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit) {
+                        appState.authStatus = .offlineEmptyCache
+                    }
+                    return
+                case .absent:
+                    break
+                }
                 logger.info("Shared family zone is unavailable — clearing revoked hero session")
                 appState.familyAccessRevokedSignal = UUID()
                 await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)

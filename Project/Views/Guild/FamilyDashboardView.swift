@@ -26,7 +26,6 @@ struct FamilyDashboardView: View {
     @State private var sharePresentation: CloudSharePresentation?
     @State private var selectedChildRecordName: String?
     @State private var showPendingInspector = false
-    @State private var showRolePicker = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     @Query private var cachedProfiles: [ProfileCache]
@@ -206,11 +205,6 @@ struct FamilyDashboardView: View {
         .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
         .sheet(item: $sharePresentation) { presentation in
             CloudSharingControllerWrapper(presentation: presentation)
-        }
-        .sheet(isPresented: $showRolePicker) {
-            InviteRolePickerView { role in
-                await presentInviteShare(for: role)
-            }
         }
         .onChange(of: viewModel?.loadError) { _, newError in
             if let error = newError {
@@ -507,7 +501,7 @@ struct FamilyDashboardView: View {
         FamilyDashboardChildAccountsSection(
             cards: vm.childAccountCards,
             isGuildMaster: viewerIsGuildMaster,
-            showRolePicker: $showRolePicker,
+            onInvite: { Task { await presentInviteShare(for: .hero) } },
             onHeightChange: { maxChildCardHeight = $0 },
             cardContent: { card in childAccountCardContainer(card: card, vm: vm) }
         )
@@ -536,7 +530,7 @@ struct FamilyDashboardView: View {
         FamilyDashboardChildAccountsSection(
             cards: vm.childAccountCards,
             isGuildMaster: viewerIsGuildMaster,
-            showRolePicker: $showRolePicker,
+            onInvite: { Task { await presentInviteShare(for: .hero) } },
             onHeightChange: { maxChildCardHeight = $0 },
             cardContent: { card in childAccountCardContainer(card: card, vm: vm) }
         )
@@ -829,7 +823,7 @@ struct FamilyDashboardStatCardsSection: View {
 struct FamilyDashboardChildAccountsSection<CardContent: View>: View {
     let cards: [ChildAccountCard]
     let isGuildMaster: Bool
-    @Binding var showRolePicker: Bool
+    let onInvite: () -> Void
     let onHeightChange: (CGFloat) -> Void
     @ViewBuilder let cardContent: (ChildAccountCard) -> CardContent
 
@@ -837,7 +831,7 @@ struct FamilyDashboardChildAccountsSection<CardContent: View>: View {
         VStack(spacing: 12) {
             SectionHeader("CHILD ACCOUNTS") {
                 if isGuildMaster {
-                    DashboardInviteButton(showRolePicker: $showRolePicker)
+                    DashboardInviteButton(onInvite: onInvite)
                 }
             }
 

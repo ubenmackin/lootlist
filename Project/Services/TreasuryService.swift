@@ -133,18 +133,17 @@ final class TreasuryService {
                 } else {
                     Self.staticLogger.error("TreasuryService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
                 }
-                self.init(
-                    cloudKit: cloudKit,
-                    notificationService: notificationService,
-                    cacheService: cache,
-                    toastManager: toastManager,
-                    appState: state,
-                    syncCoordinator: NoopSyncEnqueuing()
-                )
             #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("TreasuryService requires a sync coordinator in production")
+                Self.staticLogger.fault("TreasuryService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
             #endif
+            self.init(
+                cloudKit: cloudKit,
+                notificationService: notificationService,
+                cacheService: cache,
+                toastManager: toastManager,
+                appState: state,
+                syncCoordinator: NoopSyncEnqueuing()
+            )
         }
     }
 

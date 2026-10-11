@@ -23,17 +23,37 @@ private final class FailingIdentityCloudKitService: MockCloudKitService {
     }
 }
 
+/// `MockCloudKitService` with a toggleable share-status fetch failure,
+/// exercising the reconciler's fail-silent path on fetch errors.
+@MainActor
+private final class FailingStatusCloudKitService: MockCloudKitService {
+    private enum StatusFailure: Error {
+        case unavailable
+    }
+
+    var shouldFailStatusFetch = false
+
+    override func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus] {
+        if shouldFailStatusFetch {
+            throw StatusFailure.unavailable
+        }
+        return try await super.fetchShareParticipantStatuses(for: rootRecordID)
+    }
+}
+
 @MainActor
 struct FamilyShareReconcilerTests {
-    private func makeContext(cloudKit: MockCloudKitService = MockCloudKitService()) -> ( // swiftlint:disable:this large_tuple
-        reconciler: FamilyShareReconciler,
-        cloudKit: MockCloudKitService,
-        cache: CacheService,
-        appState: AppState,
-        zoneID: CKRecordZone.ID,
-        family: Family,
-        hero: Profile
-    ) {
+    private struct Context {
+        let reconciler: FamilyShareReconciler
+        let cloudKit: MockCloudKitService
+        let cache: CacheService
+        let appState: AppState
+        let zoneID: CKRecordZone.ID
+        let family: Family
+        let hero: Profile
+    }
+
+    private func makeContext(cloudKit: MockCloudKitService = MockCloudKitService()) -> Context {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         cloudKit.activeFamilyZoneID = zoneID
         let appState = AppState()
@@ -80,7 +100,15 @@ struct FamilyShareReconcilerTests {
             // Fresh per-test suite so absence marks never leak between tests.
             defaults: UserDefaults(suiteName: "FamilyShareReconcilerTests.\(UUID().uuidString)")!
         )
-        return (reconciler, cloudKit, cache, appState, zoneID, family, hero)
+        return Context(
+            reconciler: reconciler,
+            cloudKit: cloudKit,
+            cache: cache,
+            appState: appState,
+            zoneID: zoneID,
+            family: family,
+            hero: hero
+        )
     }
 
     // MARK: - Absence Convergence
@@ -156,5 +184,57 @@ struct FamilyShareReconcilerTests {
 
         let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
         #expect(fresh?.isActive == true)
+    }
+
+    // MARK: - Deactivation Reasons
+
+    @Test
+    func `revoked identity deactivates on the revoked path`() async throws {
+        let ctx = makeContext()
+        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
+        ctx.cloudKit.mockRemovedMemberships.insert("record:u1")
+        await ctx.reconciler.reconcileIfOwner()
+
+        let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(fresh?.isActive == false)
+    }
+
+    @Test
+    func `absent identity deactivates only after the threshold`() async {
+        let ctx = makeContext()
+        await ctx.reconciler.reconcileIfOwner()
+
+        let afterFirst = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(afterFirst?.isActive == true)
+
+        await ctx.reconciler.reconcileIfOwner()
+
+        let afterSecond = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(afterSecond?.isActive == false)
+    }
+
+    @Test
+    func `failed status fetch deactivates nobody and records no absences`() async {
+        let failingCloudKit = FailingStatusCloudKitService()
+        let ctx = makeContext(cloudKit: failingCloudKit)
+        failingCloudKit.shouldFailStatusFetch = true
+        await ctx.reconciler.reconcileIfOwner()
+        await ctx.reconciler.reconcileIfOwner()
+
+        let afterFailures = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(afterFailures?.isActive == true)
+
+        // Failures must not have recorded absences: the first successful
+        // absent pass restarts the count, so the profile stays active.
+        failingCloudKit.shouldFailStatusFetch = false
+        await ctx.reconciler.reconcileIfOwner()
+
+        let afterFirstAbsence = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(afterFirstAbsence?.isActive == true)
+
+        await ctx.reconciler.reconcileIfOwner()
+
+        let afterThreshold = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(afterThreshold?.isActive == false)
     }
 }
