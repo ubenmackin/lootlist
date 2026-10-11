@@ -237,7 +237,14 @@ final class QueryParkingCloudKitService: MockCloudKitService {
 // MARK: - Test Helpers Extension
 
 extension QuestServiceTests {
-    func makeTestData() -> (MockCloudKitService, Profile, Profile, Family) { // swiftlint:disable:this large_tuple
+    struct TestData {
+        let cloudKit: MockCloudKitService
+        let parent: Profile
+        let hero: Profile
+        let family: Family
+    }
+
+    func makeTestData() -> TestData {
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
@@ -268,7 +275,7 @@ extension QuestServiceTests {
             id: ExhaustiveCacheFixtures.id(ExhaustiveCacheFixtures.sharedFamilyRecordName, zoneID: zoneID)
         )
 
-        return (cloudKit, parent, hero, family)
+        return TestData(cloudKit: cloudKit, parent: parent, hero: hero, family: family)
     }
 
     @MainActor

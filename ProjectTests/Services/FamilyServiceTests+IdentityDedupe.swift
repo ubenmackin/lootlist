@@ -105,12 +105,14 @@ struct FamilyServiceIdentityDedupeTests {
 
     // MARK: - Fixtures
 
-    private func makeFixture() -> ( // swiftlint:disable:this large_tuple
-        zoneID: CKRecordZone.ID,
-        family: Family,
-        familyRef: CKRecord.Reference,
-        userID: CKRecord.ID
-    ) {
+    private struct DedupeFixture {
+        let zoneID: CKRecordZone.ID
+        let family: Family
+        let familyRef: CKRecord.Reference
+        let userID: CKRecord.ID
+    }
+
+    private func makeFixture() -> DedupeFixture {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         // The join flow is driven with `nil` metadata (see `makeJoiningProfile`'s
         // note), so `joinFamilyViaAcceptedShare` falls back to the `"root"` record name
@@ -124,7 +126,7 @@ struct FamilyServiceIdentityDedupeTests {
             id: familyID
         )
         let userID = CKRecord.ID(recordName: Self.mockUserRecordName, zoneID: zoneID)
-        return (zoneID, family, familyRef, userID)
+        return DedupeFixture(zoneID: zoneID, family: family, familyRef: familyRef, userID: userID)
     }
 
     private func makeJoinService(zoneID: CKRecordZone.ID) -> JoinDedupeCloudKitService {

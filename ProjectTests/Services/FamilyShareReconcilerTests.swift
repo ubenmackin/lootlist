@@ -43,15 +43,17 @@ private final class FailingStatusCloudKitService: MockCloudKitService {
 
 @MainActor
 struct FamilyShareReconcilerTests {
-    private func makeContext(cloudKit: MockCloudKitService = MockCloudKitService()) -> ( // swiftlint:disable:this large_tuple
-        reconciler: FamilyShareReconciler,
-        cloudKit: MockCloudKitService,
-        cache: CacheService,
-        appState: AppState,
-        zoneID: CKRecordZone.ID,
-        family: Family,
-        hero: Profile
-    ) {
+    private struct Context {
+        let reconciler: FamilyShareReconciler
+        let cloudKit: MockCloudKitService
+        let cache: CacheService
+        let appState: AppState
+        let zoneID: CKRecordZone.ID
+        let family: Family
+        let hero: Profile
+    }
+
+    private func makeContext(cloudKit: MockCloudKitService = MockCloudKitService()) -> Context {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         cloudKit.activeFamilyZoneID = zoneID
         let appState = AppState()
@@ -98,7 +100,15 @@ struct FamilyShareReconcilerTests {
             // Fresh per-test suite so absence marks never leak between tests.
             defaults: UserDefaults(suiteName: "FamilyShareReconcilerTests.\(UUID().uuidString)")!
         )
-        return (reconciler, cloudKit, cache, appState, zoneID, family, hero)
+        return Context(
+            reconciler: reconciler,
+            cloudKit: cloudKit,
+            cache: cache,
+            appState: appState,
+            zoneID: zoneID,
+            family: family,
+            hero: hero
+        )
     }
 
     // MARK: - Absence Convergence
