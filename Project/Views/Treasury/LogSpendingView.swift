@@ -258,7 +258,7 @@ struct LogSpendingView: View {
         let locationSnapshot = location
         let dateSnapshot = date
         // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot, toastManager, dismiss] in
+        Task { [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot, toastManager, dismiss] in
             let success = await viewModel.logSpending(
                 description: descriptionSnapshot,
                 amount: amountSnapshot,

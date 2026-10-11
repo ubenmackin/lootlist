@@ -40,7 +40,6 @@ struct GuildSettingsView: View {
     @State private var isEditingFamilyName: Bool = false
     @State private var isPayoutPolicyExpanded: Bool = false
 
-    @State private var showRolePicker: Bool = false
     @State private var sharePresentation: CloudSharePresentation?
     @State private var heroToEdit: ProfileCache?
 
@@ -168,11 +167,6 @@ struct GuildSettingsView: View {
                         rebuildViewModel()
                     }
                 ))
-                .sheet(isPresented: $showRolePicker) {
-                    InviteRolePickerView { role in
-                        await presentInviteShare(for: role)
-                    }
-                }
                 .sheet(item: $sharePresentation) { presentation in
                     CloudSharingControllerWrapper(presentation: presentation)
                 }
@@ -373,7 +367,7 @@ struct GuildSettingsView: View {
                             let trimmedSnapshot = draftFamilyName.trimmingCharacters(in: .whitespaces)
                             let familySnapshot = appState.family
                             // WHY MainActor view: editing flag mutates on the isolated task so Sendable captures stay race-free.
-                            Task { @MainActor [familyService, trimmedSnapshot, familySnapshot, toastManager, logger] in
+                            Task { [familyService, trimmedSnapshot, familySnapshot, toastManager, logger] in
                                 guard let familySnapshot else { return }
                                 guard !trimmedSnapshot.isEmpty else {
                                     isEditingFamilyName = false
@@ -410,20 +404,20 @@ struct GuildSettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Guild Invitations")
                                 .font(.subheadline.weight(.semibold))
-                            Text("Pick a role, then add that person by email or phone in the share sheet")
+                            Text("New members join as Heroes.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button {
-                            showRolePicker = true
+                            Task { await presentInviteShare(for: .hero) }
                         } label: {
                             Label("Invite Members", systemImage: "person.badge.plus")
                                 .font(.caption.weight(.semibold))
                         }
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("settings.inviteMembers")
-                        .accessibilityHint("Pick a role, then add a person by email or phone in the share sheet")
+                        .accessibilityHint("Add a person by email or phone in the share sheet")
                     }
                     // WHY invites stay private until a named participant is added, so the link alone must not read as access.
                     Text("Invites are private — Copy Link alone grants no access. Tap Add People and enter a specific email or phone number.")

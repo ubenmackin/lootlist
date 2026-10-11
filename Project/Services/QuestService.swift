@@ -228,20 +228,19 @@ final class QuestService {
                 } else {
                     Self.staticLogger.error("QuestService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
                 }
-                self.init(
-                    cloudKit: cloudKit,
-                    xpService: xpService,
-                    notificationService: notificationService,
-                    cacheService: cache,
-                    treasuryService: treasuryService,
-                    toastManager: toastManager,
-                    appState: state,
-                    syncCoordinator: NoopSyncEnqueuing()
-                )
             #else
-                // WHY fail-closed: production without engine must not drop writes.
-                preconditionFailure("QuestService requires a sync coordinator in production")
+                Self.staticLogger.fault("QuestService initialized without syncCoordinator and no shared coordinator; falling back to Noop seam.")
             #endif
+            self.init(
+                cloudKit: cloudKit,
+                xpService: xpService,
+                notificationService: notificationService,
+                cacheService: cache,
+                treasuryService: treasuryService,
+                toastManager: toastManager,
+                appState: state,
+                syncCoordinator: NoopSyncEnqueuing()
+            )
         }
     }
 

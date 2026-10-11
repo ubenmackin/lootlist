@@ -74,7 +74,7 @@ extension FamilyProfileFetching {
         }
         let participants = try await fetchShareParticipants(for: family)
         guard let match = participants.first(where: { ShareParticipantKey.key(for: $0) == identityKey }) else {
-            throw CloudKitServiceError.shareFailed("No role share contains a participant matching this identity — the revocation was not performed")
+            throw CloudKitServiceError.shareFailed("No share contains a participant matching this identity — the revocation was not performed")
         }
         try await revokeInvitation(participant: match, from: family)
     }
@@ -270,7 +270,7 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.creationFailed
         }
 
-        // Share minting deferred to the GM's first role-specific invitation.
+        // Share minting deferred to the GM's first invitation.
         let session = finalizeOwnerSession(family: family,
                                            profile: savedOwner,
                                            zoneID: zoneID)
@@ -320,7 +320,7 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Join Family (Joiner Flow via CKShare Link)
 
-    /// Joins family via accepted share metadata, resolving role from share title.
+    /// Joins family via accepted share metadata. Fresh profiles mint as heroes; share titles are display-only and roles are owner-granted via updateMemberRole.
     func joinFamilyViaAcceptedShare(metadata: CKShare.Metadata?,
                                     displayName: String?,
                                     avatarClass: AvatarClass?,
@@ -377,10 +377,7 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.joinFailed
         }
 
-        // Role is decoded from the share title, not passed in. An unrecognized or
-        // legacy title falls back to `.hero` — recoverable, the GM can re-invite.
-        let decodedRole = UserRole.fromShareTitle(metadata?.share[CKShare.SystemFieldKey.title] as? String) ?? .hero
-
+        // Share titles are display-only; roles are owner-granted via updateMemberRole.
         let savedProfile: Profile
         let didReuseActiveProfile: Bool
         if let existing = existingProfile, existing.isActive {
@@ -389,11 +386,9 @@ final class FamilyService: FamilyProfileFetching {
             savedProfile = existing
             didReuseActiveProfile = true
         } else if let existing = existingProfile {
-            // Inactive match: reactivate, applying onboarding display name/avatar
-            // and updating role to match the decoded invitation share role.
+            // Inactive match: reactivate preserving stored role and record name, rebinding display name/avatar only.
             var reactivated = existing
             reactivated.isActive = true
-            reactivated.role = decodedRole
             reactivated.family = CKRecord.Reference(recordID: family.id, action: .none)
             if let displayName {
                 reactivated.displayName = displayName.trimmingCharacters(in: .whitespaces)
@@ -403,20 +398,17 @@ final class FamilyService: FamilyProfileFetching {
             }
             do {
                 savedProfile = try await cloudKit.save(reactivated, in: zoneID, using: sharedDB)
-                logger
-                    .info(
-                        "Reactivating inactive profile \(savedProfile.displayName, privacy: .private) with role '\(decodedRole.displayName)' (record \(savedProfile.id.recordName, privacy: .private))"
-                    )
+                logger.info("Reactivated \(savedProfile.displayName, privacy: .private) as \(savedProfile.role.displayName) (\(savedProfile.id.recordName, privacy: .private))")
             } catch {
                 throw FamilyServiceError.persistenceFailed
             }
             didReuseActiveProfile = false
         } else {
-            // No match: mint a fresh profile with the decoded role.
+            // No match: mint a fresh hero profile.
             let profile = Profile(
                 displayName: displayName?.trimmingCharacters(in: .whitespaces) ?? "",
                 avatarClass: avatarClass,
-                role: decodedRole,
+                role: .hero,
                 iCloudUserID: userRecordID,
                 family: CKRecord.Reference(recordID: family.id, action: .none)
             )

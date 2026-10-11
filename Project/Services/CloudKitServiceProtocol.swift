@@ -200,19 +200,19 @@ protocol CloudKitServiceProtocol: AnyObject, Sendable {
     func shareMetadata(for url: URL) async throws -> CKShare.Metadata
     func acceptShare(metadata: CKShare.Metadata) async throws
     func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws
-    /// Aggregated `CKShare` participants across all role shares for the family
-    /// root, deduplicated by identity. Used to render the in-app Invitations
+    /// Aggregated `CKShare` participants on the family's single share for the
+    /// family root, deduplicated by identity. Used to render the in-app Invitations
     /// panel (pending invites and their acceptance state).
     func fetchShareParticipants(for rootRecordID: CKRecord.ID) async throws -> [CKShare.Participant]
     /// Removes a specific participant (matched by identity) from the family
     /// shares. Covers pending invites that have no iCloud user record name yet.
     func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws
 
-    /// Lightweight view of each participant's identity and acceptance status across all role shares.
+    /// Lightweight view of each participant's identity and acceptance status on the family's single share.
     func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus]
 
     /// Maps each share participant's stable identity key or record name to the
-    /// target `UserRole` decoded from the title of the `CKShare` they belong to.
+    /// target `UserRole` decoded from the title of the family's single `CKShare`.
     func fetchShareParticipantRoles(for rootRecordID: CKRecord.ID) async throws -> [String: UserRole]
 
     func processAbandonedZonesQueue(appState: AppState) async

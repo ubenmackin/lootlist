@@ -24,9 +24,9 @@ enum OnboardingStep: Hashable, Sendable {
     case done
 }
 
-/// The intent a new user declares on the role-selection screen. The joiner's
-/// role is deliberately unknown here — it arrives baked into the accepted share
-/// — so onboarding captures only the family-vs-join choice.
+/// The intent a new user declares on the role-selection screen. Joins are
+/// share-agnostic and `invitedRole` is display copy only, so onboarding
+/// captures only the family-vs-join choice.
 enum UserIntent: String, Hashable, Sendable {
     case createFamily
     case joinFamily
@@ -260,7 +260,7 @@ final class OnboardingViewModel {
         guard !hasAutoRoutedForInvite, !isLoading, let resolution = pendingShareMetadata else { return }
         // WHY atomic claim before navigation: URL + accept-share double arrival must not double-route or double-accept.
         guard claimJoin() else { return }
-        // Decode role for display — FamilyService decodes server-side as well, UI is copy only.
+        // Role is share-agnostic; invitedRole is display copy only.
         invitedRole = UserRole.fromShareTitle(resolution.title ?? "")
         // Do not override an active creation flow.
         if path.contains(.familyCreation) {
@@ -382,7 +382,7 @@ final class OnboardingViewModel {
         }
     }
 
-    /// Consumes pending share metadata to join family, resolving role from share title.
+    /// Consumes pending share metadata to join family. Role is share-agnostic; invitedRole is display copy only.
     /// Serialized with the auto-route path via the join claim; concurrent arrivals skip while the winner owns UI.
     func joinFamilyViaAcceptedShare() async {
         let intent = String(describing: self.userIntent)

@@ -48,7 +48,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         self.lifecycleCoordinator = lifecycleCoordinator
     }
 
-    /// Resolves role-specific share presentation via FamilyService (zone owner only).
+    /// Resolves single-share presentation via FamilyService (zone owner only).
     func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation? {
         // WHY single resolver: stored flag alone proves nothing when creator anchor unresolved.
         guard ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState),
@@ -163,7 +163,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
                 try await familyService.revokeInvitation(identityKey: identityKey, from: family)
                 return
             } catch let error as CloudKitServiceError {
-                guard case let .shareFailed(message) = error, message.contains("No role share contains") else { throw error }
+                guard case let .shareFailed(message) = error, message.contains("No share contains") else { throw error }
                 guard let recordName = invitation.identityRecordName, !recordName.isEmpty else { throw error }
                 try await familyService.revokeInvitation(identityRecordName: recordName, from: family)
                 return

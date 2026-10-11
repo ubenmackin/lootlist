@@ -20,7 +20,6 @@ struct SettingsGuildHeaderHostView: View {
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
-    @State private var showRolePicker: Bool = false
     @State private var sharePresentation: CloudSharePresentation?
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
@@ -93,13 +92,13 @@ struct SettingsGuildHeaderHostView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Guild Invitations")
                             .font(.subheadline.weight(.semibold))
-                        Text("Invite a Hero or Co-Parent to your guild")
+                        Text("New members join as Heroes.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button {
-                        showRolePicker = true
+                        Task { await presentInviteShare(for: .hero) }
                     } label: {
                         Label("Invite Members", systemImage: "person.badge.plus")
                             .font(.caption.weight(.semibold))
@@ -128,11 +127,6 @@ struct SettingsGuildHeaderHostView: View {
         .onChange(of: cachedAllowancePeriods) { _, _ in rebuildViewModel() }
         .onChange(of: cachedAchievements) { _, _ in rebuildViewModel() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuildViewModel() }
-        .sheet(isPresented: $showRolePicker) {
-            InviteRolePickerView { role in
-                await presentInviteShare(for: role)
-            }
-        }
         .sheet(item: $sharePresentation) { presentation in
             CloudSharingControllerWrapper(presentation: presentation)
         }

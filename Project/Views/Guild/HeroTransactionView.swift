@@ -242,7 +242,7 @@ struct HeroTransactionView: View {
         let dateSnapshot = date
         let modeSnapshot = mode
         // WHY MainActor view: toast and dismiss stay isolated so Sendable captures stay race-free.
-        Task { @MainActor [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot, toastManager, dismiss] in
+        Task { [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot, toastManager, dismiss] in
             let success = (modeSnapshot == .deposit)
                 ? await viewModel.deposit(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)
                 : await viewModel.withdraw(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)

@@ -165,7 +165,7 @@ final class FamilyDashboardViewModel {
         )
     }
 
-    /// Resolves role-specific share presentation via the invitation coordinator (zone owner only).
+    /// Resolves single-share presentation via the invitation coordinator (zone owner only).
     func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation? {
         await invitationCoordinator.prepareInviteShare(for: role)
     }

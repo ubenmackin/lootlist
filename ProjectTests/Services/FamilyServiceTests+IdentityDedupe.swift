@@ -225,7 +225,7 @@ struct FamilyServiceIdentityDedupeTests {
     }
 
     @Test
-    func `joinFamilyViaAcceptedShare updates role on reactivated profile when re-invited with different role`() async throws {
+    func `joinFamilyViaAcceptedShare preserves stored role when reactivating inactive profile`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         var seededRanger = Profile(
@@ -248,8 +248,8 @@ struct FamilyServiceIdentityDedupeTests {
 
         #expect(result.profile.id.recordName == "hero1")
         #expect(result.profile.isActive == true)
-        #expect(result.profile.role == .hero)
-        #expect(cloudKit.savedProfiles.first?.role == .hero)
+        #expect(result.profile.role == .ranger)
+        #expect(cloudKit.savedProfiles.first?.role == .ranger)
     }
 
     // MARK: - Branch 3: Brand-New Profile Creation

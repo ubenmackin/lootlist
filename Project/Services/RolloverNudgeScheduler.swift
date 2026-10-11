@@ -6,10 +6,12 @@
 //
 
 import Foundation
+import os
 import UserNotifications
 
 /// WHY single pending nudge: one payout-anchored reminder avoids badge stacking across foreground passes.
 nonisolated enum RolloverNudgeScheduler {
+    private static let logger = Logger(category: "RolloverNudgeScheduler")
     static let identifier = "com.volcrypt.lootlist.rollovernudge"
     private static let title = "New week is ready — open Loot List."
     private static let body = "Payouts plus quests rolled over. Open the app to settle the new week."
@@ -46,6 +48,7 @@ nonisolated enum RolloverNudgeScheduler {
             try await center.add(request)
         } catch {
             // WHY silent skip: a throttled center must not fail the foreground sync.
+            logger.warning("Failed to schedule rollover nudge: \(error.localizedDescription)")
         }
     }
 

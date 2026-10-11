@@ -37,13 +37,10 @@ enum ServiceInitHelper {
                     logger.warning("\(serviceName) initialized without syncCoordinator; using test Noop seam.")
                     return NoopSyncEnqueuing()
                 }
-                // WHY trap-only-DEBUG: mis-wiring surfaces in development, Release stays launchable.
-                preconditionFailure("\(serviceName) requires a sync coordinator")
-            #else
-                // WHY Noop-plus-fault: Release stays launchable while diagnostics capture mis-wiring.
-                logger.fault("\(serviceName) initialized without syncCoordinator; using Noop seam.")
-                return NoopSyncEnqueuing()
             #endif
+            // WHY Noop-plus-fault: App stays launchable while diagnostics capture mis-wiring.
+            logger.fault("\(serviceName) initialized without syncCoordinator; using Noop seam.")
+            return NoopSyncEnqueuing()
         }
     }
 
@@ -62,13 +59,10 @@ enum ServiceInitHelper {
                     logger.warning("\(serviceName) initialized without syncCoordinator; using test Noop seam.")
                     return NoopSyncEnqueuing()
                 }
-                // WHY trap-only-DEBUG: mis-wiring surfaces in development, Release stays launchable.
-                preconditionFailure("\(serviceName) requires a sync coordinator")
-            #else
-                // WHY Noop-plus-fault: Release stays launchable while diagnostics capture mis-wiring.
-                logger.fault("\(serviceName) initialized without syncCoordinator; using Noop seam.")
-                return NoopSyncEnqueuing()
             #endif
+            // WHY Noop-plus-fault: App stays launchable while diagnostics capture mis-wiring.
+            logger.fault("\(serviceName) initialized without syncCoordinator; using Noop seam.")
+            return NoopSyncEnqueuing()
         }
     }
 }

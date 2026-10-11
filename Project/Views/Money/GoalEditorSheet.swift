@@ -690,7 +690,7 @@ struct GoalEditorSheet: View {
         resolvedImageURL = nil
         // WHY snapshot: link fetch suspends; Sendable URL rides the Task.
         // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [url] in
+        Task { [url] in
             if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
                 if let title = metadata.title, !title.isEmpty {
                     resolvedTitle = title
@@ -745,7 +745,7 @@ struct GoalEditorSheet: View {
         isSaving = true
         // WHY snapshot: draft crosses suspension; Sendable copy rides the Task.
         // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [draft, onSave, dismiss] in
+        Task { [draft, onSave, dismiss] in
             do {
                 try await onSave(draft)
                 dismiss()
@@ -762,7 +762,7 @@ struct GoalEditorSheet: View {
         guard let onDelete else { return }
         isDeleting = true
         // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [onDelete, dismiss] in
+        Task { [onDelete, dismiss] in
             do {
                 try await onDelete()
                 dismiss()
@@ -778,7 +778,7 @@ struct GoalEditorSheet: View {
         guard let onPurchase else { return }
         isPurchasing = true
         // WHY MainActor view: @State mutates on the isolated task so Sendable captures stay race-free.
-        Task { @MainActor [onPurchase, dismiss] in
+        Task { [onPurchase, dismiss] in
             do {
                 try await onPurchase()
                 dismiss()
