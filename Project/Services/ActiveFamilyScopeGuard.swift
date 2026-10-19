@@ -155,7 +155,8 @@ enum ActiveFamilyScopeGuard {
         appState: AppState,
         familyRecordName: String,
         zoneID: CKRecordZone.ID? = nil,
-        cloudKit: any CloudKitServiceProtocol? = nil,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)? = nil,
         requireParent: Bool = false,
         expectedSelf: Profile? = nil
     ) throws -> Profile {
@@ -186,7 +187,8 @@ enum ActiveFamilyScopeGuard {
     static func requireMutationContext(
         appState: AppState,
         family: Family,
-        cloudKit: any CloudKitServiceProtocol? = nil,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)? = nil,
         requireParent: Bool = false,
         expectedSelf: Profile? = nil
     ) throws -> Profile {
@@ -387,7 +389,8 @@ enum ActiveFamilyScopeGuard {
     /// WHY generic: one primary covers every concrete coordinator without duplicating resolve.
     @MainActor
     static func enqueueWithCorrectedOwner(
-        _ coordinator: any SyncEnqueuing?,
+        // swiftformat:disable:next redundantParens
+        _ coordinator: (any SyncEnqueuing)?,
         id: CKRecord.ID,
         appState: AppState?,
         logger: Logger,
@@ -400,7 +403,8 @@ enum ActiveFamilyScopeGuard {
     /// WHY generic: one batch primary keeps multi-save scope identical.
     @MainActor
     static func batchEnqueueWithCorrectedOwner(
-        _ coordinator: any SyncEnqueuing?,
+        // swiftformat:disable:next redundantParens
+        _ coordinator: (any SyncEnqueuing)?,
         ids: [CKRecord.ID],
         appState: AppState?,
         logger: Logger,
@@ -413,7 +417,8 @@ enum ActiveFamilyScopeGuard {
     /// WHY generic: one delete primary keeps tombstone scope identical.
     @MainActor
     static func enqueueDeleteWithCorrectedOwner(
-        _ coordinator: any SyncEnqueuing?,
+        // swiftformat:disable:next redundantParens
+        _ coordinator: (any SyncEnqueuing)?,
         id: CKRecord.ID,
         appState: AppState?,
         logger: Logger,
@@ -433,7 +438,8 @@ enum ActiveFamilyScopeGuard {
 
     /// WHY bundle: groups enqueue inputs so the helper stays under the lint parameter limit.
     struct ScopedDeleteContext {
-        let coordinator: any SyncEnqueuing?
+        // swiftformat:disable:next redundantParens
+        let coordinator: (any SyncEnqueuing)?
         let appState: AppState?
         let logger: Logger
         let context: String

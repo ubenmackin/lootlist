@@ -189,7 +189,8 @@ final class AppState {
         }
     }
 
-    func resolvedFamilyZoneID(fallbackRecord: any FamilyScopedCache? = nil) -> CKRecordZone.ID {
+    // swiftformat:disable:next redundantParens
+    func resolvedFamilyZoneID(fallbackRecord: (any FamilyScopedCache)? = nil) -> CKRecordZone.ID {
         let defaultZone = CKRecordZone.default().zoneID
         return familyZoneID ?? family?.id.zoneID ?? fallbackRecord?.validatedZoneID(requestedZoneID: defaultZone) ?? defaultZone
     }
@@ -446,8 +447,10 @@ final class AppState {
         )
     }
 
+    // swiftformat:disable redundantParens
     /// Performs device-local sign-out, resetting session and clearing local cache.
-    func signOut(cloudKit: any CloudKitServiceProtocol? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
+    func signOut(cloudKit: (any CloudKitServiceProtocol)? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
+        // swiftformat:enable redundantParens
         if let cloudKit {
             clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
         } else {
