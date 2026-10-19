@@ -171,7 +171,7 @@ final class QuestCompletionService {
                 awardApplied = true
             }
         } catch {
-            if CloudKitErrorClassifier.isTransient(error) {
+            if CKSyncConflictResolver.isTransient(error) {
                 return try await handleAutoApproveTransient(
                     log: mutableLog,
                     quest: quest,
@@ -383,8 +383,7 @@ final class QuestCompletionService {
     }
 
     private func revertQuestBankAfterAward(quest: Quest, resolvedZoneID: CKRecordZone.ID, credited: Int?) async {
-        guard let credited else { return }
-        guard let cachedQuest = cacheService.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName) else { return }
+        guard let credited, let cachedQuest = cacheService.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName) else { return }
         var revertedQuest = cachedQuest.toQuest(zoneID: resolvedZoneID)
         revertedQuest.xpBanked = max(0, revertedQuest.xpBanked - credited)
         await cacheService.upsertQuest(revertedQuest)

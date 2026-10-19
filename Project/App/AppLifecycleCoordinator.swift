@@ -152,8 +152,7 @@ final class AppLifecycleCoordinator {
 
         func tryEnterManualSync() -> Bool {
             // Manual sync is user-initiated and must not be starved by a foreground sync holding `.syncing`.
-            guard phase != .bootstrapping else { return false }
-            guard !isManualSyncing else { return false }
+            guard phase != .bootstrapping, !isManualSyncing else { return false }
             isManualSyncing = true
             return true
         }
@@ -291,7 +290,7 @@ final class AppLifecycleCoordinator {
     /// Injected references
     weak var appState: AppState?
     let cloudKitService: any CloudKitServiceProtocol
-    let syncCoordinator: (any SyncCoordinating)?
+    let syncCoordinator: any SyncCoordinating?
     let appSyncCoordinator: AppSyncCoordinator?
     let dataMigrationsCoordinator: DataMigrationsCoordinator?
     let autoPayoutCoordinator: AutoPayoutCoordinator?
@@ -359,8 +358,7 @@ final class AppLifecycleCoordinator {
         await withDiscardingTaskGroup { group in
             group.addTask { [weak self] in
                 for await _ in signalStream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
+                    guard !Task.isCancelled, let self else { break }
                     // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching gate state.
                     await MainActor.run { self.invalidateScopeStateForSessionClear() }
                 }
@@ -381,8 +379,7 @@ final class AppLifecycleCoordinator {
         await withDiscardingTaskGroup { group in
             group.addTask { [weak self] in
                 for await _ in signalStream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
+                    guard !Task.isCancelled, let self else { break }
                     await self.handleReconnectSignal()
                 }
             }
@@ -419,8 +416,7 @@ final class AppLifecycleCoordinator {
         await withDiscardingTaskGroup { group in
             group.addTask { [weak self] in
                 for await _ in signalStream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
+                    guard !Task.isCancelled, let self else { break }
                     // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching auth state.
                     let shouldBreak = await self.handleAccountChangeSignal()
                     if shouldBreak {
@@ -439,11 +435,43 @@ final class AppLifecycleCoordinator {
         }
     }
 
-    /// WHY serialize: nil check and state-machine send stay on one MainActor hop
-    /// so teardown still breaks the loop instead of racing separate hops.
-    private func handleAccountChangeSignal() async -> Bool {
+    /// Handles account-change signals (e.g. from `.CKAccountChanged` system notifications).
+    /// Differentiates between background notification flaps (identity unchanged) and genuine account changes.
+    @discardableResult
+    func handleAccountChangeSignal() async -> Bool {
         guard let appState else { return true }
+
+        // Defer account changes during session restore: bootstrap is already actively authenticating with CloudKit.
+        if appState.authStatus == .restoringSession {
+            logger.info("Deferring account-change check while session is restoring")
+            return false
+        }
+
+        // When authenticated, check if current user identity actually changed.
+        if appState.authStatus == .authenticated, let currentProfile = appState.currentProfile {
+            do {
+                let currentUserRecordID = try await cloudKitService.currentUserRecordID()
+                let matches = ActiveFamilyScopeGuard.isUserRecordNameMatch(
+                    currentProfile.iCloudUserID.recordName,
+                    currentUserRecordID.recordName
+                ) || ActiveFamilyScopeGuard.isPlaceholderOwner(currentProfile.iCloudUserID.recordName)
+                    || currentProfile.iCloudUserID.recordName == CKCurrentUserDefaultName
+
+                if matches {
+                    logger.info("Account flap ignored: iCloud user record ID matches authenticated profile (\(currentUserRecordID.recordName, privacy: .private))")
+                    return false
+                }
+            } catch {
+                logger.warning("Could not resolve current user record ID during account change: \(error, privacy: .private) — preserving local session")
+                return false
+            }
+        }
+
+        // Genuine account change detected: notify state machine, wipe previous session, and run discovery.
+        logger.info("iCloud account changed: clearing previous session and discovering cloud state")
         await appState.authStateMachine.send(.accountChanged)
+        let concreteSync = syncCoordinator as? CKSyncEngineCoordinator
+        await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: concreteSync)
         return false
     }
 

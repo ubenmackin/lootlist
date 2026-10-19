@@ -77,8 +77,8 @@ struct ProfileStats: Sendable {
 final class AchievementService {
     private let logger = Logger(category: "AchievementService")
 
-    let cacheService: (any CacheServicing)?
-    var syncCoordinator: (any SyncEnqueuing)?
+    let cacheService: any CacheServicing?
+    var syncCoordinator: any SyncEnqueuing?
 
     var appState: AppState?
 
@@ -89,11 +89,11 @@ final class AchievementService {
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: (any CacheServicing)? = nil,
+        cacheService: any CacheServicing? = nil,
         toastManager _: ToastManager? = nil,
         appState: AppState? = nil,
         celebrationManager: CelebrationManager? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -176,10 +176,8 @@ final class AchievementService {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             return Self.defaultAchievements(for: familyRef).map { AchievementCache(from: $0) }.sorted { $0.name < $1.name }
         }
-        if let cache = cacheService {
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
-                return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
-            }
+        if let cache = cacheService, cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
+            return cache.fetchAchievements(family: familyName).sorted { $0.name < $1.name }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)

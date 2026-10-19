@@ -532,14 +532,16 @@ final class OptimisticRollbackTests: XCTestCase {
         lootService.rollProvider = { _, _ in drop }
         let eventKey = "loot-event-1"
 
-        let first = await lootService.rollAndCredit(questRarity: .epic, streakDays: 5, to: hero, eventKey: eventKey)
-        XCTAssertEqual(first, drop)
-        let second = await lootService.rollAndCredit(questRarity: .epic, streakDays: 5, to: hero, eventKey: eventKey)
-        XCTAssertNil(second)
+        try await RPGFlagGate.withRPGFlag(true) {
+            let first = await lootService.rollAndCredit(questRarity: .epic, streakDays: 5, to: hero, eventKey: eventKey)
+            XCTAssertEqual(first, drop)
+            let second = await lootService.rollAndCredit(questRarity: .epic, streakDays: 5, to: hero, eventKey: eventKey)
+            XCTAssertNil(second)
 
-        XCTAssertEqual(cache.fetchGemLedgers(family: "fam1").count, 1, "Second rollAndCredit with same eventKey must not double-mint")
-        let balance = try gemService.balance(for: heroID.recordName, familyRecordName: "fam1")
-        XCTAssertEqual(balance, 30)
+            XCTAssertEqual(cache.fetchGemLedgers(family: "fam1").count, 1, "Second rollAndCredit with same eventKey must not double-mint")
+            let balance = try gemService.balance(for: heroID.recordName, familyRecordName: "fam1")
+            XCTAssertEqual(balance, 30)
+        }
     }
 
     func testRewardEventLoserPhantomCleanupAfterClaimFalse() async throws {

@@ -155,6 +155,7 @@ enum ActiveFamilyScopeGuard {
         appState: AppState,
         familyRecordName: String,
         zoneID: CKRecordZone.ID? = nil,
+        // swiftformat:disable:next redundantParens
         cloudKit: (any CloudKitServiceProtocol)? = nil,
         requireParent: Bool = false,
         expectedSelf: Profile? = nil
@@ -186,6 +187,7 @@ enum ActiveFamilyScopeGuard {
     static func requireMutationContext(
         appState: AppState,
         family: Family,
+        // swiftformat:disable:next redundantParens
         cloudKit: (any CloudKitServiceProtocol)? = nil,
         requireParent: Bool = false,
         expectedSelf: Profile? = nil
@@ -387,6 +389,7 @@ enum ActiveFamilyScopeGuard {
     /// WHY generic: one primary covers every concrete coordinator without duplicating resolve.
     @MainActor
     static func enqueueWithCorrectedOwner(
+        // swiftformat:disable:next redundantParens
         _ coordinator: (any SyncEnqueuing)?,
         id: CKRecord.ID,
         appState: AppState?,
@@ -400,6 +403,7 @@ enum ActiveFamilyScopeGuard {
     /// WHY generic: one batch primary keeps multi-save scope identical.
     @MainActor
     static func batchEnqueueWithCorrectedOwner(
+        // swiftformat:disable:next redundantParens
         _ coordinator: (any SyncEnqueuing)?,
         ids: [CKRecord.ID],
         appState: AppState?,
@@ -413,6 +417,7 @@ enum ActiveFamilyScopeGuard {
     /// WHY generic: one delete primary keeps tombstone scope identical.
     @MainActor
     static func enqueueDeleteWithCorrectedOwner(
+        // swiftformat:disable:next redundantParens
         _ coordinator: (any SyncEnqueuing)?,
         id: CKRecord.ID,
         appState: AppState?,
@@ -433,6 +438,7 @@ enum ActiveFamilyScopeGuard {
 
     /// WHY bundle: groups enqueue inputs so the helper stays under the lint parameter limit.
     struct ScopedDeleteContext {
+        // swiftformat:disable:next redundantParens
         let coordinator: (any SyncEnqueuing)?
         let appState: AppState?
         let logger: Logger
@@ -475,8 +481,7 @@ enum ActiveFamilyScopeGuard {
             await cacheService.invalidate(identity: identity, type: type, expectedActiveZone: deleteContext.expectedActiveZone)
         }
         // WHY fail-closed: unresolved scope invalidates only; migrations opt in via allowUnresolved.
-        guard deleteContext.allowUnresolved else { return }
-        guard let coordinator = deleteContext.coordinator else { return }
+        guard deleteContext.allowUnresolved, let coordinator = deleteContext.coordinator else { return }
         // WHY migration-only: inferred scope keeps legacy purges moving when session never resolves.
         let inferredIsOwner: Bool = if let inferred = inferDatabaseScope(from: target.recordID.zoneID) {
             inferred == "private"

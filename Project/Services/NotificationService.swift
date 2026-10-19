@@ -54,7 +54,7 @@ final class NotificationService {
     private(set) var verificationCategoryRegistered = false
     private(set) var currentAppBadgeCount: Int = 0
 
-    let weeklySummaryProvider: (any WeeklySummaryProviding)?
+    let weeklySummaryProvider: any WeeklySummaryProviding?
 
     private let defaults: UserDefaults
 
@@ -63,7 +63,7 @@ final class NotificationService {
          cacheService: CacheService,
          syncCoordinator: CKSyncEngineCoordinator? = nil,
          toastManager: ToastManager? = nil,
-         weeklySummaryProvider: (any WeeklySummaryProviding)? = nil,
+         weeklySummaryProvider: any WeeklySummaryProviding? = nil,
          defaults: UserDefaults = .standard)
     {
         self.cloudKit = cloudKit
@@ -304,8 +304,11 @@ final class NotificationService {
                            family: Family,
                            weekOf: Date) async throws
     {
-        guard shouldDeliverLocally(eventType: .goldEarned, forTargetRecordName: profile.id.recordName) else { return }
-        guard isNotificationEnabled(for: .goldEarned, profileRecordName: profile.id.recordName, familyRecordName: family.id.recordName) else { return }
+        guard shouldDeliverLocally(eventType: .goldEarned, forTargetRecordName: profile.id.recordName), isNotificationEnabled(
+            for: .goldEarned,
+            profileRecordName: profile.id.recordName,
+            familyRecordName: family.id.recordName
+        ) else { return }
 
         let title = "🎁 Allowance Day"
         let body: String = if let provider = weeklySummaryProvider {
@@ -321,8 +324,7 @@ final class NotificationService {
                               to parent: Profile,
                               distinct: Bool = false) async throws
     {
-        guard shouldDeliverLocally(eventType: .questNeedsReview, forTargetRecordName: parent.id.recordName) else { return }
-        guard isNotificationEnabled(
+        guard shouldDeliverLocally(eventType: .questNeedsReview, forTargetRecordName: parent.id.recordName), isNotificationEnabled(
             for: .questNeedsReview,
             profileRecordName: parent.id.recordName,
             familyRecordName: parent.family.recordID.recordName
@@ -362,8 +364,7 @@ final class NotificationService {
     }
 
     func sendQuestRejected(questLog _: QuestCompletion, to hero: Profile) async throws {
-        guard shouldDeliverLocally(eventType: .questRejected, forTargetRecordName: hero.id.recordName) else { return }
-        guard isNotificationEnabled(
+        guard shouldDeliverLocally(eventType: .questRejected, forTargetRecordName: hero.id.recordName), isNotificationEnabled(
             for: .questRejected,
             profileRecordName: hero.id.recordName,
             familyRecordName: hero.family.recordID.recordName

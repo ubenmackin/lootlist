@@ -44,6 +44,10 @@ enum FamilyKickResult: Equatable, Sendable {
     /// revoked — the Guild Master should revoke the lingering access from the
     /// Invitations panel.
     case partialRevocationFailed(error: String)
+    /// Member removed from the roster, and the share participant was kept
+    /// deliberately: another active profile shares the same iCloud identity,
+    /// so revoking it would cut device access for both profiles at once.
+    case participantKeptSharedIdentity
 }
 
 // MARK: - Protocol for testable injection into ViewModels
@@ -462,16 +466,14 @@ final class FamilyService: FamilyProfileFetching {
     private func fetchProfiles(for family: Family) async throws -> [Profile] {
         // WHY cache-only: roster is UI truth from lifecycle sync + cache; stale serves until re-hydrated, no CloudKit fallback.
         let familyRecordName = family.id.recordName
-        guard !familyRecordName.isEmpty else { return [] }
-        guard let cache = cacheService else { return [] }
+        guard !familyRecordName.isEmpty, let cache = cacheService else { return [] }
         return cache.fetchProfiles(family: familyRecordName).map { $0.toProfile(zoneID: family.id.zoneID) }
     }
 
     /// Lifecycle seam for ViewModel roster refresh; rides the sync engine so ingest stays the single write path.
     func requestProfileSync(for family: Family) async {
         // WHY fail-closed: empty scope or unresolved database never triggers a sync pass.
-        guard !family.id.recordName.isEmpty else { return }
-        guard DatabaseScopeResolver.resolvedScope(appState: appState) != nil else { return }
+        guard !family.id.recordName.isEmpty, DatabaseScopeResolver.resolvedScope(appState: appState) != nil else { return }
         await syncCoordinator?.fetchChanges()
     }
 
@@ -658,9 +660,7 @@ final class FamilyService: FamilyProfileFetching {
         // WHY lifecycle sync: roster refresh rides fetchChanges so engine ingest stays the single write path.
         await requestProfileSync(for: family)
         // WHY test hydration: engines never run under tests, so mock query fills cache without live zone fetch.
-        guard TestEnvironment.isRunningUnitOrUITests else { return }
-        guard !family.id.recordName.isEmpty else { return }
-        guard let resolvedScope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return }
+        guard TestEnvironment.isRunningUnitOrUITests, !family.id.recordName.isEmpty, let resolvedScope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return }
         do {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
@@ -814,10 +814,7 @@ final class FamilyService: FamilyProfileFetching {
                                            currentUserRecordID: CKRecord.ID) async throws -> Profile?
     {
         // WHY fail-closed: empty scope or zone mismatch denies dedupe rather than risking a duplicate.
-        guard !family.id.recordName.isEmpty, !currentUserRecordID.recordName.isEmpty else {
-            throw FamilyServiceError.joinFailed
-        }
-        guard zoneID == family.id.zoneID else {
+        guard !family.id.recordName.isEmpty, !currentUserRecordID.recordName.isEmpty, zoneID == family.id.zoneID else {
             throw FamilyServiceError.joinFailed
         }
         // `iCloudUserID` is stored as a plain record-name String

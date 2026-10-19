@@ -607,8 +607,7 @@ extension CacheService {
     }
 
     private func atomicallyApplyGemCreditOnMainActor(ledger: GemLedger, profile: Profile) -> Bool {
-        guard let context else { return false }
-        guard sharedGemCreditPrepare(context: context, ledger: ledger, profile: profile) else {
+        guard let context, sharedGemCreditPrepare(context: context, ledger: ledger, profile: profile) else {
             return false
         }
         return saveContext()

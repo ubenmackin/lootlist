@@ -148,9 +148,7 @@ enum CurrencyFormatter: Sendable {
         guard let secondPass = stripEdgeAffixes(working, symbol: localeSymbol, code: localeCode) else { return nil }
         working = secondPass
         // WHY validated gaps: space/apostrophe groupings need shape checks so 1 2.75 rejects.
-        guard let gapStripped = stripValidatedGroupingGaps(working) else { return nil }
-        guard !gapStripped.isEmpty else { return nil }
-        guard let magnitude = magnitude(from: gapStripped, locale: locale) else { return nil }
+        guard let gapStripped = stripValidatedGroupingGaps(working), !gapStripped.isEmpty, let magnitude = magnitude(from: gapStripped, locale: locale) else { return nil }
         return isNegative ? -magnitude : magnitude
     }
 
@@ -187,10 +185,10 @@ enum CurrencyFormatter: Sendable {
 
     /// WHY exact magnitude: separators normalize before Decimal so 12.75 never drifts.
     private static func magnitude(from text: String, locale: Locale) -> Decimal? {
-        guard let normalized = normalizedDecimalText(text, locale: locale) else { return nil }
-        guard isValidNormalizedDecimal(normalized) else { return nil }
-        guard let value = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else { return nil }
-        guard !value.isNaN else { return nil }
+        guard let normalized = normalizedDecimalText(text, locale: locale), isValidNormalizedDecimal(normalized), let value = Decimal(
+            string: normalized,
+            locale: Locale(identifier: "en_US_POSIX")
+        ), !value.isNaN else { return nil }
         return value
     }
 
@@ -206,8 +204,7 @@ enum CurrencyFormatter: Sendable {
         guard !roundedAbs.isNaN else { return nil }
         let rounded = isNegative ? -roundedAbs : roundedAbs
         let number = NSDecimalNumber(decimal: rounded)
-        guard number.compare(NSDecimalNumber(value: Int64.max)) != .orderedDescending else { return nil }
-        guard number.compare(NSDecimalNumber(value: Int64.min)) != .orderedAscending else { return nil }
+        guard number.compare(NSDecimalNumber(value: Int64.max)) != .orderedDescending, number.compare(NSDecimalNumber(value: Int64.min)) != .orderedAscending else { return nil }
         return number.int64Value
     }
 
@@ -221,8 +218,7 @@ enum CurrencyFormatter: Sendable {
             guard let split = text.lastIndex(of: decimalChar) else { return nil }
             let integerPart = String(text[..<split])
             let fractionPart = String(text[text.index(after: split)...])
-            guard !integerPart.isEmpty, !fractionPart.isEmpty else { return nil }
-            guard fractionPart.allSatisfy(\.isWholeNumber) else { return nil }
+            guard !integerPart.isEmpty, !fractionPart.isEmpty, fractionPart.allSatisfy(\.isWholeNumber) else { return nil }
             if integerPart.contains(groupingChar) {
                 guard isGrouping(text: integerPart, separator: groupingChar) else { return nil }
                 let flatInteger = integerPart.replacingOccurrences(of: String(groupingChar), with: "")
@@ -283,8 +279,7 @@ enum CurrencyFormatter: Sendable {
             return false
         }
         let parts = text.split(separator: separator, omittingEmptySubsequences: false)
-        guard parts.count >= 2, !parts.contains(where: \.isEmpty) else { return false }
-        guard let first = parts.first, (1 ... 3).contains(first.count) else { return false }
+        guard parts.count >= 2, !parts.contains(where: \.isEmpty), let first = parts.first, (1 ... 3).contains(first.count) else { return false }
         for part in parts.dropFirst() where part.count != 3 {
             return false
         }
@@ -349,9 +344,7 @@ enum CurrencyFormatter: Sendable {
         if let separatorIndex = lastSeparator {
             let integerPart = String(normalized[..<separatorIndex])
             let fractionPart = String(normalized[normalized.index(after: separatorIndex)...])
-            guard !fractionPart.contains(gap) else { return nil }
-            guard integerPart.contains(gap) else { return nil }
-            guard isGrouping(text: integerPart, separator: gap) else { return nil }
+            guard !fractionPart.contains(gap), integerPart.contains(gap), isGrouping(text: integerPart, separator: gap) else { return nil }
             let flatInteger = integerPart.replacingOccurrences(of: String(gap), with: "")
             let decimalChar = normalized[separatorIndex]
             return flatInteger + String(decimalChar) + fractionPart

@@ -247,8 +247,7 @@ extension TreasuryService {
         weekLabel: String
     ) async {
         for (key, names) in allNames where !deltaKinds.contains(key) && names.count > 1 {
-            guard let target = primary[key], let total = totals[key] else { continue }
-            guard let kind = BucketKind(rawValue: key) else { continue }
+            guard let target = primary[key], let total = totals[key], let kind = BucketKind(rawValue: key) else { continue }
             await upsertPayoutEntry(
                 context,
                 recordName: target,
@@ -349,12 +348,7 @@ extension TreasuryService {
     ) async {
         let saveShares = shares.filter { $0.kind == .shortTermSave || $0.kind == .longTermSave }
         let label = context.isRealTime ? "real-time earnings" : "payout earnings"
-        guard !saveShares.isEmpty else {
-            let formatted = CurrencyFormatter.string(pennies: context.amount)
-            logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
-            return
-        }
-        guard let cachedFamily = cacheService.fetchFamily(recordName: context.family.recordID.recordName) else {
+        guard !saveShares.isEmpty, let cachedFamily = cacheService.fetchFamily(recordName: context.family.recordID.recordName) else {
             let formatted = CurrencyFormatter.string(pennies: context.amount)
             logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
             return

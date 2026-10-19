@@ -43,8 +43,14 @@ final class SoundManager {
         }
     }
 
+    /// Records the most recent play without altering playback behavior; lets tests
+    /// assert whether feedback fired.
+    @ObservationIgnored
+    private(set) var lastPlayedEvent: SoundEvent?
+
     /// Future enhancement: Slight pitch shift ±5% on repetitive sounds using AVAudioPlayer
     func play(_ event: SoundEvent) {
+        lastPlayedEvent = event
         switch event {
         case .questComplete, .levelUp, .lootDrop, .streakMilestone, .shopPurchase:
             HapticsService.success()

@@ -120,7 +120,7 @@ extension DataMigrationsCoordinator {
     static func questNameBackfillV1(
         cloudKit: any CloudKitServiceProtocol,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) -> MigrationStep {
         MigrationStep(id: "QuestNameBackfillV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
@@ -222,7 +222,7 @@ extension DataMigrationsCoordinator {
         cloudKit: any CloudKitServiceProtocol,
         cacheService _: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) -> MigrationStep {
         MigrationStep(id: "AchievementMigrationV1", version: 1) {
             let logger = Logger(category: "DataMigrations")
@@ -273,7 +273,7 @@ extension DataMigrationsCoordinator {
     static func heroNotificationPreferenceBackfillV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService _: CacheService? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
+        syncCoordinator: any SyncEnqueuing? = nil,
         appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "heroNotificationPreferenceBackfillV1", version: 1) {
@@ -336,7 +336,7 @@ extension DataMigrationsCoordinator {
     static func allowancePeriodSeedV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
+        syncCoordinator: any SyncEnqueuing? = nil,
         appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "allowancePeriodSeedV1", version: 1) {
@@ -432,7 +432,7 @@ extension DataMigrationsCoordinator {
     static func purgeParentAllowancePeriodsV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
+        syncCoordinator: any SyncEnqueuing? = nil,
         appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "purgeParentAllowancePeriodsV1", version: 1) {
@@ -479,7 +479,7 @@ extension DataMigrationsCoordinator {
         cloudKit: any CloudKitServiceProtocol,
         cacheService _: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) -> MigrationStep {
         // WHY ingest-only: one-shot ledger backfill rides direct save plus hydrate without stamping freshness; deterministic payout IDs keep re-runs idempotent.
         MigrationStep(id: "QuestLedgerBackfillV1", version: 1) {
@@ -565,7 +565,7 @@ extension DataMigrationsCoordinator {
     static func currencyToPenniesV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService _: CacheService? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
+        syncCoordinator: any SyncEnqueuing? = nil,
         appState: AppState? = nil
     ) -> MigrationStep {
         MigrationStep(id: "CurrencyToPenniesV1", version: 1) {
@@ -653,7 +653,7 @@ extension DataMigrationsCoordinator {
         zoneID: CKRecordZone.ID,
         scope: CKDatabase.Scope,
         isOwner: Bool,
-        syncCoordinator: (any SyncEnqueuing)?,
+        syncCoordinator: any SyncEnqueuing?,
         logger: Logger
     ) async -> (converted: Int, hadFailures: Bool) where T.ID == CKRecord.ID {
         var converted = 0

@@ -11,7 +11,8 @@ import Foundation
 import Testing
 
 /// WHY single gate: CacheFirst falls back to stale cache only on transient.
-struct CloudKitErrorClassifierTests {
+/// Classification lives solely in CKSyncConflictResolver; this suite pins its verdicts.
+struct ResolverTransientClassificationTests {
     // MARK: - Transient CKError codes
 
     @Test(arguments: [
@@ -19,47 +20,48 @@ struct CloudKitErrorClassifierTests {
         .networkFailure,
         .serviceUnavailable,
         .requestRateLimited,
-        .zoneBusy
+        .zoneBusy,
+        .operationCancelled,
+        .notAuthenticated
     ])
     func `transient codes return true`(code: CKError.Code) {
-        #expect(CloudKitErrorClassifier.isTransient(CKError(code)))
+        #expect(CKSyncConflictResolver.isTransient(CKError(code)))
     }
 
     // MARK: - serverRejectedRequest only where retryable
 
     @Test
     func `plain serverRejectedRequest returns false`() {
-        #expect(!CloudKitErrorClassifier.isTransient(CKError(.serverRejectedRequest)))
+        #expect(!CKSyncConflictResolver.isTransient(CKError(.serverRejectedRequest)))
     }
 
     @Test
-    func `serverRejectedRequest with timeout bridge returns true`() {
+    func `serverRejectedRequest with timeout bridge returns false`() {
         let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         let error = CKError(.serverRejectedRequest, userInfo: [NSUnderlyingErrorKey: timeout])
-        #expect(CloudKitErrorClassifier.isTransient(error))
+        #expect(!CKSyncConflictResolver.isTransient(error))
     }
 
     // MARK: - Timeout variants
 
     @Test
-    func `direct NSURLError timeout returns true`() {
+    func `direct NSURLError timeout returns false`() {
         let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
-        #expect(CloudKitErrorClassifier.isTransient(timeout))
+        #expect(!CKSyncConflictResolver.isTransient(timeout))
     }
 
     @Test
-    func `CKError wrapping URL timeout returns true`() {
+    func `retryable CKError with timeout bridge returns true`() {
         let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         let error = CKError(.networkUnavailable, userInfo: [NSUnderlyingErrorKey: timeout])
-        #expect(CloudKitErrorClassifier.isTransient(error))
+        #expect(CKSyncConflictResolver.isTransient(error))
     }
 
     @Test
-    func `persistent code with timeout bridge still returns true`() {
-        // WHY timeout bridge: CloudKit wraps URL timeouts as underlying errors.
+    func `persistent code with timeout bridge still returns false`() {
         let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         let error = CKError(.unknownItem, userInfo: [NSUnderlyingErrorKey: timeout])
-        #expect(CloudKitErrorClassifier.isTransient(error))
+        #expect(!CKSyncConflictResolver.isTransient(error))
     }
 
     // MARK: - Persistent CKError codes
@@ -77,19 +79,18 @@ struct CloudKitErrorClassifierTests {
         .invalidArguments
     ])
     func `persistent codes return false`(code: CKError.Code) {
-        #expect(!CloudKitErrorClassifier.isTransient(CKError(code)))
+        #expect(!CKSyncConflictResolver.isTransient(CKError(code)))
     }
 
     // MARK: - Partial failures defer safely
 
     @Test
-    func `partialFailure with transient nested errors returns false`() {
-        // WHY conservative: per-record failures surface instead of masking as offline.
+    func `partialFailure with transient nested errors returns true`() {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let recordID = CKRecord.ID(recordName: "r1", zoneID: zoneID)
         let nested = CKError(.networkUnavailable)
         let error = CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: [recordID: nested]])
-        #expect(!CloudKitErrorClassifier.isTransient(error))
+        #expect(CKSyncConflictResolver.isTransient(error))
     }
 
     @Test
@@ -98,7 +99,7 @@ struct CloudKitErrorClassifierTests {
         let recordID = CKRecord.ID(recordName: "r1", zoneID: zoneID)
         let nested = CKError(.unknownItem)
         let error = CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: [recordID: nested]])
-        #expect(!CloudKitErrorClassifier.isTransient(error))
+        #expect(!CKSyncConflictResolver.isTransient(error))
     }
 
     @Test
@@ -111,7 +112,7 @@ struct CloudKitErrorClassifierTests {
             second: CKError(.permissionFailure)
         ]
         let error = CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: partials])
-        #expect(!CloudKitErrorClassifier.isTransient(error))
+        #expect(!CKSyncConflictResolver.isTransient(error))
     }
 
     @Test
@@ -122,79 +123,82 @@ struct CloudKitErrorClassifierTests {
             code: 0,
             userInfo: [NSUnderlyingErrorKey: CKError(.networkUnavailable)]
         )
-        #expect(!CloudKitErrorClassifier.isTransient(wrapped))
+        #expect(!CKSyncConflictResolver.isTransient(wrapped))
     }
 
     // MARK: - Cancellation and foundation errors are not transient
 
     @Test
-    func `operationCancelled returns false`() {
-        #expect(!CloudKitErrorClassifier.isTransient(CKError(.operationCancelled)))
+    func `operationCancelled returns true`() {
+        #expect(CKSyncConflictResolver.isTransient(CKError(.operationCancelled)))
     }
 
     @Test
     func `swift cancellation returns false`() {
-        #expect(!CloudKitErrorClassifier.isTransient(CancellationError()))
+        #expect(!CKSyncConflictResolver.isTransient(CancellationError()))
     }
 
     @Test
     func `NSURLErrorCancelled returns false`() {
         let cancelled = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
-        #expect(!CloudKitErrorClassifier.isTransient(cancelled))
+        #expect(!CKSyncConflictResolver.isTransient(cancelled))
     }
 
     @Test
     func `non-timeout NSURLError returns false`() {
         let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
-        #expect(!CloudKitErrorClassifier.isTransient(offline))
+        #expect(!CKSyncConflictResolver.isTransient(offline))
     }
 
     @Test
     func `generic NSError returns false`() {
         let generic = NSError(domain: "TestDomain", code: 42)
-        #expect(!CloudKitErrorClassifier.isTransient(generic))
+        #expect(!CKSyncConflictResolver.isTransient(generic))
     }
 
-    // MARK: - Hard auth never transient
+    // MARK: - Retry set vs hard failures
+
+    @Test
+    func `notAuthenticated returns true`() {
+        #expect(CKSyncConflictResolver.isTransient(CKError(.notAuthenticated)))
+    }
 
     @Test(arguments: [
-        CKError.Code.notAuthenticated,
-        .managedAccountRestricted,
+        CKError.Code.managedAccountRestricted,
         .userDeletedZone
     ])
-    func `hard auth codes return false`(code: CKError.Code) {
-        #expect(!CloudKitErrorClassifier.isTransient(CKError(code)))
+    func `other hard auth codes return false`(code: CKError.Code) {
+        #expect(!CKSyncConflictResolver.isTransient(CKError(code)))
     }
 
     @Test
-    func `hard auth wins over timeout bridge`() {
-        // WHY sign-in over stale: signed-out must prompt, never masquerade as offline.
+    func `notAuthenticated stays retry even with timeout bridge`() {
         let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         let error = CKError(.notAuthenticated, userInfo: [NSUnderlyingErrorKey: timeout])
-        #expect(!CloudKitErrorClassifier.isTransient(error))
+        #expect(CKSyncConflictResolver.isTransient(error))
     }
 
     // MARK: - CloudKitServiceError mapping
 
     @Test
     func `service transient cases return true`() {
-        #expect(CloudKitErrorClassifier.isTransient(CloudKitServiceError.networkUnavailable))
-        #expect(CloudKitErrorClassifier.isTransient(CloudKitServiceError.retryable(attempt: 1, code: nil)))
-        #expect(CloudKitErrorClassifier.isTransient(CloudKitServiceError.exhaustedBudget(attempt: 3)))
+        #expect(CKSyncConflictResolver.isTransient(CloudKitServiceError.networkUnavailable))
+        #expect(CKSyncConflictResolver.isTransient(CloudKitServiceError.retryable(attempt: 1, code: nil)))
+        #expect(CKSyncConflictResolver.isTransient(CloudKitServiceError.exhaustedBudget(attempt: 3)))
     }
 
     @Test
     func `service persistent cases return false`() {
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.accountUnavailable))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.notFound("x")))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.serverRecordChanged))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.changeTokenExpired))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.zoneNotFound))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.invalidArguments("x")))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.underlying("x")))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.shareFailed("x")))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.zoneSetupFailed("x")))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.paginationExhausted(pageBudget: 5)))
-        #expect(!CloudKitErrorClassifier.isTransient(CloudKitServiceError.shareAcceptFailed(code: .unknownItem, message: "x")))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.accountUnavailable))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.notFound("x")))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.serverRecordChanged))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.changeTokenExpired))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.zoneNotFound))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.invalidArguments("x")))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.underlying("x")))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.shareFailed("x")))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.zoneSetupFailed("x")))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.paginationExhausted(pageBudget: 5)))
+        #expect(!CKSyncConflictResolver.isTransient(CloudKitServiceError.shareAcceptFailed(code: .unknownItem, message: "x")))
     }
 }

@@ -12,6 +12,15 @@ import SwiftUI
 struct HeroBoardView: View {
     private let appState: AppState
     private let questService: QuestService
+    private let familyRecordName: String?
+
+    /// Identifiable hand-off for presenting the quest editor on a board row.
+    private struct QuestEditTarget: Identifiable {
+        let questRecordName: String
+        var id: String {
+            questRecordName
+        }
+    }
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedProfiles: [ProfileCache]
@@ -19,6 +28,9 @@ struct HeroBoardView: View {
 
     @State private var viewModel: HeroBoardViewModel
     @State private var isSubmitting = false
+    @State private var pendingRemovalRowID: String?
+    @State private var editingQuest: QuestEditTarget?
+    @State private var editSheetViewModel: QuestManagerViewModel?
 
     init(
         questService: QuestService,
@@ -27,6 +39,7 @@ struct HeroBoardView: View {
     ) {
         self.questService = questService
         self.appState = appState
+        self.familyRecordName = familyRecordName
         self._viewModel = State(initialValue: HeroBoardViewModel(
             boardService: HeroBoardService(questService: questService),
             appState: appState
@@ -70,6 +83,20 @@ struct HeroBoardView: View {
             .onChange(of: cachedCompletions) { _, _ in
                 rebuildViewModel()
             }
+            .sheet(item: $editingQuest, onDismiss: {
+                // WHY clear on dismiss: the editor VM owns the shared questService sweep
+                // callback while presented; dropping it here hands ownership back instead
+                // of leaving a defunct instance attached after the sheet closes.
+                editSheetViewModel = nil
+            }, content: { target in
+                if let vm = editSheetViewModel {
+                    QuestAssignmentView(
+                        mode: .edit(questRecordName: target.questRecordName),
+                        viewModel: vm,
+                        familyRecordName: familyRecordName ?? appState.family?.id.recordName
+                    )
+                }
+            })
     }
 
     private func rebuildViewModel() {
@@ -174,7 +201,8 @@ struct HeroBoardView: View {
         .disabled(pending)
     }
 
-    /// Parent-facing row for unclaimed quests (read-only).
+    /// Parent-facing row for unclaimed board quests: edit the quest or remove
+    /// it from the board, via context menu or trailing swipe.
     private func parentAvailableRow(_ row: HeroBoardViewModel.BoardRow) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "sparkles")
@@ -184,6 +212,75 @@ struct HeroBoardView: View {
         }
         .contentShape(Rectangle())
         .accessibilityIdentifier("board.parentRow-\(row.id)")
+        .contextMenu {
+            Button {
+                openEditSheet(for: row)
+            } label: {
+                Label("Edit Quest", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                pendingRemovalRowID = row.id
+            } label: {
+                Label("Remove from Board", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingRemovalRowID = row.id
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+            .accessibilityIdentifier("board.removeAction-\(row.id)")
+            Button {
+                openEditSheet(for: row)
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .accessibilityIdentifier("board.editAction-\(row.id)")
+        }
+        .confirmationDialog(
+            "Remove from Hero Board",
+            isPresented: removalConfirmation(for: row),
+            titleVisibility: .visible
+        ) {
+            Button("Remove from Board", role: .destructive) {
+                removeFromBoard(row)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("“\(row.quest.questName)” will be removed for the whole family. This cannot be undone.")
+        }
+    }
+
+    private func removalConfirmation(for row: HeroBoardViewModel.BoardRow) -> Binding<Bool> {
+        Binding(
+            get: { pendingRemovalRowID == row.id },
+            set: { presented in
+                if !presented {
+                    pendingRemovalRowID = nil
+                }
+            }
+        )
+    }
+
+    private func removeFromBoard(_ row: HeroBoardViewModel.BoardRow) {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        Task {
+            defer { isSubmitting = false }
+            await viewModel.removeFromBoard(row)
+        }
+    }
+
+    private func openEditSheet(for row: HeroBoardViewModel.BoardRow) {
+        // WHY deferred construction: the editor's VM registers the shared questService
+        // sweep callback on init, so it is ensured once and reused across edits
+        // (QuestManagerView pattern) — a per-edit instance would overwrite the shared
+        // callback each time. Dismissal clears it via the sheet's onDismiss above.
+        ViewLifecycle.ensure(&editSheetViewModel) {
+            QuestManagerViewModel(questService: questService, appState: appState)
+        }
+        editingQuest = QuestEditTarget(questRecordName: row.id)
     }
 
     /// Parent-facing row for claimed quests with the release-back-to-board action.

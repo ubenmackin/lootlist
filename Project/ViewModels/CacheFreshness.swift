@@ -15,16 +15,14 @@ enum CacheFreshness {
     /// Scope-gated ledger hydration for the treasury empty state.
     /// WHY scope-gated: unresolved scope stays unhydrated instead of guessing a database.
     static func isLedgerFresh(familyRecordName: String, appState: AppState?) -> Bool {
-        guard !familyRecordName.isEmpty else { return false }
-        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return false }
+        guard !familyRecordName.isEmpty, let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return false }
         return appState?.cacheService?.isCacheFresh(familyRecordName: familyRecordName, type: .ledgerEntry, scope: scope) ?? false
     }
 
     /// Scope-gated profile hydration for the hub placeholder gates.
     /// WHY scope-gated: unresolved scope stays unhydrated instead of guessing a database.
     static func isProfileFresh(familyRecordName: String, appState: AppState?) -> Bool {
-        guard !familyRecordName.isEmpty else { return false }
-        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return false }
+        guard !familyRecordName.isEmpty, let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return false }
         return appState?.cacheService?.isCacheFresh(familyRecordName: familyRecordName, type: .profile, scope: scope) ?? false
     }
 

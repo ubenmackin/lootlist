@@ -109,10 +109,10 @@ final class TreasuryService {
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
         notificationService: NotificationService? = nil,
-        cacheService: (any CacheServicing)? = nil,
+        cacheService: any CacheServicing? = nil,
         toastManager: ToastManager? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) {
         let cache: any CacheServicing
         if let cacheService {
@@ -244,16 +244,9 @@ final class TreasuryService {
                                     family: Family) async throws -> AllowancePeriod
     {
         guard let acting = appState.currentProfile,
-              acting.id == profile.id || acting.role.isParent
+              acting.id == profile.id || acting.role.isParent, profile.family.recordID == family.id,
+              profile.id.zoneID == family.id.zoneID, profile.role == .hero
         else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard profile.family.recordID == family.id,
-              profile.id.zoneID == family.id.zoneID
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard profile.role == .hero else {
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -319,11 +312,7 @@ final class TreasuryService {
 
     private func createPeriod(profile: Profile, family: Family, weekOf: Date) async throws -> AllowancePeriod {
         guard let acting = appState.currentProfile,
-              acting.id == profile.id || acting.role.isParent
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard profile.family.recordID == family.id,
+              acting.id == profile.id || acting.role.isParent, profile.family.recordID == family.id,
               profile.id.zoneID == family.id.zoneID
         else {
             throw FamilyServiceError.unauthorized

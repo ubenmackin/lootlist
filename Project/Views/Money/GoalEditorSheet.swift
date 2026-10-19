@@ -712,11 +712,11 @@ struct GoalEditorSheet: View {
             if amountEmpty {
                 isExtractingPrice = true
                 suggestedPrice = nil
-                if let price = await PriceExtractionService.extractPrice(from: url) {
-                    // Re-check emptiness — user may have typed while fetch was in flight.
-                    if targetAmountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        suggestedPrice = price
-                    }
+                if let price = await PriceExtractionService.extractPrice(from: url),
+                   // Re-check emptiness — user may have typed while fetch was in flight.
+                   targetAmountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
+                    suggestedPrice = price
                 }
                 isExtractingPrice = false
             }

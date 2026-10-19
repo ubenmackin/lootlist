@@ -538,20 +538,35 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     // MARK: - Retry Scheduling (fail-closed stall recovery)
 
     /// WHY backoff retry: transient fetch stalls re-attempt without tight spin.
-    func scheduleRetry(for recordID: CKRecord.ID, isOwner: Bool) {
+    /// WHY bounded budget: the backoff schedule's length is the retry budget —
+    /// exhausting it returns `false` so the caller falls through to the
+    /// discard+toast path instead of re-enqueueing silently forever.
+    @discardableResult
+    func scheduleRetry(for recordID: CKRecord.ID, isOwner: Bool) -> Bool {
         let key = recordID.recordName
         // Overwrite handling: cancel any existing retry Task for this record before stamping new deadline.
         retryTasks.withLock { tasks in
             tasks[key]?.cancel()
         }
-        let attempt = retryAttempts.withLock { counts -> Int in
-            let next = (counts[key] ?? 0) + 1
-            counts[key] = min(next, AppConstants.CloudKit.backoffScheduleNanos.count)
+        let maxAttempts = AppConstants.CloudKit.backoffScheduleNanos.count
+        let attempt = retryAttempts.withLock { counts -> Int? in
+            let previous = counts[key] ?? 0
+            guard previous < maxAttempts else { return nil }
+            let next = previous + 1
+            counts[key] = next
             return next
+        }
+        guard let attempt else {
+            logger.warning("Retry budget exhausted for \(recordID.recordName, privacy: .private) after \(maxAttempts) attempts")
+            retryTasks.withLock { tasks in
+                _ = tasks.removeValue(forKey: key)
+            }
+            retryDeadlines.withLock { _ = $0.removeValue(forKey: key) }
+            return false
         }
         // Stamp 30s retry deadline so engine will re-attempt rather than spin.
         retryDeadlines.withLock { $0[key] = Date().addingTimeInterval(30) }
-        let backoffNanos = AppConstants.CloudKit.backoffScheduleNanos[safe: attempt - 1] ?? AppConstants.CloudKit.backoffScheduleNanos.last ?? 4_000_000_000
+        let backoffNanos = AppConstants.CloudKit.backoffScheduleNanos[attempt - 1]
         logger.warning("Scheduling retry for \(recordID.recordName, privacy: .private) attempt \(attempt) backoff \(Double(backoffNanos) / 1_000_000_000)s with 30s deadline")
         let task = Task { [weak self] in
             do {
@@ -578,9 +593,11 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             }
         }
         retryTasks.withLock { $0[key] = task }
+        return true
     }
 
-    /// Clears retry state after successful re-evaluation.
+    /// Clears retry state once the pending save resolves: the server acked the send,
+    /// or batch preparation converted the save to a delete.
     func clearRetryState(for recordID: CKRecord.ID) {
         let key = recordID.recordName
         retryTasks.withLock { tasks in

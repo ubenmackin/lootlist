@@ -65,7 +65,6 @@ enum AppConstants {
     enum CloudKit {
         static let maxRetries: Int = 3
         static let maxFetchPages: Int = 10000
-        static let shareAbsenceThreshold: Int = 2
         static let backoffScheduleNanos: [UInt64] = [
             500_000_000,
             1_500_000_000,

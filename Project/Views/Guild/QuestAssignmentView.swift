@@ -322,6 +322,13 @@ struct QuestAssignmentView: View {
         }
     }
 
+    /// Board membership is derived: a quest is on the Hero Board iff its
+    /// assignee equals the placeholder record name, so the editor never offers
+    /// reassignment for it.
+    private var editIsBoardQuest: Bool {
+        editQuestCache?.assigneeRecordName == HeroBoardService.boardAssigneeRecordName
+    }
+
     private enum DisplayMode {
         case fromTemplate, quickCreate, edit
     }
@@ -396,7 +403,8 @@ struct QuestAssignmentView: View {
             isEditAmountFocused: $isEditAmountFocused,
             heroes: liveHeroes,
             hasLogs: editHasLogs,
-            allowLockedOverride: allowLockedFieldsOverride
+            allowLockedOverride: allowLockedFieldsOverride,
+            isBoardQuest: editIsBoardQuest
         )
     }
 
@@ -413,7 +421,8 @@ struct QuestAssignmentView: View {
         case .quickCreate:
             return (selectedHero == nil && !quickPostToBoard) || quickName.trimmingCharacters(in: .whitespaces).isEmpty
         case .edit:
-            return editAssignee == nil
+            // Board quests keep the placeholder assignee, so the empty picker is valid.
+            return editAssignee == nil && !editIsBoardQuest
         }
     }
 
@@ -688,7 +697,9 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "No quest to edit.", type: .error)
             return
         }
-        guard let hero = editAssignee else {
+        // Board quests carry no assignee in the payload: the placeholder survives the save
+        // and the quest stays claimable on the Hero Board.
+        guard editIsBoardQuest || editAssignee != nil else {
             toastManager.show(message: "Select a hero.", type: .error)
             return
         }
@@ -723,7 +734,7 @@ struct QuestAssignmentView: View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: questCache)
         // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
         let questSnapshot = questCache.toQuest(zoneID: zoneID)
-        let heroSnapshot = hero.toProfile(zoneID: zoneID)
+        let heroSnapshot = editIsBoardQuest ? nil : editAssignee?.toProfile(zoneID: zoneID)
         let inputSnapshot = (
             name: name,
             description: description,

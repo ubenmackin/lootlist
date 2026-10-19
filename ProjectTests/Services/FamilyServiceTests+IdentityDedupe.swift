@@ -57,13 +57,8 @@ struct FamilyServiceIdentityDedupeTests {
                let familyRef = Self.constantValue(forKey: "family", in: predicate) as? CKRecord.Reference
             {
                 let matching = mockRecords.values.filter { record in
-                    guard record.recordType == Profile.recordType else { return false }
-                    guard let stored = record["iCloudUserID"] as? String,
-                          stored == iCloudUserID
-                    else {
-                        return false
-                    }
-                    guard let storedFamily = record["family"] as? CKRecord.Reference,
+                    guard record.recordType == Profile.recordType, let stored = record["iCloudUserID"] as? String,
+                          stored == iCloudUserID, let storedFamily = record["family"] as? CKRecord.Reference,
                           storedFamily.recordID == familyRef.recordID
                     else {
                         return false

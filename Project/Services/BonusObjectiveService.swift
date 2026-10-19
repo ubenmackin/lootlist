@@ -303,12 +303,16 @@ final class BonusObjectiveService {
             detail: canonicalObjective.title
         )
 
-        if let active = appState.currentProfile, active.id == current.id {
-            if let refreshed = cacheService.fetchProfile(recordName: current.id.recordName, family: current.family.recordID.recordName)?.toProfile(zoneID: current.id.zoneID) {
-                appState.currentProfile = refreshed
-            }
+        if let active = appState.currentProfile, active.id == current.id, let refreshed = cacheService.fetchProfile(
+            recordName: current.id.recordName,
+            family: current.family.recordID.recordName
+        )?.toProfile(zoneID: current.id.zoneID) {
+            appState.currentProfile = refreshed
         }
 
-        activeSoundManager?.play(.gemEarned)
+        // Claim celebration is RPG-gated; the ledger credit above still lands in hidden mode.
+        if FeatureFlags.rpgImmersive {
+            activeSoundManager?.play(.gemEarned)
+        }
     }
 }

@@ -99,18 +99,14 @@ struct ChildHubView: View {
     }
 
     private var isSyncingPlaceholder: Bool {
-        guard currentProfileRow == nil else { return false }
-        guard appState.authStatus == .authenticated else { return false }
-        guard !targetFamilyForFreshness.isEmpty else { return false }
+        guard currentProfileRow == nil, appState.authStatus == .authenticated, !targetFamilyForFreshness.isEmpty else { return false }
         let isEmpty = cachedQuests.isEmpty && cachedProfiles.isEmpty && cachedGoals.isEmpty
         guard isEmpty else { return false }
         return !isProfileFresh
     }
 
     private var isProfileNotFoundPlaceholder: Bool {
-        guard currentProfileRow == nil else { return false }
-        guard appState.authStatus == .authenticated else { return false }
-        guard !targetFamilyForFreshness.isEmpty else { return false }
+        guard currentProfileRow == nil, appState.authStatus == .authenticated, !targetFamilyForFreshness.isEmpty else { return false }
         return isProfileFresh
     }
 

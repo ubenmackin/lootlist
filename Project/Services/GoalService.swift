@@ -81,9 +81,9 @@ final class GoalService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: (any CacheServicing)? = nil,
+        cacheService: any CacheServicing? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil,
+        syncCoordinator: any SyncEnqueuing? = nil,
         achievementService: AchievementService? = nil,
         celebrationManager: CelebrationManager? = nil
     ) {
@@ -495,10 +495,7 @@ final class GoalService {
             }
         }
 
-        guard goal.targetAmountPennies > 0 else {
-            throw GoalServiceError.invalidConfig
-        }
-        guard let bucket = BucketKind(rawValue: goal.bucketKind) else {
+        guard goal.targetAmountPennies > 0, let bucket = BucketKind(rawValue: goal.bucketKind) else {
             throw GoalServiceError.invalidConfig
         }
 

@@ -18,7 +18,7 @@ enum BatchQuestFetcher {
         family: Family,
         cloudKit: any CloudKitServiceProtocol,
         databaseScope: CKDatabase.Scope? = nil,
-        hydrationHandler: (any HydrationHandling)? = nil
+        hydrationHandler: any HydrationHandling? = nil
     ) async throws -> [T] where T.ID == CKRecord.ID {
         guard !names.isEmpty else { return [] }
         // WHY direct fetch by ID: recordName is not server-queryable, so the predicate path always misses on device and degrades to N sequential fetches.

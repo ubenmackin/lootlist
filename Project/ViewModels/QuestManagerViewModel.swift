@@ -159,7 +159,8 @@ final class QuestManagerViewModel {
         var targetCount: Int = 1
         var isAllOrNothing: Bool
         var approvalMode: ApprovalMode
-        var assignee: Profile
+        /// nil leaves the assignee untouched: a Hero Board quest keeps its placeholder assignee.
+        var assignee: Profile?
         var allowLockedFieldsOverride: Bool = false
         var propagateToTemplate: Bool = false
     }
@@ -197,11 +198,13 @@ final class QuestManagerViewModel {
             // WHY cache-only: edit lock must hold offline without network cost.
             let logs = questService.cachedQuestLogs(forQuest: quest)
             if !logs.isEmpty {
+                // nil assignee means "no change", so a board quest never trips the lock for reassignment.
+                let assigneeChanged = input.assignee.map { quest.assignee.recordID != $0.id } ?? false
                 let fieldsChanged = quest.goldReward != input.goldReward
                     || quest.xpReward != input.xpReward
                     || quest.scheduleType != input.scheduleType
                     || quest.targetCount != input.targetCount
-                    || quest.assignee.recordID != input.assignee.id
+                    || assigneeChanged
                     || quest.isAllOrNothing != input.isAllOrNothing
                 if fieldsChanged {
                     throw QuestEditLockedError.lockedFields
@@ -218,9 +221,10 @@ final class QuestManagerViewModel {
         updated.targetCount = input.targetCount
         updated.isAllOrNothing = input.isAllOrNothing
         updated.approvalMode = input.approvalMode
-        // Assignee is updated by passing the record name to the service
+        // Assignee is updated by passing the record name to the service; nil keeps
+        // the current assignee so a board quest cannot drift off the Hero Board.
 
-        _ = try await questService.updateQuest(updated, newAssigneeRecordName: input.assignee.id.recordName)
+        _ = try await questService.updateQuest(updated, newAssigneeRecordName: input.assignee?.id.recordName)
 
         let zoneID = quest.id.zoneID
         if input.propagateToTemplate, let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
@@ -272,10 +276,18 @@ final class QuestManagerViewModel {
 
     // MARK: - List Transforms (pure, no CloudKit)
 
+    /// WHY single owner: the "__heroboard__" board placeholder must render as
+    /// "Hero Board" everywhere; views consume this mapping, never re-implement it.
+    static func heroDisplayTitle(forRecordName recordName: String, heroes: [ProfileCache]) -> String {
+        recordName == HeroBoardService.boardAssigneeRecordName
+            ? "Hero Board"
+            : heroes.first { $0.recordName == recordName }?.displayName ?? "Unknown Hero"
+    }
+
     /// WHY ViewModel-owned: hero-name lookup and hero grouping lived in the
     /// view body; one helper keeps table, list, and sidebar counts identical.
     func heroName(for recordName: String) -> String {
-        heroes.first { $0.recordName == recordName }?.displayName ?? "Unknown Hero"
+        Self.heroDisplayTitle(forRecordName: recordName, heroes: heroes)
     }
 
     /// Assignments grouped by hero with stable sorted keys for sectioned lists.

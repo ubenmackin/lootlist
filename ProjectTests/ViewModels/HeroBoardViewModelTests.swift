@@ -162,7 +162,7 @@ struct HeroBoardViewModelTests {
     // MARK: - Claim flow
 
     @Test
-    func `successful claim moves row to claimed by current user`() async throws {
+    func `successful claim surfaces success toast and removes the row from available`() async throws {
         let ctx = try Scaffold()
         await ctx.cache.upsertQuest(ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID))
         try ctx.viewModel.rebuildLists(quests: [#require(ctx.cachedQuest(recordName: "q-a"))], profiles: [ctx.heroProfileCache])
@@ -171,14 +171,19 @@ struct HeroBoardViewModelTests {
         await ctx.viewModel.claim(row)
 
         #expect(!ctx.viewModel.isClaiming(row))
-        #expect(ctx.cachedQuest(recordName: "q-a")?.claimedByProfileRecordName == ctx.hero.id.recordName)
+        // A clean claim confirms via toast, never the lost-race conflict copy.
+        #expect(ctx.toastManager.toasts.contains { $0.message == "Quest claimed — added to your quests" && $0.type == .success })
 
-        try ctx.viewModel.rebuildLists(quests: [#require(ctx.cachedQuest(recordName: "q-a"))], profiles: [ctx.heroProfileCache])
+        let cached = try #require(ctx.cachedQuest(recordName: "q-a"))
+        #expect(cached.claimedByProfileRecordName == ctx.hero.id.recordName)
+        #expect(cached.assigneeRecordName == ctx.hero.id.recordName)
+
+        ctx.viewModel.rebuildLists(quests: [cached], profiles: [ctx.heroProfileCache])
+        // Reassignment pulls the quest off the child's board and into the
+        // hero's checklist; the claim stamp keeps it parent-rendered only.
         #expect(ctx.viewModel.availableRows.isEmpty)
         #expect(ctx.viewModel.claimedRows.map(\.id) == ["q-a"])
         #expect(ctx.viewModel.claimedRows.first?.isClaimedByCurrentUser == true)
-        // The settled pending claim belongs to the current user, so no conflict toast fires.
-        #expect(ctx.toastManager.toasts.isEmpty)
     }
 
     @Test
@@ -227,7 +232,9 @@ struct HeroBoardViewModelTests {
         let ctx = try Scaffold()
         let claimedAt = Date(timeIntervalSince1970: 3_000_000)
         await ctx.cache.upsertQuest(
-            ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore", claimedBy: "hero1", claimedAt: claimedAt)
+            ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore",
+                             assigneeRecordName: ctx.hero.id.recordName,
+                             claimedBy: "hero1", claimedAt: claimedAt)
                 .toQuest(zoneID: ctx.zoneID)
         )
         try ctx.viewModel.rebuildLists(quests: [#require(ctx.cachedQuest(recordName: "q-a"))], profiles: [ctx.heroProfileCache])
@@ -239,6 +246,7 @@ struct HeroBoardViewModelTests {
         let cached = ctx.cachedQuest(recordName: "q-a")
         #expect(cached?.claimedByProfileRecordName == nil)
         #expect(cached?.claimedAt == nil)
+        #expect(cached?.assigneeRecordName == HeroBoardService.boardAssigneeRecordName)
 
         ctx.appState.currentProfile = ctx.hero
         try ctx.viewModel.rebuildLists(quests: [#require(cached)], profiles: [ctx.heroProfileCache])

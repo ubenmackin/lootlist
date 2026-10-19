@@ -14,26 +14,14 @@ import Synchronization
 @MainActor
 final class FamilyShareReconciler {
     private let familyService: FamilyService
-    private let defaults: UserDefaults
     private let logger = Logger(category: "FamilyShare")
-
-    /// Passes an identity must be observed absent from the participant list
-    /// before its profile is deactivated, riding out CloudKit's asynchronous
-    /// propagation for freshly joined members.
-    private let absenceThreshold = AppConstants.CloudKit.shareAbsenceThreshold
-
-    private enum DeactivationReason {
-        case revoked
-        case absenceThreshold
-    }
 
     private var isStarted = false
     // WHY: handle must stay cancellable from nonisolated deinit without hopping to MainActor.
     private nonisolated let observerTask = Mutex<Task<Void, Never>?>(nil)
 
-    init(familyService: FamilyService, defaults: UserDefaults = .standard) {
+    init(familyService: FamilyService) {
         self.familyService = familyService
-        self.defaults = defaults
     }
 
     deinit {
@@ -66,7 +54,10 @@ final class FamilyShareReconciler {
     }
 
     /// Reconciles active non-owner profiles against the family's `CKShare` participant list.
-    /// Posts `.familyRosterChanged` if membership changes occurred.
+    /// Membership deactivation requires positive evidence: a profile is deactivated only when
+    /// every participant entry matching its iCloud identity carries `.removed` status. Pending,
+    /// unresolvable, or absent identities are never evidence. Posts `.familyRosterChanged` when
+    /// membership changed.
     func reconcileIfOwner() async {
         let appState = familyService.appState
         guard ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState),
@@ -78,8 +69,25 @@ final class FamilyShareReconciler {
 
         do {
             let statuses = try await familyService.cloudKit.fetchShareParticipantStatuses(for: family.id)
-            let revokedIdentities = Set(statuses.filter(\.isRemoved).compactMap(\.recordName))
-            let presentIdentities = Set(statuses.filter { !$0.isRemoved }.compactMap(\.recordName))
+
+            // WHY group by canonical identity key before any recordName filtering: pending
+            // participants have no resolved user record (`recordName` nil), yet their entry
+            // is presence evidence — an identity is revoked only when ALL of its entries
+            // carry `.removed`.
+            var entriesByIdentity: [String: [ShareParticipantStatus]] = [:]
+            for status in statuses {
+                guard let identityKey = status.identityKey ?? status.recordName.map({ ShareParticipantKey.recordKey(for: $0) }) else {
+                    continue
+                }
+                entriesByIdentity[identityKey, default: []].append(status)
+            }
+
+            // WHY join unresolved pending: a re-invited member surfaces as a stale `.removed`
+            // record entry plus a fresh email/phone/participantID pending entry with no
+            // resolved record name yet. The pending key never matches the profile's record
+            // key, yet it is presence evidence for the same identity, so it joins every
+            // record group evaluation in this pass.
+            let unresolvedPending = statuses.filter { $0.recordName == nil && $0.isPending && !$0.isRemoved }
 
             // Self-exclusion guard ensures current user's own profile is never auto-deactivated.
             let currentUserRecordName: String
@@ -101,35 +109,21 @@ final class FamilyShareReconciler {
                 // The Guild Master (owner) is never a participant, and the
                 // current user's own profile must never be self-deactivated, so
                 // both are excluded regardless of participant-list membership.
-                guard profile.role != .guildMaster else { continue }
-                guard profile.iCloudUserID.recordName != currentUserRecordName else { continue }
+                guard profile.role != .guildMaster, profile.iCloudUserID.recordName != currentUserRecordName else { continue }
 
-                let identityKey = profile.iCloudUserID.recordName
-                if revokedIdentities.contains(identityKey) {
-                    // The participant was explicitly revoked (`.removed`) on the
-                    // share: the revoke is authoritative, so the profile is
-                    // deactivated immediately regardless of convergence marks.
-                    clearAbsenceMark(family: family, identityKey: identityKey)
-                    await deactivate(profile, reason: .revoked)
-                    rosterMutated = true
-                    continue
-                }
-                if presentIdentities.contains(identityKey) {
-                    // Live access is confirmed; clear any accumulated absence
-                    // marks (a fresh join may have propagated late).
-                    if defaults.integer(forKey: absenceMarkerKey(familyRecordName: family.id.recordName, identityKey: identityKey)) > 0 {
-                        clearAbsenceMark(family: family, identityKey: identityKey)
-                        rosterMutated = true
-                    }
-                    continue
-                }
-                // Deactivates profiles absent from share participants after verifying missing share access.
-                let observedAbsences = recordAbsence(family: family, identityKey: identityKey)
-                if observedAbsences >= absenceThreshold {
-                    clearAbsenceMark(family: family, identityKey: identityKey)
-                    await deactivate(profile, reason: .absenceThreshold)
-                    rosterMutated = true
-                }
+                // A profile with no participant entry at all is never deactivated;
+                // absence from the roster is negative evidence, not a revoke.
+                guard let entries = entriesByIdentity[ShareParticipantKey.recordKey(for: profile.iCloudUserID.recordName)] else { continue }
+
+                // WHY stale removed plus fresh pending is presence: the joined evidence group
+                // must all be revoked before deactivating, so a re-invite pending blocks the pass.
+                let evidence = entries + unresolvedPending
+
+                // Positive evidence only: every participant entry for this identity must be revoked.
+                guard evidence.allSatisfy(\.isRemoved) else { continue }
+
+                await deactivate(profile)
+                rosterMutated = true
             }
         } catch {
             logger.error("Family share reconciliation failed: \(error, privacy: .private)")
@@ -140,40 +134,12 @@ final class FamilyShareReconciler {
         }
     }
 
-    /// Increments and returns the consecutive-absence count for an identity,
-    /// persisted in `UserDefaults` so the count survives relaunches and stays
-    /// scoped per family + identity (mirroring `CKSyncEngine`'s state serialization).
-    private func recordAbsence(family: Family, identityKey: String) -> Int {
-        let key = absenceMarkerKey(familyRecordName: family.id.recordName, identityKey: identityKey)
-        let count = defaults.integer(forKey: key) + 1
-        defaults.set(count, forKey: key)
-        return count
-    }
-
-    private func clearAbsenceMark(family: Family, identityKey: String) {
-        defaults.removeObject(forKey: absenceMarkerKey(familyRecordName: family.id.recordName, identityKey: identityKey))
-    }
-
-    private func absenceMarkerKey(familyRecordName: String, identityKey: String) -> String {
-        "shareReconciler.absence.\(familyRecordName).\(identityKey)"
-    }
-
-    private func deactivate(_ profile: Profile, reason: DeactivationReason) async {
+    private func deactivate(_ profile: Profile) async {
         do {
             try await familyService.deactivateMemberAfterShareRevocation(profile)
-            switch reason {
-            case .revoked:
-                logger.info("Deactivated \(profile.displayName, privacy: .private) — share access was revoked")
-            case .absenceThreshold:
-                logger.info("Deactivated \(profile.displayName, privacy: .private) — share identity absent for \(self.absenceThreshold, privacy: .private) consecutive passes")
-            }
+            logger.info("Deactivated \(profile.displayName, privacy: .private) — share access was revoked")
         } catch {
-            switch reason {
-            case .revoked:
-                logger.error("Failed to deactivate \(profile.displayName, privacy: .private) after share revocation: \(error, privacy: .private)")
-            case .absenceThreshold:
-                logger.error("Failed to deactivate \(profile.displayName, privacy: .private) after absence threshold: \(error, privacy: .private)")
-            }
+            logger.error("Failed to deactivate \(profile.displayName, privacy: .private) after share revocation: \(error, privacy: .private)")
         }
     }
 }

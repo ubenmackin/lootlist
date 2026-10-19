@@ -65,11 +65,7 @@ final class QuestAssignmentService {
     {
         guard let acting = appState.currentProfile,
               acting.id == createdBy.id,
-              acting.role.isParent
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard template.family.recordID == family.id,
+              acting.role.isParent, template.family.recordID == family.id,
               template.id.zoneID == family.id.zoneID,
               assignee.family.recordID == family.id,
               assignee.id.zoneID == family.id.zoneID,
@@ -167,11 +163,7 @@ final class QuestAssignmentService {
     {
         guard let acting = appState.currentProfile,
               acting.id == createdBy.id,
-              acting.role.isParent
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard assignee.family.recordID == family.id,
+              acting.role.isParent, assignee.family.recordID == family.id,
               assignee.id.zoneID == family.id.zoneID,
               createdBy.family.recordID == family.id,
               createdBy.id.zoneID == family.id.zoneID

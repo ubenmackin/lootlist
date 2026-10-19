@@ -357,7 +357,7 @@ struct AutoPayoutCoordinatorTests {
         #expect(weekStart == cal.startOfDay(for: monday))
         let range = WeekMath.weekRange(starting: weekStart)
         let payoutDate = try #require(cal.date(byAdding: .day, value: AppConstants.Economy.payoutCutoffDayOffset, to: weekStart))
-        #expect(payoutDate == cal.date(from: DateComponents(year: 2026, month: 8, day: 9))!)
+        #expect(try payoutDate == #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9))))
         #expect(try cal.isDate(payoutDate, inSameDayAs: #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9)))))
 
         let sundayNight = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9, hour: 23, minute: 59, second: 59)))

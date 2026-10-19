@@ -63,8 +63,7 @@ final class AppSyncCoordinator {
             cloudKitNotificationTask = Task { [weak self] in
                 await withTaskCancellationHandler {
                     for await notification in NotificationCenter.default.notifications(named: .cloudKitNotificationReceived) {
-                        guard !Task.isCancelled else { break }
-                        guard let self else { break }
+                        guard !Task.isCancelled, let self else { break }
                         guard let ckNotification = notification.object as? CKNotification else { continue }
                         self.handleNotification(ckNotification)
                     }
@@ -76,8 +75,7 @@ final class AppSyncCoordinator {
             shareAcceptedTask = Task { [weak self] in
                 await withTaskCancellationHandler {
                     for await notification in NotificationCenter.default.notifications(named: .cloudKitShareAccepted) {
-                        guard !Task.isCancelled else { break }
-                        guard let self else { break }
+                        guard !Task.isCancelled, let self else { break }
                         if let resolution = notification.object as? InvitationLinkResolution {
                             self.handleShareAcceptance(resolution)
                         }

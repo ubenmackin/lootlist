@@ -277,8 +277,7 @@ struct AvatarSelectionView: View {
             Task {
                 guard let item = newItem else { return }
                 do {
-                    guard let data = try await item.loadTransferable(type: Data.self) else { return }
-                    guard let rawImage = UIImage(data: data) else { return }
+                    guard let data = try await item.loadTransferable(type: Data.self), let rawImage = UIImage(data: data) else { return }
                     let resized = resizeImageIfNeeded(rawImage, maxDimension: 512)
                     viewModel.customAvatarImageData = resized.jpegData(compressionQuality: 0.8)
                 } catch is CancellationError {

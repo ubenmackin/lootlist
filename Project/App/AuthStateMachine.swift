@@ -43,7 +43,9 @@ final class AuthStateMachine {
                 logger.info("Deferring account-change discovery until the persisted session is restored")
                 return
             }
-            if appState.authStatus != .checkingCloudData {
+            // WHY guarded: discovery is coordinated by AppLifecycleCoordinator/AuthenticationCoordinator;
+            // never blindly transition an authenticated session to checkingCloudData without an active scan pass.
+            if appState.authStatus != .authenticated, appState.authStatus != .checkingCloudData {
                 appState.authStatus = .checkingCloudData
             }
         case .sessionRestored:

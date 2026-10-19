@@ -31,14 +31,10 @@ enum PriceExtractionService {
         guard !snippet.isEmpty else { return nil }
 
         #if canImport(FoundationModels)
-            if #available(iOS 26, *) {
-                if SystemLanguageModel.default.isAvailable {
-                    if let fmPrice = await extractWithFoundationModels(snippet: snippet) {
-                        if fmPrice.amountPennies > 0, fmPrice.amountPennies < 10_000_000 {
-                            return fmPrice
-                        }
-                    }
-                }
+            if #available(iOS 26, *), SystemLanguageModel.default.isAvailable, let fmPrice = await extractWithFoundationModels(snippet: snippet), fmPrice.amountPennies > 0,
+               fmPrice.amountPennies < 10_000_000
+            {
+                return fmPrice
             }
         #endif
 
@@ -195,10 +191,8 @@ enum PriceExtractionService {
         // Scan meta tags and match property/name containing key, then pull content attribute.
         for match in html.matches(of: /(?i)<meta[^>]+>/) {
             let tag = String(match.output)
-            if tag.lowercased().contains(key.lowercased()) {
-                if let content = extractContentAttribute(from: tag) {
-                    return content
-                }
+            if tag.lowercased().contains(key.lowercased()), let content = extractContentAttribute(from: tag) {
+                return content
             }
         }
         return nil

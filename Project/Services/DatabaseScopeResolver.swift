@@ -19,8 +19,7 @@ enum DatabaseScopeResolver {
     /// WHY truly optional: unresolved anchor returns nil so callers drop instead of guessing .shared.
     @MainActor
     static func resolvedScope(appState: AppState?) -> CKDatabase.Scope? {
-        guard let appState else { return nil }
-        guard appState.familyZoneID != nil, appState.family != nil || appState.currentProfile != nil else { return nil }
+        guard let appState, appState.familyZoneID != nil, appState.family != nil || appState.currentProfile != nil else { return nil }
         // WHY single anchor: owner resolution lives with the guard so scope cannot drift.
         guard ActiveFamilyScopeGuard.isOwnerAnchorResolved(appState: appState) else {
             // WHY test seam: unit tests seed legacy anchors that never resolve, so fall back to stored flag.

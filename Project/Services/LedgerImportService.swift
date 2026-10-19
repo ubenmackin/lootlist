@@ -288,7 +288,7 @@ final class LedgerImportService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: (any CacheServicing)? = nil,
+        cacheService: any CacheServicing? = nil,
         appState: AppState? = nil,
         syncCoordinator: (any SyncEnqueuing & SyncCoordinating)? = nil
     ) {

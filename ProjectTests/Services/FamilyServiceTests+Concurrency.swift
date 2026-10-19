@@ -110,9 +110,9 @@ final class QueryGate: Sendable {
 
 // MARK: - Concurrency Stress Harness: refreshInFlightKeys collapse
 
+@MainActor
 extension FamilyServiceTests {
-    @Test @MainActor
-    func `concurrent refreshProfilesFromCloudKit collapses to one query for ten callers`() async throws {
+    @Test func `concurrent refreshProfilesFromCloudKit collapses to one query for ten callers`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = GatedQueryCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
@@ -156,8 +156,7 @@ extension FamilyServiceTests {
         #expect(profiles.first?.recordName == "hero-ck")
     }
 
-    @Test @MainActor
-    func `mutex set atomic insertIfAbsent prevents duplicate refresh keys`() {
+    @Test func `mutex set atomic insertIfAbsent prevents duplicate refresh keys`() {
         let mutex = Mutex<Set<String>>([])
         let key = "profiles|fam1"
         let first = mutex.withLock { set -> Bool in

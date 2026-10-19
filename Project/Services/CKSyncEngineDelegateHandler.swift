@@ -41,6 +41,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     var hydrateCallCount = 0
 
     #if DEBUG
+        /// Test-visible retry accounting: failed-save resolutions that requested a coordinator backoff retry.
+        var retryScheduleRequests: [(recordID: CKRecord.ID, isOwner: Bool)] = []
         var lastDiscardedSaveDiagnostic: String?
     #endif
 
@@ -209,15 +211,14 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                         "nextRecordZoneChangeBatch pending save retained for \(recordID.recordName, privacy: .private) — \(fetchDetail, privacy: .public), retry scheduled with 30s deadline"
                     )
                     let isOwner = identity.databaseScope == .private
-                    await MainActor.run {
+                    _ = await MainActor.run {
                         self.coordinator?.scheduleRetry(for: recordID, isOwner: isOwner)
                     }
                 }
-            } else {
-                await MainActor.run {
-                    self.coordinator?.clearRetryState(for: recordID)
-                }
             }
+            // WHY no retry clear here: batch preparation runs before every send attempt, so
+            // resetting the budget at this point would restart the attempt counter between
+            // consecutive transient failures — the budget clears on send success instead.
             return record
         }
     }
@@ -640,12 +641,29 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 databaseScope: databaseScope
             )
         }
+
+        /// Test-accessible entry mirroring the engine's sent-changes path for failed record saves.
+        func simulateFailedRecordSaves(
+            _ failedRecordSaves: [(record: CKRecord, error: CKError)],
+            syncEngine: CKSyncEngine
+        ) async {
+            await resolveFailedRecordSaves(failedRecordSaves, syncEngine: syncEngine)
+        }
+
+        /// Test-accessible entry mirroring the engine's sent-changes path for saved record saves.
+        func simulateSentRecordSaves(_ savedRecords: [CKRecord]) {
+            processSavedRecordSaves(savedRecords)
+        }
     #endif
 
     private func handleSentRecordZoneChanges(
         _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
         syncEngine: CKSyncEngine
     ) async {
+        // WHY send-success clearing: retry attempts must accumulate across consecutive
+        // failed sends, so the per-record budget resets only when the server acks the
+        // save — never during batch preparation, which runs before every attempt.
+        processSavedRecordSaves(sentEvent.savedRecords)
         if let activeFamily = appState?.family?.id.recordName {
             checkSentTransferSkew(sentEvent, activeFamily: activeFamily)
             await refreshSentSystemFields(sentEvent, activeFamily: activeFamily)
@@ -653,6 +671,15 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         await resolveFailedSaves(sentEvent, syncEngine: syncEngine)
         await processSentDeletes(sentEvent, syncEngine: syncEngine)
         processFailedDeletes(sentEvent, syncEngine: syncEngine)
+    }
+
+    /// WHY primitive inputs: the engine's sent-changes payload exposes no public initializer,
+    /// so the saved-record handling lives here where both the engine event and the DEBUG test
+    /// seam can drive it.
+    private func processSavedRecordSaves(_ savedRecords: [CKRecord]) {
+        for savedRecord in savedRecords {
+            coordinator?.clearRetryState(for: savedRecord.recordID)
+        }
     }
 
     private func checkSentTransferSkew(
@@ -709,40 +736,62 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
         syncEngine: CKSyncEngine
     ) async {
-        for failedSave in sentEvent.failedRecordSaves {
+        await resolveFailedRecordSaves(
+            sentEvent.failedRecordSaves.map { (record: $0.record, error: $0.error) },
+            syncEngine: syncEngine
+        )
+    }
+
+    /// WHY record/error pairs: the engine's failed-save payload exposes no public initializer, so primitive
+    /// inputs keep the engine event and the DEBUG test seam on one resolution path.
+    private func resolveFailedRecordSaves(
+        _ failedRecordSaves: [(record: CKRecord, error: CKError)],
+        syncEngine: CKSyncEngine
+    ) async {
+        let scope = syncEngine.database.databaseScope
+        for failedSave in failedRecordSaves {
             let record = failedSave.record
             let error = failedSave.error
-            let scope = syncEngine.database.databaseScope
             if let resolvedRecord = await conflictResolver.resolveFailedSave(record: record, error: error, databaseScope: scope) {
-                let pendingSave = CKSyncEngine.PendingRecordZoneChange.saveRecord(resolvedRecord.recordID)
-                syncEngine.state.add(pendingRecordZoneChanges: [pendingSave])
-            } else {
-                // WHY: pending save was rejected and not re-enqueued — surface the discard so optimistic UI does not silently flip.
-                let isServerRecordChanged = error.code == .serverRecordChanged
-                let isSecondary = CachedRecordType.recordType(for: record.recordType).map { type in
-                    ![CachedRecordType.quest, .profile, .questCompletion, .allowancePeriod].contains(type)
-                } ?? false
-                // Secondary server-wins already toasted inside resolver; avoid duplicate banner for that exact path.
-                if isServerRecordChanged, isSecondary {
+                let isOwner = scope == .private
+                // WHY budget gate: scheduleRetry returns false once the bounded backoff
+                // budget is spent, so the mutation falls through to the discard+toast
+                // path below instead of being re-enqueued silently forever.
+                if coordinator?.scheduleRetry(for: resolvedRecord.recordID, isOwner: isOwner) == true {
+                    let pendingSave = CKSyncEngine.PendingRecordZoneChange.saveRecord(resolvedRecord.recordID)
+                    syncEngine.state.add(pendingRecordZoneChanges: [pendingSave])
+                    #if DEBUG
+                        retryScheduleRequests.append((resolvedRecord.recordID, isOwner))
+                    #endif
                     continue
                 }
-                let familyForStale: String? = appState?.family?.id.recordName
-                    ?? (record["family"] as? CKRecord.Reference)?.recordID.recordName
-                if let familyForStale, let staleType = CachedRecordType.recordType(for: record.recordType) {
-                    cacheService?.invalidateFreshness(familyRecordName: familyForStale, type: staleType)
-                } else if familyForStale == nil,
-                          let staleType = CachedRecordType.recordType(for: record.recordType)
-                {
-                    let typeLabel = String(describing: staleType)
-                    let recordName = record.recordID.recordName
-                    logger.fault(
-                        "Could not resolve family for stale invalidation — skipping freshness invalidation for \(typeLabel, privacy: .public) id=\(recordName, privacy: .private)"
-                    )
-                }
-                let message = discardedSaveMessage(for: record)
-                logDiscardedSave(record: record, error: error, scope: scope)
-                toastManager?.show(message: message, type: .warning)
+                logger.warning("Retry budget exhausted for \(record.recordID.recordName, privacy: .private) — discarding save with toast")
             }
+            // WHY: pending save was rejected and not re-enqueued — surface the discard so optimistic UI does not silently flip.
+            let isServerRecordChanged = error.code == .serverRecordChanged
+            let isSecondary = CachedRecordType.recordType(for: record.recordType).map { type in
+                ![CachedRecordType.quest, .profile, .questCompletion, .allowancePeriod].contains(type)
+            } ?? false
+            // Secondary server-wins already toasted inside resolver; avoid duplicate banner for that exact path.
+            if isServerRecordChanged, isSecondary {
+                continue
+            }
+            let familyForStale: String? = appState?.family?.id.recordName
+                ?? (record["family"] as? CKRecord.Reference)?.recordID.recordName
+            if let familyForStale, let staleType = CachedRecordType.recordType(for: record.recordType) {
+                cacheService?.invalidateFreshness(familyRecordName: familyForStale, type: staleType)
+            } else if familyForStale == nil,
+                      let staleType = CachedRecordType.recordType(for: record.recordType)
+            {
+                let typeLabel = String(describing: staleType)
+                let recordName = record.recordID.recordName
+                logger.fault(
+                    "Could not resolve family for stale invalidation — skipping freshness invalidation for \(typeLabel, privacy: .public) id=\(recordName, privacy: .private)"
+                )
+            }
+            let message = discardedSaveMessage(for: record)
+            logDiscardedSave(record: record, error: error, scope: scope)
+            toastManager?.show(message: message, type: .warning)
         }
     }
 

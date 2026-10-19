@@ -11,6 +11,7 @@ import os
 @MainActor
 enum ServiceInitHelper {
     static func resolveCacheService(
+        // swiftformat:disable:next redundantParens
         provided: (any CacheServicing)?,
         logger: Logger,
         serviceName: String
@@ -24,6 +25,7 @@ enum ServiceInitHelper {
     }
 
     static func resolveSyncCoordinator(
+        // swiftformat:disable:next redundantParens
         provided: (any SyncEnqueuing)?,
         logger: Logger,
         serviceName: String

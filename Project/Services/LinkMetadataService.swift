@@ -155,12 +155,10 @@ final class LinkMetadataService {
                 {
                     ogCandidate = resolved
                 }
-            } else if lower.contains("twitter:image") {
-                if twitterCandidate == nil, let content = extractContent(from: tag),
-                   let resolved = resolvedURLString(from: content, baseURL: baseURL)
-                {
-                    twitterCandidate = resolved
-                }
+            } else if lower.contains("twitter:image"), twitterCandidate == nil, let content = extractContent(from: tag),
+                      let resolved = resolvedURLString(from: content, baseURL: baseURL)
+            {
+                twitterCandidate = resolved
             }
             if ogCandidate != nil {
                 break
