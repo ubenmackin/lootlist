@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 @testable import LootList
+import Synchronization
 import Testing
 
 /// `MockCloudKitService` that cannot resolve the current iCloud identity,
@@ -95,11 +96,7 @@ struct FamilyShareReconcilerTests {
         // authorized through the parent-role guard in `deactivateProfile`.
         appState.currentProfile = guildMaster
 
-        let reconciler = FamilyShareReconciler(
-            familyService: familyService,
-            // Fresh per-test suite so absence marks never leak between tests.
-            defaults: UserDefaults(suiteName: "FamilyShareReconcilerTests.\(UUID().uuidString)")!
-        )
+        let reconciler = FamilyShareReconciler(familyService: familyService)
         return Context(
             reconciler: reconciler,
             cloudKit: cloudKit,
@@ -111,14 +108,18 @@ struct FamilyShareReconcilerTests {
         )
     }
 
-    // MARK: - Absence Convergence
+    // MARK: - Positive-Evidence Deactivation
 
     @Test
-    func `single participant-list absence does not deactivate a profile`() async {
+    func `pending invite plus stale removed entry for one identity never deactivates`() async throws {
         let ctx = makeContext()
-        // No simulated participation: the hero's identity is absent from every
-        // share. CloudKit propagates membership changes asynchronously, so one
-        // observation must only record the absence, never deactivate.
+        // The kid was re-invited: a stale `.removed` record entry coexists with a fresh
+        // email-keyed pending entry carrying no resolved record name yet, mirroring
+        // `fetchShareParticipantStatuses` output for a re-invited member.
+        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
+        ctx.cloudKit.mockRemovedMemberships.insert("record:u1")
+        _ = try await ctx.cloudKit.simulatePendingParticipation(key: "email:hero@example.com", rootRecordID: ctx.family.id, role: .hero)
+        await ctx.reconciler.reconcileIfOwner()
         await ctx.reconciler.reconcileIfOwner()
 
         let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
@@ -126,95 +127,83 @@ struct FamilyShareReconcilerTests {
     }
 
     @Test
-    func `two consecutive absences deactivate the profile`() async {
+    func `single removed entry deactivates and posts familyRosterChanged`() async throws {
         let ctx = makeContext()
-        await ctx.reconciler.reconcileIfOwner()
-        await ctx.reconciler.reconcileIfOwner()
-
-        let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
-        #expect(fresh?.isActive == false)
-    }
-
-    @Test
-    func `present identity keeps the profile active and clears absence marks`() async throws {
-        let ctx = makeContext()
-        // Pass 1: absent — the mark accumulates, nothing deactivates.
-        await ctx.reconciler.reconcileIfOwner()
-        #expect(ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }?.isActive == true)
-
-        // Membership propagates late (fresh join): pass 2 sees the identity
-        // present and must clear the accumulated absence mark.
         _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
-        await ctx.reconciler.reconcileIfOwner()
-        #expect(ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }?.isActive == true)
-
-        // The identity drops off the share again (owner-side revoke). Because
-        // the present pass cleared the mark, this absence restarts the count:
-        // pass 3 must NOT deactivate — a stale mark would have made this the
-        // second consecutive absence and deactivated the fresh join.
-        try await ctx.cloudKit.removeParticipant(iCloudUserRecordName: "u1", from: ctx.family.id)
-        await ctx.reconciler.reconcileIfOwner()
-        #expect(ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }?.isActive == true)
-    }
-
-    // MARK: - Explicit Revocation
-
-    @Test
-    func `removed participant deactivates immediately`() async throws {
-        let ctx = makeContext()
         // Owner-side revoke leaves the identity visible with `.removed` status
         // while CloudKit propagates; this is an authoritative revoke, so a
         // single observation is enough.
-        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
         ctx.cloudKit.mockRemovedMemberships.insert("record:u1")
+
+        let rosterChangeCount = Mutex(0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .familyRosterChanged, object: nil, queue: nil
+        ) { _ in
+            rosterChangeCount.withLock { $0 += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
         await ctx.reconciler.reconcileIfOwner()
 
+        #expect(rosterChangeCount.withLock { $0 } == 1)
         let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
         #expect(fresh?.isActive == false)
     }
 
-    // MARK: - Fail-Closed Identity Resolution
+    @Test
+    func `profile with no participant entry is never deactivated`() async {
+        let ctx = makeContext()
+        // CloudKit propagates membership asynchronously, but absence from the
+        // participant list is negative evidence: however many passes run, the
+        // profile must stay active.
+        for _ in 0 ..< 3 {
+            await ctx.reconciler.reconcileIfOwner()
+        }
+
+        let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(fresh?.isActive == true)
+    }
+
+    // MARK: - Status Mapping
+
+    @Test
+    func `status mapping keeps pending participants pending and records accepted record names`() async throws {
+        let cloudKit = MockCloudKitService()
+        let familyID = CKRecord.ID(recordName: "fam-map", zoneID: CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner"))
+
+        _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: familyID, role: .hero)
+        _ = try await cloudKit.simulatePendingParticipation(key: "record:reinvite", rootRecordID: familyID, role: .hero)
+
+        let statuses = try await cloudKit.fetchShareParticipantStatuses(for: familyID)
+
+        let accepted = statuses.first { $0.identityKey == "record:u1" }
+        #expect(accepted?.recordName == "u1")
+        #expect(accepted?.isPending == false)
+        #expect(accepted?.isRemoved == false)
+
+        let pending = statuses.first { $0.identityKey == "record:reinvite" }
+        #expect(pending?.isPending == true)
+        // CloudKit resolves the user record only on acceptance, so a pending
+        // entry must never carry a record name.
+        #expect(pending?.recordName == nil)
+        #expect(pending?.isRemoved == false)
+    }
+
+    // MARK: - Fail-Closed Guards
 
     @Test
     func `identity resolution failure aborts the pass without deactivating`() async {
         let ctx = makeContext(cloudKit: FailingIdentityCloudKitService())
-        // The identity is absent from the participant list, but the pass cannot
-        // run the self-exclusion guard, so it must not deactivate anything.
+        // The pass cannot run the self-exclusion guard, so it must abort and
+        // never touch active profiles.
         await ctx.reconciler.reconcileIfOwner()
 
         let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
         #expect(fresh?.isActive == true)
     }
 
-    // MARK: - Deactivation Reasons
-
     @Test
-    func `revoked identity deactivates on the revoked path`() async throws {
-        let ctx = makeContext()
-        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
-        ctx.cloudKit.mockRemovedMemberships.insert("record:u1")
-        await ctx.reconciler.reconcileIfOwner()
-
-        let fresh = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
-        #expect(fresh?.isActive == false)
-    }
-
-    @Test
-    func `absent identity deactivates only after the threshold`() async {
-        let ctx = makeContext()
-        await ctx.reconciler.reconcileIfOwner()
-
-        let afterFirst = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
-        #expect(afterFirst?.isActive == true)
-
-        await ctx.reconciler.reconcileIfOwner()
-
-        let afterSecond = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
-        #expect(afterSecond?.isActive == false)
-    }
-
-    @Test
-    func `failed status fetch deactivates nobody and records no absences`() async {
+    func `failed status fetch deactivates nobody`() async throws {
         let failingCloudKit = FailingStatusCloudKitService()
         let ctx = makeContext(cloudKit: failingCloudKit)
         failingCloudKit.shouldFailStatusFetch = true
@@ -224,17 +213,13 @@ struct FamilyShareReconcilerTests {
         let afterFailures = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
         #expect(afterFailures?.isActive == true)
 
-        // Failures must not have recorded absences: the first successful
-        // absent pass restarts the count, so the profile stays active.
+        // Once the share resolves again, an explicit revocation still deactivates.
+        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
+        ctx.cloudKit.mockRemovedMemberships.insert("record:u1")
         failingCloudKit.shouldFailStatusFetch = false
         await ctx.reconciler.reconcileIfOwner()
 
-        let afterFirstAbsence = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
-        #expect(afterFirstAbsence?.isActive == true)
-
-        await ctx.reconciler.reconcileIfOwner()
-
-        let afterThreshold = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
-        #expect(afterThreshold?.isActive == false)
+        let afterRevoke = ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }
+        #expect(afterRevoke?.isActive == false)
     }
 }

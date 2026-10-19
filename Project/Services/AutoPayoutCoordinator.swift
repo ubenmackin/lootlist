@@ -259,8 +259,7 @@ final class AutoPayoutCoordinator {
         var pendingTuples: [TemplateAssigneePair] = []
         var seenTuples = Set<TemplateAssigneePair>()
         for quest in quests {
-            guard activeTemplateNames.contains(quest.templateRecordName) else { continue }
-            guard heroNames.contains(quest.assigneeRecordName) else { continue }
+            guard activeTemplateNames.contains(quest.templateRecordName), heroNames.contains(quest.assigneeRecordName) else { continue }
             let pair = TemplateAssigneePair(template: quest.templateRecordName, assignee: quest.assigneeRecordName)
             if seenTuples.insert(pair).inserted {
                 pendingTuples.append(pair)

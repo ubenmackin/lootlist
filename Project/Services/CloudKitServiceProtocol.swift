@@ -138,11 +138,15 @@ struct ShareParticipantStatus: Sendable, Equatable {
     let identityKey: String?
     let recordName: String?
     let isRemoved: Bool
+    /// WHY pending is tracked separately: CloudKit resolves `userRecordID` only on acceptance,
+    /// so a pending entry often carries no `recordName` yet and still counts as identity presence.
+    let isPending: Bool
 
-    init(identityKey: String? = nil, recordName: String?, isRemoved: Bool) {
+    init(identityKey: String? = nil, recordName: String?, isRemoved: Bool, isPending: Bool = false) {
         self.identityKey = identityKey
         self.recordName = recordName
         self.isRemoved = isRemoved
+        self.isPending = isPending
     }
 }
 
@@ -152,7 +156,7 @@ struct ShareParticipantStatus: Sendable, Equatable {
 enum ShareParticipantKey {
     static func key(for participant: CKShare.Participant) -> String? {
         if let recordName = participant.userIdentity.userRecordID?.recordName {
-            return "record:\(recordName)"
+            return recordKey(for: recordName)
         }
         if let email = participant.userIdentity.lookupInfo?.emailAddress {
             return "email:\(email)"
@@ -164,6 +168,12 @@ enum ShareParticipantKey {
             return "participantID:\(participant.participantID)"
         }
         return nil
+    }
+
+    /// Canonical key for an identity already resolved to a CloudKit user record name — the shape
+    /// the profile side of reconciliation (and record-name revocation matching) keys on.
+    static func recordKey(for recordName: String) -> String {
+        "record:\(recordName)"
     }
 }
 

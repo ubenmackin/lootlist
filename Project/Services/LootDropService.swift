@@ -80,6 +80,9 @@ final class LootDropService {
 
     @discardableResult
     func rollAndCredit(questRarity: QuestRarity, streakDays: Int, to profile: Profile, eventKey: String) async -> LootDrop? {
+        // Hidden-mode gate: no roll, no credit, no presentation; the ledger stays untouched.
+        guard FeatureFlags.rpgImmersive else { return nil }
+
         if let cache = gemService.cacheService {
             let ledgerID = GemLedger.deterministicRecordID(
                 profileRecordName: profile.id.recordName,

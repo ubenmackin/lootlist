@@ -287,6 +287,78 @@ struct GemServiceTests {
         #expect(profileAfterRollback?.gemsTotal == 50, "Profile must remain at pre-batch gems when the batch fails")
     }
 
+    // MARK: - Spend-path RPG gating
+
+    private struct SpendFixture {
+        let gemService: GemService
+        let cache: CacheService
+        let hero: Profile
+        let family: Family
+        let toastManager: ToastManager
+    }
+
+    /// Shared fixture for the insufficient-gems gate: no ledger rows exist, so any
+    /// spend attempt must refuse at the local balance check before touching CloudKit.
+    private func makeSpendFixture(zoneName: String) async throws -> SpendFixture {
+        let zoneID = makeZoneID(name: zoneName)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        appState.cacheService = cache
+        let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "hero1")
+        var hero = ExhaustiveCacheFixtures.sharedHero(zoneID: zoneID, displayName: "Hero", iCloudRecordName: "hero1")
+        hero.family = CKRecord.Reference(recordID: family.id, action: .none)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero])
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.currentProfile = hero
+
+        let toast = ToastManager()
+        let gemService = GemService(cloudKitService: cloudKit, cacheService: cache, toastManager: toast, appState: appState)
+        return SpendFixture(gemService: gemService, cache: cache, hero: hero, family: family, toastManager: toast)
+    }
+
+    @Test
+    func `spendGems with RPG flag off refuses without toast`() async throws {
+        let fixture = try await makeSpendFixture(zoneName: "SpendGateOffZone")
+
+        try await RPGFlagGate.withRPGFlag(false) {
+            let spent = try await fixture.gemService.spendGems(
+                amount: 30,
+                from: fixture.hero,
+                itemID: "headwear_golden_crown",
+                on: "Golden Crown",
+                eventKey: "spend-gate-off"
+            )
+            #expect(spent == false, "Refusal must stay ungated so hidden-mode balances never go negative")
+            #expect(fixture.toastManager.toasts.isEmpty, "Gem toasts are RPG-gated like the credit path")
+            #expect(fixture.cache.fetchGemLedgers(family: fixture.family.id.recordName).isEmpty)
+            #expect(try fixture.gemService.balance(for: fixture.hero.id.recordName, familyRecordName: fixture.family.id.recordName) == 0)
+        }
+    }
+
+    @Test
+    func `spendGems with RPG flag on shows insufficient gem toast`() async throws {
+        let fixture = try await makeSpendFixture(zoneName: "SpendGateOnZone")
+
+        try await RPGFlagGate.withRPGFlag(true) {
+            let spent = try await fixture.gemService.spendGems(
+                amount: 30,
+                from: fixture.hero,
+                itemID: "headwear_golden_crown",
+                on: "Golden Crown",
+                eventKey: "spend-gate-on"
+            )
+            #expect(spent == false)
+            #expect(fixture.toastManager.toasts.contains { $0.message == "Insufficient gems 💎" && $0.type == .error })
+            #expect(fixture.cache.fetchGemLedgers(family: fixture.family.id.recordName).isEmpty)
+            #expect(try fixture.gemService.balance(for: fixture.hero.id.recordName, familyRecordName: fixture.family.id.recordName) == 0)
+        }
+    }
+
     // MARK: - LootDropService rollAndCredit respects idempotency
 
     @Test
@@ -313,19 +385,21 @@ struct GemServiceTests {
         let lootService = LootDropService(gemService: gemService)
         lootService.rollProvider = { _, _ in drop }
 
-        let eventKey = "completion-loot-123"
-        let first = await lootService.rollAndCredit(questRarity: .common, streakDays: 0, to: hero, eventKey: eventKey)
-        #expect(first == drop)
-        let second = await lootService.rollAndCredit(questRarity: .common, streakDays: 0, to: hero, eventKey: eventKey)
-        #expect(second == nil)
+        try await RPGFlagGate.withRPGFlag(true) {
+            let eventKey = "completion-loot-123"
+            let first = await lootService.rollAndCredit(questRarity: .common, streakDays: 0, to: hero, eventKey: eventKey)
+            #expect(first == drop)
+            let second = await lootService.rollAndCredit(questRarity: .common, streakDays: 0, to: hero, eventKey: eventKey)
+            #expect(second == nil)
 
-        let ledgers = cache.fetchGemLedgers(family: "fam1")
-        #expect(ledgers.count == 1, "Second rollAndCredit with same eventKey must not create a second ledger row")
-        let balance = try gemService.balance(for: hero.id.recordName, familyRecordName: "fam1")
-        #expect(balance == 25, "Balance must reflect exactly one loot credit")
+            let ledgers = cache.fetchGemLedgers(family: "fam1")
+            #expect(ledgers.count == 1, "Second rollAndCredit with same eventKey must not create a second ledger row")
+            let balance = try gemService.balance(for: hero.id.recordName, familyRecordName: "fam1")
+            #expect(balance == 25, "Balance must reflect exactly one loot credit")
 
-        let rejectedRarity: LootDrop? = lootService.rollForLoot(questRarity: .common, streakDays: 0)
-        #expect(rejectedRarity != nil)
+            let rejectedRarity: LootDrop? = lootService.rollForLoot(questRarity: .common, streakDays: 0)
+            #expect(rejectedRarity != nil)
+        }
     }
 
     @Test

@@ -210,8 +210,7 @@ struct QuestManagerListSectionView: View {
                 } else {
                     let grouped = viewModel.groupedAssignments(visible)
                     ForEach(grouped, id: \.key) { entry in
-                        let hero = viewModel.heroes.first { $0.recordName == entry.key }
-                        Section(header: Text(hero?.displayName ?? "Unknown Hero")) {
+                        Section(header: Text(QuestManagerViewModel.heroDisplayTitle(forRecordName: entry.key, heroes: viewModel.heroes))) {
                             ForEach(entry.quests) { quest in
                                 assignmentRow(quest: quest)
                             }

@@ -29,7 +29,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
     private let familyService: any FamilyProfileFetching
     private let appState: AppState
     private let invitationResolver: InvitationResolver
-    private let syncCoordinator: (any SyncEnqueuing)?
+    private let syncCoordinator: any SyncEnqueuing?
     private let lifecycleCoordinator: AppLifecycleCoordinator?
     private let logger = Logger(category: "FamilyInvitationCoordinator")
 
@@ -37,13 +37,13 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         familyService: any FamilyProfileFetching,
         appState: AppState,
         invitationResolver: InvitationResolver = InvitationResolver(),
-        syncCoordinator: (any SyncEnqueuing)? = nil,
+        syncCoordinator: any SyncEnqueuing? = nil,
         lifecycleCoordinator: AppLifecycleCoordinator? = nil
     ) {
         self.familyService = familyService
         self.appState = appState
         self.invitationResolver = invitationResolver
-        let resolvedSync: (any SyncEnqueuing)? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
+        let resolvedSync: any SyncEnqueuing? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
         self.syncCoordinator = resolvedSync
         self.lifecycleCoordinator = lifecycleCoordinator
     }
@@ -163,8 +163,8 @@ final class FamilyInvitationCoordinator: FamilyInviting {
                 try await familyService.revokeInvitation(identityKey: identityKey, from: family)
                 return
             } catch let error as CloudKitServiceError {
-                guard case let .shareFailed(message) = error, message.contains("No share contains") else { throw error }
-                guard let recordName = invitation.identityRecordName, !recordName.isEmpty else { throw error }
+                guard case let .shareFailed(message) = error, message.contains("No share contains"), let recordName = invitation.identityRecordName,
+                      !recordName.isEmpty else { throw error }
                 try await familyService.revokeInvitation(identityRecordName: recordName, from: family)
                 return
             }
@@ -182,8 +182,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
 
     private func requestProfileSync(for family: Family) async {
         // WHY lifecycle-only: roster refresh rides the single-flight gate so reconciliation never bypasses ingest.
-        guard !family.id.recordName.isEmpty else { return }
-        guard let lifecycleCoordinator else { return }
+        guard !family.id.recordName.isEmpty, let lifecycleCoordinator else { return }
         await lifecycleCoordinator.performManualSync()
     }
 

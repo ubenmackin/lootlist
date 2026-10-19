@@ -46,9 +46,9 @@ final class MatchService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: (any CacheServicing)? = nil,
+        cacheService: any CacheServicing? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) {
         self.init(
             cloudKit: cloudKit,

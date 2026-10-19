@@ -43,8 +43,7 @@ extension CacheService {
     /// Single private generic — all batch wrappers route through here.
     private func batchUpsert<T: CacheMergeable>(_: T.Type, items: [T.DomainModel], familyRecordName: String?) {
         if let familyRecordName {
-            guard let context else { return }
-            guard let existingMap = existingByRecordName(T.self, family: familyRecordName) else { return }
+            guard let context, let existingMap = existingByRecordName(T.self, family: familyRecordName) else { return }
             for item in items {
                 let name = item.id.recordName
                 let itemFamily = T(from: item).familyRecordName
@@ -83,8 +82,7 @@ extension CacheService {
         }
         // Nil scope — group by family to keep each family's save isolated.
         if T.self == FamilyCache.self {
-            guard let context else { return }
-            guard let existingMap = existingByRecordName(T.self, family: nil) else { return }
+            guard let context, let existingMap = existingByRecordName(T.self, family: nil) else { return }
             for item in items {
                 let name = item.id.recordName
                 if let cached = existingMap[name] {
@@ -100,8 +98,7 @@ extension CacheService {
     }
 
     private func purgeMissing<T: CacheMergeable>(_: T.Type, validRecordNames: Set<String>, familyRecordName: String?) {
-        guard !validRecordNames.isEmpty else { return }
-        guard let context else { return }
+        guard !validRecordNames.isEmpty, let context else { return }
         let family: String? = (T.self == FamilyCache.self) ? nil : familyRecordName
         if T.self != FamilyCache.self, (family ?? "").isEmpty {
             return

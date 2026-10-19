@@ -379,12 +379,9 @@ extension CloudKitService {
             throw CloudKitServiceError.accountUnavailable
         }
         let root = try await serverRoot(for: rootRecordID, using: pvtDB)
-        guard let share = try await resolveFamilyShare(root: root, using: pvtDB) else {
-            throw CloudKitServiceError.shareFailed(
-                "No share contains a participant matching this identity — the revocation was not performed"
-            )
-        }
-        guard let participant = share.participants.first(where: { $0.userIdentity.userRecordID?.recordName == iCloudUserRecordName }) else {
+        guard let share = try await resolveFamilyShare(root: root, using: pvtDB),
+              let participant = share.participants.first(where: { $0.userIdentity.userRecordID?.recordName == iCloudUserRecordName })
+        else {
             throw CloudKitServiceError.shareFailed(
                 "No share contains a participant matching this identity — the revocation was not performed"
             )
@@ -430,7 +427,8 @@ extension CloudKitService {
             ShareParticipantStatus(
                 identityKey: ShareParticipantKey.key(for: participant),
                 recordName: participant.userIdentity.userRecordID?.recordName,
-                isRemoved: participant.acceptanceStatus == .removed
+                isRemoved: participant.acceptanceStatus == .removed,
+                isPending: participant.acceptanceStatus == .pending
             )
         }
     }
@@ -476,12 +474,7 @@ extension CloudKitService {
             )
         }
         let root = try await serverRoot(for: rootRecordID, using: pvtDB)
-        guard let share = try await resolveFamilyShare(root: root, using: pvtDB) else {
-            throw CloudKitServiceError.shareFailed(
-                "No share contains a participant matching this identity — the revocation was not performed"
-            )
-        }
-        guard let match = share.participants.first(where: { ShareParticipantKey.key(for: $0) == key }) else {
+        guard let share = try await resolveFamilyShare(root: root, using: pvtDB), let match = share.participants.first(where: { ShareParticipantKey.key(for: $0) == key }) else {
             throw CloudKitServiceError.shareFailed(
                 "No share contains a participant matching this identity — the revocation was not performed"
             )

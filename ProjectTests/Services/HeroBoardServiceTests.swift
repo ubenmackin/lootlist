@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 @testable import LootList
+import SwiftData
 import Testing
 
 @MainActor
@@ -19,6 +20,7 @@ struct HeroBoardServiceTests {
         let cache: CacheService
         let appState: AppState
         let boardService: HeroBoardService
+        fileprivate let deleteSpy: BoardDeleteSpy
         let familyRef: CKRecord.Reference
         let parent: Profile
         let hero: Profile
@@ -72,7 +74,13 @@ struct HeroBoardServiceTests {
             let questService = QuestService(cloudKit: cloudKit, xpService: XPService(cloudKit: cloudKit))
             questService.cacheService = cache
             questService.appState = appState
-            boardService = HeroBoardService(questService: questService)
+            deleteSpy = BoardDeleteSpy()
+            boardService = HeroBoardService(
+                questService: questService,
+                cacheService: cache,
+                syncCoordinator: deleteSpy,
+                appState: appState
+            )
 
             appState.currentProfile = hero
 
@@ -124,7 +132,7 @@ struct HeroBoardServiceTests {
     // MARK: - Claims
 
     @Test
-    func `claim persists claimer and timestamp on cached board quest`() async throws {
+    func `claim reassigns the quest to the claiming hero and stamps claim fields`() async throws {
         let ctx = try Scaffold()
         let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1")
         await ctx.cache.upsertQuest(quest)
@@ -132,9 +140,33 @@ struct HeroBoardServiceTests {
         let outcome = try await ctx.boardService.claim(quest, by: ctx.hero)
 
         #expect(outcome == .claimed)
-        let cached = ctx.cachedQuest(recordName: "quest1")
-        #expect(cached?.claimedByProfileRecordName == ctx.hero.id.recordName)
-        #expect(cached?.claimedAt != nil)
+        let cached = try #require(ctx.cachedQuest(recordName: "quest1"))
+        #expect(cached.claimedByProfileRecordName == ctx.hero.id.recordName)
+        #expect(cached.claimedAt != nil)
+        #expect(cached.assigneeRecordName == ctx.hero.id.recordName)
+        // The reassigned quest leaves the board so the claiming hero's
+        // checklist (assignee-derived) picks it up instead.
+        #expect(!HeroBoardService.isBoardQuest(cached))
+    }
+
+    @Test
+    func `checklist predicate lists a claimed quest for the claiming hero`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1")
+        await ctx.cache.upsertQuest(quest)
+
+        _ = try await ctx.boardService.claim(quest, by: ctx.hero)
+
+        // The hero-only checklist reads via `QuestCache.assignedPredicate`, so
+        // reassignment must land the quest under the claimer's record name.
+        let checklistDescriptor = FetchDescriptor<QuestCache>(
+            predicate: QuestCache.assignedPredicate(
+                familyRecordName: "fam1",
+                assigneeRecordName: ctx.hero.id.recordName
+            )
+        )
+        let checklist = try #require(try ctx.cache.context?.fetch(checklistDescriptor))
+        #expect(checklist.map(\.recordName) == ["quest1"])
     }
 
     @Test
@@ -153,6 +185,8 @@ struct HeroBoardServiceTests {
         let cached = ctx.cachedQuest(recordName: "quest1")
         #expect(cached?.claimedByProfileRecordName == ctx.rivalHero.id.recordName)
         #expect(cached?.claimedAt == originalClaimDate)
+        // A lost race must not reassign the assignee — server-wins ingest reveals the winner.
+        #expect(cached?.assigneeRecordName == HeroBoardService.boardAssigneeRecordName)
     }
 
     @Test
@@ -170,13 +204,32 @@ struct HeroBoardServiceTests {
         #expect(ctx.cachedQuest(recordName: "quest1")?.claimedByProfileRecordName == ctx.hero.id.recordName)
     }
 
+    @Test
+    func `concurrent losing claim does not clear the winners in-flight entry`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest-race")
+        await ctx.cache.upsertQuest(quest)
+
+        // Three same-device taps racing one quest: only the winner runs the
+        // claim path, so exactly one save enqueues and every tap reports claimed.
+        async let first = ctx.boardService.claim(quest, by: ctx.hero)
+        async let second = ctx.boardService.claim(quest, by: ctx.hero)
+        async let third = ctx.boardService.claim(quest, by: ctx.hero)
+        let outcomes = try await (first, second, third)
+
+        #expect([outcomes.0, outcomes.1, outcomes.2].allSatisfy { $0 == .claimed })
+        #expect(ctx.deleteSpy.savedRecordNames.filter { $0 == "quest-race" }.count == 1)
+        #expect(ctx.cachedQuest(recordName: "quest-race")?.claimedByProfileRecordName == ctx.hero.id.recordName)
+    }
+
     // MARK: - Revoke
 
     @Test
-    func `parent revoke clears claim fields`() async throws {
+    func `parent revoke clears claim fields and restores the board assignee`() async throws {
         let ctx = try Scaffold()
         let quest = ctx.makeBoardQuest(
             name: "Dishes", recordName: "quest1",
+            assigneeRecordName: ctx.hero.id.recordName,
             claimedBy: ctx.hero.id.recordName, claimedAt: Date()
         )
         await ctx.cache.upsertQuest(quest)
@@ -184,10 +237,12 @@ struct HeroBoardServiceTests {
 
         try await ctx.boardService.revoke(quest)
 
-        let cached = ctx.cachedQuest(recordName: "quest1")
-        #expect(cached?.claimedByProfileRecordName == nil)
-        #expect(cached?.claimedAt == nil)
-        #expect(cached?.assigneeRecordName == HeroBoardService.boardAssigneeRecordName)
+        let cached = try #require(ctx.cachedQuest(recordName: "quest1"))
+        #expect(cached.claimedByProfileRecordName == nil)
+        #expect(cached.claimedAt == nil)
+        #expect(cached.assigneeRecordName == HeroBoardService.boardAssigneeRecordName)
+        // Restoring the placeholder put the quest back on the board surface.
+        #expect(HeroBoardService.isBoardQuest(cached))
     }
 
     @Test
@@ -205,6 +260,128 @@ struct HeroBoardServiceTests {
         #expect(ctx.cachedQuest(recordName: "quest1")?.claimedByProfileRecordName == ctx.rivalHero.id.recordName)
     }
 
+    @Test
+    func `revoke on a directly assigned quest without a claim stamp is a safe no-op`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1", assigneeRecordName: ctx.hero.id.recordName)
+        await ctx.cache.upsertQuest(quest)
+        ctx.appState.currentProfile = ctx.parent
+
+        try await ctx.boardService.revoke(quest)
+
+        // No claim stamp means no claim to release — the direct assignment and
+        // the hero's checklist entry must survive untouched.
+        let cached = try #require(ctx.cachedQuest(recordName: "quest1"))
+        #expect(cached.claimedByProfileRecordName == nil)
+        #expect(cached.claimedAt == nil)
+        #expect(cached.assigneeRecordName == ctx.hero.id.recordName)
+        #expect(!HeroBoardService.isBoardQuest(cached))
+    }
+
+    @Test
+    func `revoke on an unclaimed board quest is a no-op`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1")
+        await ctx.cache.upsertQuest(quest)
+        ctx.appState.currentProfile = ctx.parent
+
+        try await ctx.boardService.revoke(quest)
+
+        let cached = try #require(ctx.cachedQuest(recordName: "quest1"))
+        #expect(cached.claimedByProfileRecordName == nil)
+        #expect(cached.claimedAt == nil)
+        #expect(cached.assigneeRecordName == HeroBoardService.boardAssigneeRecordName)
+        #expect(HeroBoardService.isBoardQuest(cached))
+    }
+
+    // MARK: - Remove from board
+
+    @Test
+    func `parent remove deletes quest and ad-hoc template rows and enqueues two deletes`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Plants", recordName: "quest1")
+        // postToBoard always mints one inactive ad-hoc template per quest.
+        let adhocTemplate = QuestTemplate(
+            name: "Plants",
+            description: "",
+            defaultGold: 500,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            createdBy: CKRecord.Reference(recordID: ctx.parent.id, action: .none),
+            family: ctx.familyRef,
+            isActive: false,
+            id: CKRecord.ID(recordName: "tmpl-quest1", zoneID: ctx.zoneID)
+        )
+        await ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuestTemplate(adhocTemplate)
+        ctx.appState.currentProfile = ctx.parent
+
+        try await ctx.boardService.removeFromBoard(quest)
+
+        #expect(ctx.cachedQuest(recordName: "quest1") == nil)
+        #expect(ctx.cache.fetchQuestTemplate(recordName: "tmpl-quest1", family: "fam1") == nil)
+        #expect(ctx.deleteSpy.deletedRecordNames == ["quest1", "tmpl-quest1"])
+    }
+
+    @Test
+    func `remove by a hero throws unauthorized`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1")
+        await ctx.cache.upsertQuest(quest)
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await ctx.boardService.removeFromBoard(quest)
+        }
+        #expect(ctx.deleteSpy.deletedRecordNames.isEmpty)
+        #expect(ctx.cachedQuest(recordName: "quest1") != nil)
+    }
+
+    @Test
+    func `remove of a claimed quest throws and deletes nothing`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(
+            name: "Dishes", recordName: "quest1",
+            assigneeRecordName: ctx.hero.id.recordName,
+            claimedBy: ctx.hero.id.recordName, claimedAt: Date()
+        )
+        await ctx.cache.upsertQuest(quest)
+        ctx.appState.currentProfile = ctx.parent
+
+        await #expect(throws: QuestServiceError.staleData("Revoke the claim before removing this quest from the board")) {
+            try await ctx.boardService.removeFromBoard(quest)
+        }
+        #expect(ctx.deleteSpy.deletedRecordNames.isEmpty)
+        #expect(ctx.cachedQuest(recordName: "quest1") != nil)
+    }
+
+    @Test
+    func `remove of a directly assigned quest throws and deletes nothing`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1", assigneeRecordName: ctx.hero.id.recordName)
+        await ctx.cache.upsertQuest(quest)
+        ctx.appState.currentProfile = ctx.parent
+
+        await #expect(throws: QuestServiceError.staleData("Only board quests can be removed from the board")) {
+            try await ctx.boardService.removeFromBoard(quest)
+        }
+        #expect(ctx.deleteSpy.deletedRecordNames.isEmpty)
+        #expect(ctx.cachedQuest(recordName: "quest1") != nil)
+    }
+
+    @Test
+    func `remove without the ad-hoc template row throws and deletes nothing`() async throws {
+        let ctx = try Scaffold()
+        let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1")
+        await ctx.cache.upsertQuest(quest)
+        ctx.appState.currentProfile = ctx.parent
+
+        await #expect(throws: QuestServiceError.staleData("Board quest template row is missing")) {
+            try await ctx.boardService.removeFromBoard(quest)
+        }
+        #expect(ctx.deleteSpy.deletedRecordNames.isEmpty)
+        #expect(ctx.cachedQuest(recordName: "quest1") != nil)
+    }
+
     // MARK: - Board reads
 
     @Test
@@ -213,6 +390,7 @@ struct HeroBoardServiceTests {
         let available = ctx.makeBoardQuest(name: "Alpha Chore", recordName: "q-a")
         let claimed = ctx.makeBoardQuest(
             name: "Beta Chore", recordName: "q-b",
+            assigneeRecordName: ctx.rivalHero.id.recordName,
             claimedBy: ctx.rivalHero.id.recordName, claimedAt: Date()
         )
         let assigned = ctx.makeBoardQuest(
@@ -228,14 +406,82 @@ struct HeroBoardServiceTests {
             return
         }
 
+        // A claimed quest reassigned to its claimer is no longer on the board —
+        // only truly unclaimed placeholder rows remain "On the Board".
         let boardNames = ctx.boardService.fetchBoardQuests(family: family).map(\.displayName)
-        #expect(boardNames == ["Alpha Chore", "Beta Chore"])
+        #expect(boardNames == ["Alpha Chore"])
 
         let availableNames = ctx.boardService.fetchAvailableBoardQuests(family: family).map(\.displayName)
         #expect(availableNames == ["Alpha Chore"])
 
+        // Claimed grouping keys on the claim stamp, keyed by claimant.
         let claimedGroups = ctx.boardService.fetchClaimedBoardQuests(family: family)
         #expect(claimedGroups.count == 1)
         #expect(claimedGroups[ctx.rivalHero.id.recordName]?.map(\.displayName) == ["Beta Chore"])
     }
+
+    // MARK: - Prompt count helper
+
+    @Test
+    func `prompt count helper counts only available board rows`() async throws {
+        let ctx = try Scaffold()
+        let available = ctx.makeBoardQuest(name: "Alpha Chore", recordName: "q-a")
+        let claimed = ctx.makeBoardQuest(
+            name: "Beta Chore", recordName: "q-b",
+            assigneeRecordName: ctx.rivalHero.id.recordName,
+            claimedBy: ctx.rivalHero.id.recordName, claimedAt: Date()
+        )
+        let assigned = ctx.makeBoardQuest(
+            name: "Assigned Chore", recordName: "q-c",
+            assigneeRecordName: ctx.hero.id.recordName
+        )
+        let inactive = ctx.makeBoardQuest(name: "Old Chore", recordName: "q-d", isActive: false)
+        for quest in [available, claimed, assigned, inactive] {
+            await ctx.cache.upsertQuest(quest)
+        }
+
+        let rows = ctx.cache.fetchQuests(family: "fam1")
+        #expect(HeroBoardService.availableBoardQuestCount(from: rows) == 1)
+    }
+
+    @Test
+    func `zero claimable rows leave the prompt card out of the child home hierarchy`() async throws {
+        let ctx = try Scaffold()
+        let claimed = ctx.makeBoardQuest(
+            name: "Beta Chore", recordName: "q-b",
+            assigneeRecordName: ctx.rivalHero.id.recordName,
+            claimedBy: ctx.rivalHero.id.recordName, claimedAt: Date()
+        )
+        let assigned = ctx.makeBoardQuest(
+            name: "Assigned Chore", recordName: "q-c",
+            assigneeRecordName: ctx.hero.id.recordName
+        )
+        let inactive = ctx.makeBoardQuest(name: "Old Chore", recordName: "q-d", isActive: false)
+        for quest in [claimed, assigned, inactive] {
+            await ctx.cache.upsertQuest(quest)
+        }
+
+        // HeroHomeView renders the prompt card only when this count is
+        // positive, so a zero result removes the card instead of leaving an
+        // empty shell.
+        #expect(HeroBoardService.availableBoardQuestCount(from: []) == 0)
+        let rows = ctx.cache.fetchQuests(family: "fam1")
+        #expect(HeroBoardService.availableBoardQuestCount(from: rows) == 0)
+    }
+}
+
+/// WHY spy: records engine-bound saves and tombstones without a live CKSyncEngine.
+@MainActor
+private final class BoardDeleteSpy: SyncEnqueuing {
+    var savedRecordNames: [String] = []
+    var deletedRecordNames: [String] = []
+    func enqueueSave(recordID: CKRecord.ID, isOwner _: Bool) {
+        savedRecordNames.append(recordID.recordName)
+    }
+
+    func enqueueDelete(recordID: CKRecord.ID, isOwner _: Bool) {
+        deletedRecordNames.append(recordID.recordName)
+    }
+
+    func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
 }

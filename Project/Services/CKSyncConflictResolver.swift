@@ -52,8 +52,60 @@ final class CKSyncConflictResolver {
         self.backgroundCache = backgroundCache
     }
 
-    /// Resolves a single failed record save. Returns a resolved `CKRecord` if the record should be re-saved
-    /// to CloudKit, or `nil` if the conflict was resolved by adopting server state.
+    /// Terminal vs. transient verdict for a failed CloudKit save. `retry` re-enqueues the original record
+    /// under the coordinator's bounded backoff; `discard` sends the save to the rejected-save path.
+    enum SaveFailureDisposition {
+        case retry
+        case discard
+    }
+
+    /// Sole owner of save-failure classification: other files consult this instead of mapping CKError codes.
+    /// WHY single gate: retry budget and cache-first fallback share one verdict.
+    nonisolated static func isTransient(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            return disposition(for: ckError) == .retry
+        }
+        if let serviceError = error as? CloudKitServiceError {
+            switch serviceError {
+            case .networkUnavailable, .retryable, .exhaustedBudget:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
+
+    nonisolated static func disposition(for error: CKError) -> SaveFailureDisposition {
+        switch error.code {
+        case .partialFailure:
+            partialFailureDisposition(error)
+        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
+             .operationCancelled, .zoneBusy, .notAuthenticated:
+            .retry
+        default:
+            .discard
+        }
+    }
+
+    /// WHY sub-error scan: partialFailure is an aggregate — retry only when every sub-error is itself
+    /// transient-classified; one permanent or unclassifiable sub-error makes the batch terminal.
+    private nonisolated static func partialFailureDisposition(_ error: CKError) -> SaveFailureDisposition {
+        guard let subErrors = error.partialErrorsByItemID, !subErrors.isEmpty else {
+            return .discard
+        }
+        for subError in subErrors.values {
+            guard let ckSubError = subError as? CKError else { return .discard }
+            if disposition(for: ckSubError) != .retry {
+                return .discard
+            }
+        }
+        return .retry
+    }
+
+    /// Resolves a single failed record save. Returns a `CKRecord` when the record should be re-saved to
+    /// CloudKit — either post-merge (conflict resolution) or unchanged (transient failure under bounded
+    /// backoff) — and `nil` when the save was resolved by adopting server state or discarded as terminal.
     func resolveFailedSave(
         record: CKRecord,
         error: Error,
@@ -99,8 +151,15 @@ final class CKSyncConflictResolver {
             return nil
 
         default:
-            logger.warning("Unresolved CloudKit save failure (\(ckError.code.rawValue)): \(error, privacy: .private)")
-            return nil
+            switch Self.disposition(for: ckError) {
+            case .retry:
+                // WHY retain unchanged: the cached row is intact, so dropping the pending save would strand
+                // the mutation; returning the original record lets the caller re-enqueue under bounded backoff.
+                return record
+            case .discard:
+                logger.warning("Unresolved CloudKit save failure (\(ckError.code.rawValue)): \(error, privacy: .private)")
+                return nil
+            }
         }
     }
 

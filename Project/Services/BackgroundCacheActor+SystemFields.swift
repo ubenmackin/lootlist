@@ -30,8 +30,7 @@ extension BackgroundCacheActor {
     /// of them under one context save.
     @discardableResult
     func updateSystemFields(_ refreshes: [SystemFieldRefresh], familyRecordName: String) async -> SystemFieldRefreshOutcome {
-        guard !refreshes.isEmpty else { return .noMatches }
-        guard await applySystemFieldRefreshes(refreshes, familyRecordName: familyRecordName) else {
+        guard !refreshes.isEmpty, await applySystemFieldRefreshes(refreshes, familyRecordName: familyRecordName) else {
             return .noMatches
         }
         return saveContext() ? .updated : .saveFailed

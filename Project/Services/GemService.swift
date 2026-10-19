@@ -50,6 +50,23 @@ final class GemService {
         return entries.reduce(0) { $0 + $1.amount }
     }
 
+    // MARK: - Feedback
+
+    /// Gem toasts and sounds are RPG-gated; ledger/profile writes above still run in
+    /// hidden mode so balances stay consistent when the layer is re-enabled.
+    private func presentGemFeedback(amount: Int) {
+        guard FeatureFlags.rpgImmersive else { return }
+        soundManager?.play(.gemEarned)
+        toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
+    }
+
+    /// Insufficient-gems feedback is RPG-gated like `presentGemFeedback`; the spend
+    /// refusal itself stays ungated so hidden-mode balances can never go negative.
+    private func presentInsufficientGemFeedback() {
+        guard FeatureFlags.rpgImmersive else { return }
+        toastManager?.show(message: "Insufficient gems 💎", type: .error)
+    }
+
     // MARK: - Credit & Spend
 
     /// Credits gems using deterministic ledger IDs for idempotent cross-device syncing.
@@ -132,8 +149,7 @@ final class GemService {
                     logger: logger,
                     context: "GemService.creditGems.fallback.profile"
                 )
-                soundManager?.play(.gemEarned)
-                toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
+                presentGemFeedback(amount: amount)
                 return true
             }
 
@@ -158,8 +174,7 @@ final class GemService {
                 context: "GemService.creditGems.updatedProfile"
             )
 
-            soundManager?.play(.gemEarned)
-            toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
+            presentGemFeedback(amount: amount)
             return true
         }
     }
@@ -201,7 +216,7 @@ final class GemService {
                 do {
                     let localBalance = try balance(for: spendingProfile.id.recordName, familyRecordName: spendingProfile.family.recordID.recordName)
                     if localBalance < amount {
-                        toastManager?.show(message: "Insufficient gems 💎", type: .error)
+                        presentInsufficientGemFeedback()
                         return false
                     }
                 } catch {

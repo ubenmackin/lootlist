@@ -50,6 +50,9 @@ final class HeroBoardViewModel {
     /// Record names with a revoke save currently in flight on this device.
     private var inFlightRevokes: Set<String> = []
 
+    /// Record names with a removal save currently in flight on this device.
+    private var inFlightRemovals: Set<String> = []
+
     private let boardService: HeroBoardService
     private let appState: AppState
 
@@ -105,7 +108,10 @@ final class HeroBoardViewModel {
 
         // WHY snapshots: rows hold value copies snapshotted on isolation; domain conversion happens only at claim/revoke.
         let rows: [BoardRow] = quests.compactMap { cached in
-            guard cached.isActive, HeroBoardService.isBoardQuest(cached) else { return nil }
+            // Claim reassignment moves claimed quests off the board placeholder,
+            // so they enter rows through the claim stamp rather than the board
+            // predicate; the Claimed section stays parent-rendered in the view.
+            guard cached.isActive, HeroBoardService.isBoardQuest(cached) || cached.claimedByProfileRecordName != nil else { return nil }
             let claimer = cached.claimedByProfileRecordName
             return BoardRow(
                 quest: cached,
@@ -223,7 +229,7 @@ final class HeroBoardViewModel {
             switch try await boardService.claim(quest, by: hero) {
             case .claimed:
                 // WHY reactive: claim persists to cache; @Query rebuild settles pending.
-                break
+                report(message: "Quest claimed — added to your quests", type: .success)
             case .lostToAnotherHero:
                 handleLostClaim(id: id)
             }
@@ -294,6 +300,26 @@ final class HeroBoardViewModel {
         } catch {
             let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             handleFailure(id: id, message: fallback, isError: true) { _ = pendingRevokes.remove(id) }
+        }
+    }
+
+    /// Parent-only: deletes an unclaimed board quest together with its ad-hoc
+    /// template row. The service prunes both cache rows, so `@Query` drops the
+    /// row as soon as the removal lands.
+    func removeFromBoard(_ row: BoardRow) async {
+        let id = row.id
+        let (inserted, _) = inFlightRemovals.insert(id)
+        guard inserted else { return }
+        defer { _ = inFlightRemovals.remove(id) }
+        // WHY mutation boundary: snapshot converts here so presentation never holds domain structs.
+        let zoneID = appState.resolvedFamilyZoneID()
+        let quest = boardService.domainQuest(from: row.quest, zoneID: zoneID)
+        do {
+            try await boardService.removeFromBoard(quest)
+        } catch {
+            let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            // WHY toast-direct: removal never carries a pending badge, so failures surface immediately.
+            report(message: fallback, type: .error)
         }
     }
 }

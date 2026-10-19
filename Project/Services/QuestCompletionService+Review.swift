@@ -136,8 +136,7 @@ extension QuestCompletionService {
         if let parent = resolveParentViaCacheScan(familyRecordName: familyName),
            let notificationService
         {
-            guard parent.role.isParent else { return }
-            guard parent.id.recordName != completerRecordName else { return }
+            guard parent.role.isParent, parent.id.recordName != completerRecordName else { return }
             Task { [logger, notificationService, log, parent] in
                 do {
                     try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)

@@ -222,10 +222,8 @@ struct QuestLogView: View {
         guard let vm = viewModel else { return }
 
         // WHY: row-derived hero pin keeps log scope cache-bound with fail-closed empty scope.
-        if viewerRole == .hero, let heroRecordName = currentProfileRow?.recordName {
-            if let childHeroCache = cachedProfiles.first(where: { $0.recordName == heroRecordName }) {
-                vm.selectedHero = childHeroCache
-            }
+        if viewerRole == .hero, let heroRecordName = currentProfileRow?.recordName, let childHeroCache = cachedProfiles.first(where: { $0.recordName == heroRecordName }) {
+            vm.selectedHero = childHeroCache
         }
 
         vm.rebuildLists(profiles: cachedProfiles, quests: cachedQuests, logs: cachedCompletions, templates: cachedTemplates)

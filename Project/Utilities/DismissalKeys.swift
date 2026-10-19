@@ -63,8 +63,7 @@ enum DismissalKeys {
         defaults: UserDefaults = .standard
     ) {
         let key = scoped(base, familyRecordName: familyRecordName, profileRecordName: profileRecordName)
-        guard key != base else { return }
-        guard DismissalStore.bool(forKey: base, defaults: defaults) else { return }
+        guard key != base, DismissalStore.bool(forKey: base, defaults: defaults) else { return }
         guard !DismissalStore.bool(forKey: key, defaults: defaults) else {
             DismissalStore.remove(base, defaults: defaults)
             return

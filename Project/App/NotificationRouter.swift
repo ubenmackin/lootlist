@@ -169,11 +169,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
                 return
             }
 
-            guard let parent = deps.appState.currentProfile, parent.role.isParent else {
-                return
-            }
-
-            guard let familyName = deps.appState.family?.id.recordName,
+            guard let parent = deps.appState.currentProfile, parent.role.isParent, let familyName = deps.appState.family?.id.recordName,
                   let cachedLog = deps.cacheService.fetchQuestCompletion(recordName: questLogID, family: familyName)
             else {
                 return

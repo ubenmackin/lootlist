@@ -49,9 +49,13 @@ class MockCloudKitService: CloudKitServiceProtocol {
     var saveError: Error?
     var mockShareMemberships: [CKRecord.ID: Set<String>] = [:]
     var mockRemovedMemberships: Set<String> = []
+    /// Identity keys surfaced by status fetches as still-unaccepted (pending) participants.
+    var mockPendingMemberships: Set<String> = []
     var revokedShareIDs: [CKRecord.ID] = []
     var mockSharedZones: [CKRecordZone] = []
     var mockSharedZonesError: Error?
+    var mockCurrentUserRecordID: CKRecord.ID?
+    var mockCurrentUserRecordIDError: Error?
 
     init() {}
 
@@ -269,7 +273,21 @@ class MockCloudKitService: CloudKitServiceProtocol {
         var set = mockShareMemberships[share.recordID] ?? Set<String>()
         set.insert(key)
         mockShareMemberships[share.recordID] = set
+        mockPendingMemberships.remove(key)
         // Ensure the key is not considered removed
+        mockRemovedMemberships.remove(key)
+        return share
+    }
+
+    /// Not-yet-accepted participant: surfaced as pending with no resolved user record name,
+    /// mirroring how CloudKit leaves `userIdentity.userRecordID` nil until acceptance.
+    @discardableResult
+    func simulatePendingParticipation(key: String, rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
+        let share = try await fetchOrCreateShare(for: rootRecordID, role: role)
+        var set = mockShareMemberships[share.recordID] ?? Set<String>()
+        set.insert(key)
+        mockShareMemberships[share.recordID] = set
+        mockPendingMemberships.insert(key)
         mockRemovedMemberships.remove(key)
         return share
     }
@@ -332,8 +350,9 @@ class MockCloudKitService: CloudKitServiceProtocol {
                 for key in keys where !seen.contains(key) {
                     seen.insert(key)
                     let isRemoved = mockRemovedMemberships.contains(key)
-                    let recordName: String? = key.hasPrefix("record:") ? String(key.dropFirst("record:".count)) : nil
-                    statuses.append(ShareParticipantStatus(identityKey: key, recordName: recordName, isRemoved: isRemoved))
+                    let isPending = !isRemoved && mockPendingMemberships.contains(key)
+                    let recordName: String? = (key.hasPrefix("record:") && !isPending) ? String(key.dropFirst("record:".count)) : nil
+                    statuses.append(ShareParticipantStatus(identityKey: key, recordName: recordName, isRemoved: isRemoved, isPending: isPending))
                 }
             }
             for key in mockRemovedMemberships where !seen.contains(key) {
@@ -352,7 +371,8 @@ class MockCloudKitService: CloudKitServiceProtocol {
                     return ShareParticipantStatus(
                         identityKey: key,
                         recordName: participant.userIdentity.userRecordID?.recordName,
-                        isRemoved: participant.acceptanceStatus == .removed
+                        isRemoved: participant.acceptanceStatus == .removed,
+                        isPending: participant.acceptanceStatus == .pending
                     )
                 }
             return statuses + real
@@ -362,7 +382,12 @@ class MockCloudKitService: CloudKitServiceProtocol {
             .filter { $0.role != .owner }
             .compactMap { participant in
                 guard let key = ShareParticipantKey.key(for: participant) else { return nil }
-                return ShareParticipantStatus(identityKey: key, recordName: participant.userIdentity.userRecordID?.recordName, isRemoved: participant.acceptanceStatus == .removed)
+                return ShareParticipantStatus(
+                    identityKey: key,
+                    recordName: participant.userIdentity.userRecordID?.recordName,
+                    isRemoved: participant.acceptanceStatus == .removed,
+                    isPending: participant.acceptanceStatus == .pending
+                )
             }
     }
 
@@ -425,7 +450,10 @@ class MockCloudKitService: CloudKitServiceProtocol {
     func processAbandonedZonesQueue(appState _: AppState) async {}
 
     func currentUserRecordID() async throws -> CKRecord.ID {
-        CKRecord.ID(recordName: Self.mockUserRecordName, zoneID: resolvedZoneID)
+        if let mockCurrentUserRecordIDError {
+            throw mockCurrentUserRecordIDError
+        }
+        return mockCurrentUserRecordID ?? CKRecord.ID(recordName: Self.mockUserRecordName, zoneID: resolvedZoneID)
     }
 
     func fetchPrivateZones() async throws -> [CKRecordZone] {

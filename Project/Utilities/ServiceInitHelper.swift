@@ -11,7 +11,7 @@ import os
 @MainActor
 enum ServiceInitHelper {
     static func resolveCacheService(
-        provided: (any CacheServicing)?,
+        provided: any CacheServicing?,
         logger: Logger,
         serviceName: String
     ) -> any CacheServicing {
@@ -24,7 +24,7 @@ enum ServiceInitHelper {
     }
 
     static func resolveSyncCoordinator(
-        provided: (any SyncEnqueuing)?,
+        provided: any SyncEnqueuing?,
         logger: Logger,
         serviceName: String
     ) -> any SyncEnqueuing {

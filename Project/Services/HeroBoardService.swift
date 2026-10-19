@@ -49,6 +49,16 @@ final class HeroBoardService {
         cached.assigneeRecordName == boardAssigneeRecordName
     }
 
+    /// Count of AVAILABLE board quests (active, placeholder assignee, no claim
+    /// stamp) from rows a view already queried. WHY single owner: child views
+    /// pass their @Query rows and read the count — board derivation lives here
+    /// and is never reimplemented downstream.
+    static func availableBoardQuestCount(from rows: [QuestCache]) -> Int {
+        rows.filter { row in
+            row.isActive && Self.isBoardQuest(row) && row.claimedByProfileRecordName == nil
+        }.count
+    }
+
     /// WHY boundary-only: snapshots rebuild the domain for claim/revoke without touching live storage.
     static func domainQuest(from snapshot: BoardQuestSnapshot, zoneID: CKRecordZone.ID) -> Quest {
         var quest = Quest(
@@ -140,19 +150,29 @@ final class HeroBoardService {
     }
 
     /// Board quests already claimed, grouped by claiming hero's record name.
+    /// Claim reassignment moves claimed quests off the board placeholder, so
+    /// they surface through the claim stamp instead of the board predicate.
     func fetchClaimedBoardQuests(family: Family) -> [String: [Quest]] {
         var grouped: [String: [Quest]] = [:]
-        for quest in fetchBoardQuests(family: family) {
-            if let claimer = quest.claimedByProfileRecordName {
+        let activeQuests = cacheService.fetchQuests(family: family.id.recordName)
+            .filter(\.isActive)
+            .map { $0.toQuest(zoneID: family.id.zoneID) }
+        for quest in activeQuests {
+            if let claimer = quest.claimedByProfileRecordName, !claimer.isEmpty {
                 grouped[claimer, default: []].append(quest)
             }
+        }
+        for claimant in grouped.keys {
+            grouped[claimant]?.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         }
         return grouped
     }
 
     // MARK: - Claims
 
-    /// Optimistically stamps quest claim in local cache and enqueues CloudKit save.
+    /// Optimistically stamps quest claim in local cache and enqueues CloudKit
+    /// save. The claim also reassigns the quest to the hero so it leaves the
+    /// board predicate and arrives on the hero's checklist.
     @discardableResult
     func claim(_ quest: Quest, by hero: Profile) async throws -> HeroBoardClaimOutcome {
         do {
@@ -165,12 +185,12 @@ final class HeroBoardService {
 
             let key = quest.id.recordName
             let inserted = inFlightClaims.withLock { $0.insert(key).inserted }
-            defer { _ = inFlightClaims.withLock { $0.remove(key) } }
             guard inserted else {
                 // Same-device double-tap while the first save is pending: the
                 // optimistic row is already ours.
                 return .claimed
             }
+            defer { _ = inFlightClaims.withLock { $0.remove(key) } }
 
             var current = quest
             if let cached = cacheService.fetchQuest(recordName: key, family: quest.family.recordID.recordName) {
@@ -187,6 +207,9 @@ final class HeroBoardService {
 
             current.claimedByProfileRecordName = hero.id.recordName
             current.claimedAt = Date()
+            // Claim reassignment: leaving the board placeholder places the quest
+            // on the claimer's checklist and removes it from every board surface.
+            current.assignee = CKRecord.Reference(recordID: hero.id, action: .none)
 
             await cacheService.upsertQuest(current)
             ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: current.id, appState: appState, logger: logger, context: "HeroBoardService.claim")
@@ -204,8 +227,8 @@ final class HeroBoardService {
     }
 
     /// Parent-only: releases a claimed quest back to the board by clearing its
-    /// claim fields. The placeholder assignee is untouched, so the quest stays
-    /// on the board surface.
+    /// claim fields and restoring the placeholder assignee, so the quest
+    /// re-derives as board membership and leaves the hero's checklist.
     func revoke(_ quest: Quest) async throws {
         guard let acting = appState.currentProfile,
               acting.role.isParent
@@ -225,11 +248,93 @@ final class HeroBoardService {
         if let cached = cacheService.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName) {
             released = cached.toQuest(zoneID: quest.id.zoneID)
         }
+        // WHY claim-stamp guard: only a genuine claim may leave the claimer's
+        // checklist — revoking a quest without a stamp would silently strip a
+        // direct assignment or duplicate an already-released board row, so the
+        // call is a safe no-op instead.
+        guard let claimer = released.claimedByProfileRecordName, !claimer.isEmpty else {
+            return
+        }
         released.claimedByProfileRecordName = nil
         released.claimedAt = nil
+        released.assignee = CKRecord.Reference(
+            recordID: CKRecord.ID(
+                recordName: Self.boardAssigneeRecordName,
+                zoneID: released.id.zoneID
+            ),
+            action: .none
+        )
 
         await cacheService.upsertQuest(released)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: released.id, appState: appState, logger: logger, context: "HeroBoardService.revoke")
+    }
+
+    /// Parent-only: deletes an unclaimed board quest together with the inactive
+    /// ad-hoc template minted for it by `postToBoard`. Each row rides the single
+    /// invalidate-then-enqueue step so its tombstone id is captured before the
+    /// cache row is removed.
+    func removeFromBoard(_ quest: Quest) async throws {
+        guard let acting = appState.currentProfile,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: quest.family,
+            zoneID: quest.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
+
+        let familyRecordName = quest.family.recordID.recordName
+        // Precondition checks run against the freshest cached copy so a claim or
+        // reassignment that synced since this view loaded is never clobbered.
+        var current = quest
+        if let cached = cacheService.fetchQuest(recordName: quest.id.recordName, family: familyRecordName) {
+            current = cached.toQuest(zoneID: quest.id.zoneID)
+        }
+        // WHY preconditions: removal is defined for unclaimed board quests only —
+        // a claimed quest has a live owner (revoke first) and a non-placeholder
+        // assignee is a direct assignment the board never minted.
+        if let claimer = current.claimedByProfileRecordName, !claimer.isEmpty {
+            throw QuestServiceError.staleData("Revoke the claim before removing this quest from the board")
+        }
+        guard Self.isBoardQuest(current) else {
+            throw QuestServiceError.staleData("Only board quests can be removed from the board")
+        }
+        // WHY template existence: postToBoard always mints one inactive ad-hoc
+        // template per board quest, so a missing row means stale cache — refuse
+        // rather than tombstone a template the server may still hold.
+        guard cacheService.fetchQuestTemplate(
+            recordName: current.template.recordID.recordName,
+            family: familyRecordName
+        ) != nil else {
+            throw QuestServiceError.staleData("Board quest template row is missing")
+        }
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: quest.id, familyRecordName: familyRecordName),
+            type: .quest,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "HeroBoardService.removeFromBoard",
+                expectedActiveZone: appState.familyZoneID
+            )
+        )
+        await ActiveFamilyScopeGuard.deleteAndEnqueue(
+            cacheService: cacheService,
+            target: .init(recordID: current.template.recordID, familyRecordName: familyRecordName),
+            type: .questTemplate,
+            deleteContext: .init(
+                coordinator: syncCoordinator,
+                appState: appState,
+                logger: logger,
+                context: "HeroBoardService.removeFromBoard.template",
+                expectedActiveZone: appState.familyZoneID
+            )
+        )
     }
 
     // MARK: - Posting
@@ -246,11 +351,7 @@ final class HeroBoardService {
     {
         guard let acting = appState.currentProfile,
               acting.id == createdBy.id,
-              acting.role.isParent
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard createdBy.family.recordID == family.id,
+              acting.role.isParent, createdBy.family.recordID == family.id,
               createdBy.id.zoneID == family.id.zoneID
         else {
             throw FamilyServiceError.unauthorized

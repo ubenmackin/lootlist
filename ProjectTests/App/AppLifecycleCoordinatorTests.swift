@@ -113,7 +113,7 @@ private final class SyncGate: Sendable {
 // MARK: - Scaffold
 
 @MainActor
-private func makeFamilyAndProfile(zoneID: CKRecordZone.ID) -> (Family, Profile) {
+func makeFamilyAndProfile(zoneID: CKRecordZone.ID) -> (Family, Profile) {
     // WHY shared source: single family/parent shape keeps scope anchor aligned.
     let family = ExhaustiveCacheFixtures.sharedFamily(zoneID: zoneID, creatorUserRecordName: "owner")
     let profile = ExhaustiveCacheFixtures.sharedParent(
@@ -126,7 +126,7 @@ private func makeFamilyAndProfile(zoneID: CKRecordZone.ID) -> (Family, Profile) 
 }
 
 @MainActor
-private func makeLifecycle(
+func makeLifecycle(
     appState: AppState,
     cloudKit: MockCloudKitService,
     sync: any SyncCoordinating,
@@ -327,8 +327,12 @@ struct AppLifecycleCoordinatorTests {
 
         // Clearing via didClearSession notification.
         NotificationCenter.default.post(name: .didClearSession, object: nil)
-        // Allow the async observer Task to process the notification.
-        try? await Task.sleep(for: .milliseconds(20))
+        for _ in 0 ..< 20 {
+            if lifecycle.lastSynchronizedScopeKey == nil {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(lifecycle.lastSynchronizedScopeKey == nil)
 
         lifecycle.setLastSynchronizedScopeKeyForTests("fam1|zoneA|owner|true")
@@ -337,13 +341,23 @@ struct AppLifecycleCoordinatorTests {
         // Clearing via familyZoneID change (didChangeFamilyZoneID).
         let newZone = CKRecordZone.ID(zoneName: "NewScopeZone", ownerName: "Owner")
         appState.familyZoneID = newZone
-        try? await Task.sleep(for: .milliseconds(20))
+        for _ in 0 ..< 20 {
+            if lifecycle.lastSynchronizedScopeKey == nil {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(lifecycle.lastSynchronizedScopeKey == nil)
 
         // Also verify clearSession posts didClearSession and clears the key.
         lifecycle.setLastSynchronizedScopeKeyForTests("again")
         appState.clearSession()
-        try? await Task.sleep(for: .milliseconds(20))
+        for _ in 0 ..< 20 {
+            if lifecycle.lastSynchronizedScopeKey == nil {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(lifecycle.lastSynchronizedScopeKey == nil)
     }
 

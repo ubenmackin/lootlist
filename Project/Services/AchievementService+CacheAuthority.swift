@@ -11,10 +11,7 @@ import Foundation
 extension AchievementService {
     /// WHY fail-closed: unknown scope serves cache only without guessing a database.
     func isAchievementCacheAuthoritative(familyRecordName: String) -> Bool {
-        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else {
-            return false
-        }
-        guard let cache = cacheService else {
+        guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState), let cache = cacheService else {
             return false
         }
         return cache.isCacheAuthoritative(familyRecordName: familyRecordName, type: .achievement, scope: scope)

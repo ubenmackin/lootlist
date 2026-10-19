@@ -189,7 +189,7 @@ final class AppState {
         }
     }
 
-    func resolvedFamilyZoneID(fallbackRecord: (any FamilyScopedCache)? = nil) -> CKRecordZone.ID {
+    func resolvedFamilyZoneID(fallbackRecord: any FamilyScopedCache? = nil) -> CKRecordZone.ID {
         let defaultZone = CKRecordZone.default().zoneID
         return familyZoneID ?? family?.id.zoneID ?? fallbackRecord?.validatedZoneID(requestedZoneID: defaultZone) ?? defaultZone
     }
@@ -292,8 +292,7 @@ final class AppState {
         await withDiscardingTaskGroup { group in
             group.addTask { [weak self] in
                 for await action in signalStream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
+                    guard !Task.isCancelled, let self else { break }
                     // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching view state.
                     await MainActor.run { self.handleQuickAction(action) }
                 }
@@ -316,8 +315,7 @@ final class AppState {
         await withDiscardingTaskGroup { group in
             group.addTask { [weak self] in
                 for await route in signalStream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
+                    guard !Task.isCancelled, let self else { break }
                     // WHY hop: signal sequence resumes off isolation, so re-enter MainActor before touching view state.
                     await MainActor.run { self.handleNotificationRoute(route) }
                 }
@@ -449,7 +447,7 @@ final class AppState {
     }
 
     /// Performs device-local sign-out, resetting session and clearing local cache.
-    func signOut(cloudKit: (any CloudKitServiceProtocol)? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
+    func signOut(cloudKit: any CloudKitServiceProtocol? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
         if let cloudKit {
             clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
         } else {

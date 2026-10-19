@@ -355,8 +355,7 @@ extension QuestManagerView {
                     let heroRecords = vm.heroes
                     ForEach(Array(grouped.keys.sorted()), id: \.self) { heroID in
                         let heroQuests = grouped[heroID] ?? []
-                        let hero = heroRecords.first { $0.recordName == heroID }
-                        Section(header: Text(hero?.displayName ?? "Unknown Hero")) {
+                        Section(header: Text(QuestManagerViewModel.heroDisplayTitle(forRecordName: heroID, heroes: heroRecords))) {
                             ForEach(heroQuests) { quest in
                                 assignmentRow(quest: quest, vm: vm)
                             }

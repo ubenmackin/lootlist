@@ -27,8 +27,8 @@ struct InvitationLinkResolution: Sendable, Equatable, Hashable {
     }
 }
 
+@MainActor
 extension InvitationLinkResolution {
-    @MainActor
     init(metadata: CKShare.Metadata) {
         self.title = metadata.share[CKShare.SystemFieldKey.title] as? String
         self.zoneName = metadata.hierarchicalRootRecordID?.zoneID.zoneName
@@ -149,8 +149,7 @@ extension FamilyService {
                 matches.append((zoneID, profile))
             }
         }
-        guard matches.count == 1, let match = matches.first else { return nil }
-        guard let family = await AppState.sharedZoneFamily(cloudKit: cloudKit, zoneID: match.zoneID) else { return nil }
+        guard matches.count == 1, let match = matches.first, let family = await AppState.sharedZoneFamily(cloudKit: cloudKit, zoneID: match.zoneID) else { return nil }
         return (family, match.profile)
     }
 

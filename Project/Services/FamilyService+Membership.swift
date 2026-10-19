@@ -23,12 +23,16 @@ extension FamilyService {
             logger.warning("FamilyService.leaveFamily isOwner corrected via creator anchor: stored=\(storedOwnerForShare) resolved=\(isOwnerForShare)")
         }
         if isOwnerForShare {
-            let family = await family(for: profile)
-            let rootRecordID = family?.id ?? profile.family.recordID
-            do {
-                try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
-            } catch {
-                logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
+            if hasActiveSharedIdentitySibling(for: profile) {
+                logger.warning("Keeping share participant on leave: another active profile shares this iCloud identity")
+            } else {
+                let family = await family(for: profile)
+                let rootRecordID = family?.id ?? profile.family.recordID
+                do {
+                    try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
+                } catch {
+                    logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
+                }
             }
         }
 
@@ -42,8 +46,13 @@ extension FamilyService {
         try await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
 
-        // Best-effort participant removal; returns partial status if share revocation fails.
+        // Best-effort participant removal; skipped while a shared-identity sibling still holds the iCloudUserID
+        // the removal is keyed on, and partial status when the revocation itself fails.
         let rootRecordID = family.id
+        if hasActiveSharedIdentitySibling(for: profile) {
+            logger.warning("Keeping share participant on kick: another active profile shares this iCloud identity")
+            return .participantKeptSharedIdentity
+        }
         do {
             try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
             return .fully
@@ -52,6 +61,24 @@ extension FamilyService {
             return .partialRevocationFailed(
                 error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             )
+        }
+    }
+
+    /// Another ACTIVE profile sharing the departing profile's iCloud identity
+    /// forbids participant removal: removal is keyed by iCloudUserID, so a
+    /// revoke would cut device access for every sibling bound to that
+    /// identity. Cache-only roster read; an unreadable roster keeps the
+    /// participant rather than risking sibling access.
+    func hasActiveSharedIdentitySibling(for profile: Profile) -> Bool {
+        guard let cacheService else { return true }
+        let familyRecordName = profile.family.recordID.recordName
+        guard !familyRecordName.isEmpty else { return true }
+        let departingRecordName = profile.id.recordName
+        let identityRecordName = profile.iCloudUserID.recordName
+        return cacheService.fetchProfiles(family: familyRecordName).contains {
+            $0.isActive
+                && $0.recordName != departingRecordName
+                && $0.iCloudUserRecordName == identityRecordName
         }
     }
 

@@ -349,9 +349,8 @@ final class BucketService {
     }
 
     private func isIdenticalTransfer(_ existing: LedgerEntryCache, amount: Int64, from: BucketKind, to: BucketKind, date: Date, transferID: String) -> Bool {
-        guard existing.source == LedgerSource.transfer.rawValue else { return false }
-        guard existing.fromBucket == from.rawValue, existing.toBucket == to.rawValue else { return false }
-        guard existing.bucketKind == to.rawValue else { return false }
+        guard existing.source == LedgerSource.transfer.rawValue, existing.fromBucket == from.rawValue, existing.toBucket == to.rawValue,
+              existing.bucketKind == to.rawValue else { return false }
         let existingCents = Int(abs(existing.amount))
         let requestCents = Int(abs(amount))
         guard existingCents == requestCents else { return false }

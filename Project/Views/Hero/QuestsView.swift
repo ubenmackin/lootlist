@@ -317,8 +317,7 @@ struct QuestsView: View {
 
     private func rebuildViewModel(_ vm: HeroDashboardViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
-        guard let targetVM = vm ?? viewModel else { return }
-        guard let currentName = appState.currentProfile?.id.recordName else { return }
+        guard let targetVM = vm ?? viewModel, let currentName = appState.currentProfile?.id.recordName else { return }
 
         // WHY: predicate is primary profile scope; secondary in-memory filter guards stale identity when view is not recreated on profile switch.
         let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }

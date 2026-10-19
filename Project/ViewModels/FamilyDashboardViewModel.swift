@@ -80,7 +80,7 @@ final class FamilyDashboardViewModel {
     /// Invitation orchestration is owned by `FamilyInvitationCoordinator` behind
     /// `FamilyInviting` so this ViewModel stays pure `rebuildLists` + bindings.
     private let invitationCoordinator: any FamilyInviting
-    private let syncCoordinator: (any SyncEnqueuing)?
+    private let syncCoordinator: any SyncEnqueuing?
     private let lifecycleCoordinator: AppLifecycleCoordinator?
 
     /// WHY dedicated host: sync subscription lives off the ViewModel so @Query pulses stay pure rebuilds.
@@ -96,8 +96,8 @@ final class FamilyDashboardViewModel {
          achievementService: AchievementService,
          familyService: any FamilyProfileFetching,
          appState: AppState,
-         invitationCoordinator: (any FamilyInviting)? = nil,
-         syncCoordinator: (any SyncEnqueuing)? = nil,
+         invitationCoordinator: any FamilyInviting? = nil,
+         syncCoordinator: any SyncEnqueuing? = nil,
          lifecycleCoordinator: AppLifecycleCoordinator? = nil)
     {
         self.questService = questService
@@ -107,7 +107,7 @@ final class FamilyDashboardViewModel {
         self.appState = appState
         self.invitationCoordinator = invitationCoordinator
             ?? FamilyInvitationCoordinator(familyService: familyService, appState: appState)
-        let resolvedSync: (any SyncEnqueuing)? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
+        let resolvedSync: any SyncEnqueuing? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
         self.syncCoordinator = resolvedSync
         self.lifecycleCoordinator = lifecycleCoordinator
     }
@@ -145,8 +145,7 @@ final class FamilyDashboardViewModel {
 
     private func requestProfileSync(for family: Family) async {
         // WHY lifecycle-only: dashboard refresh rides the single-flight gate so reconciliation never bypasses ingest.
-        guard !family.id.recordName.isEmpty else { return }
-        guard let lifecycleCoordinator else { return }
+        guard !family.id.recordName.isEmpty, let lifecycleCoordinator else { return }
         await lifecycleCoordinator.performManualSync()
     }
 
@@ -409,8 +408,7 @@ final class DashboardSyncHost {
             await withDiscardingTaskGroup { group in
                 group.addTask { [weak viewModel] in
                     for await _ in signalStream {
-                        guard !Task.isCancelled else { break }
-                        guard let viewModel else { break }
+                        guard !Task.isCancelled, let viewModel else { break }
                         // WHY hop: signal sequence resumes off isolation, so awaiting re-enters MainActor before touching view state.
                         await viewModel.refreshInvitations()
                     }

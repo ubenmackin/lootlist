@@ -84,7 +84,7 @@ enum CacheFirst {
             }
             // Only transient network failures fall back to stale cache. Persistent
             // CloudKit errors rethrow so callers can surface them (§5).
-            guard operations.fallbackToStale, CloudKitErrorClassifier.isTransient(error) else {
+            guard operations.fallbackToStale, CKSyncConflictResolver.isTransient(error) else {
                 throw error
             }
             cacheFirstLogger

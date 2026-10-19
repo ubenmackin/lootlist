@@ -419,8 +419,14 @@ enum RecordBridge {
         fetch: (String, String) -> T?,
         toRecord: (T, CKRecordZone.ID) -> CKRecord
     ) -> CKRecord? {
-        guard let cache = fetch(name, expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, expectedZoneID: zoneID, entity: entity, name: name)
+        guard let cache = fetch(name, expectedFamily), validateScopedRecord(
+            cache,
+            expectedFamily: expectedFamily,
+            expectedDatabaseScope: expectedDatabase,
+            expectedZoneID: zoneID,
+            entity: entity,
+            name: name
+        )
         else { return nil }
         return toRecord(cache, zoneID)
     }

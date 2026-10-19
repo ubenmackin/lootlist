@@ -215,8 +215,7 @@ final class AvatarService {
     nonisolated static func resizeImageData(_ data: Data, maxDimension: CGFloat) async -> Data? {
         await Task.detached(priority: .utility) {
             let maxPixels = Int(maxDimension)
-            guard maxPixels > 0, !data.isEmpty else { return nil }
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            guard maxPixels > 0, !data.isEmpty, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
             let decodeOptions: CFDictionary = [
                 kCGImageSourceShouldAllowFloat as String: true,
                 kCGImageSourceCreateThumbnailFromImageAlways as String: true,

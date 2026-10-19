@@ -17,9 +17,11 @@ struct HeroHomeView: View {
     @Environment(GemService.self) private var gemService
     @Environment(NotificationService.self) private var notificationService
     @Environment(GoalService.self) private var goalService
+    @Environment(QuestService.self) private var questService
     @Environment(ToastManager.self) private var toastManager: ToastManager
 
     @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedFamilyQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var cachedProfiles: [ProfileCache]
@@ -60,6 +62,13 @@ struct HeroHomeView: View {
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(filter: questFilter, sort: HubQueryProvider.questSort())
+        // WHY separate family read: board rows keep the placeholder assignee, so the
+        // assigned-quest slice never contains them and the Hero Board prompt needs
+        // its own family-scoped rows for the service-owned count helper.
+        _cachedFamilyQuests = Query(
+            filter: QuestCache.familyPredicate(familyRecordName: targetFamily),
+            sort: HubQueryProvider.questSort()
+        )
         _cachedCompletions = Query(filter: completionFilter, sort: HubQueryProvider.completionSort())
         _cachedTemplates = Query(filter: templateFilter, sort: HubQueryProvider.templateSort())
         _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
@@ -145,12 +154,10 @@ struct HeroHomeView: View {
 
     private var shouldShowChecklist: Bool {
         // Fail-closed: no row yet means cache not hydrated.
-        guard !effectiveHasDismissedHeroChecklist else { return false }
-        guard let row = currentProfileRow else { return false }
+        guard !effectiveHasDismissedHeroChecklist, let row = currentProfileRow else { return false }
         // WHY utility-first: gate on non-parent role, not RPG chrome; immersive RPG surfaces stay hidden per ARCHITECTURE §1.
         let isChild = (row.roleEnum?.isParent ?? true) == false
-        guard isChild else { return false }
-        guard viewModel != nil else { return false }
+        guard isChild, viewModel != nil else { return false }
         let pending = !effectiveHasSeenNotificationPrime
         let isDefault = splitIsDefault(for: row)
         let hasQuest = hasCompletedFirstQuest
@@ -207,6 +214,15 @@ struct HeroHomeView: View {
             .sheet(item: $checklistSheetItem) { item in
                 checklistSheet(for: item)
             }
+            .navigationDestination(for: String.self) { destination in
+                if destination == "heroBoard" {
+                    HeroBoardView(
+                        questService: questService,
+                        appState: appState,
+                        familyRecordName: familyRecordName
+                    )
+                }
+            }
     }
 
     /// WHY split: lifecycle and query-change observers are grouped away from presentation modifiers so
@@ -258,6 +274,8 @@ struct HeroHomeView: View {
         VStack(spacing: DesignSystemConstants.Padding.standard) {
             checklistCard
 
+            heroBoardPromptCard
+
             DailyLoginBannerView(profileRow: currentProfileRow, compactMode: true)
 
             playerCard
@@ -287,6 +305,16 @@ struct HeroHomeView: View {
                 onAction: handleChecklistAction,
                 hasDismissedHeroChecklist: scopedChecklistBinding
             )
+        }
+    }
+
+    /// Hero Board prompt: present only while board quests are claimable, so a
+    /// zero count removes the card instead of leaving an empty shell.
+    @ViewBuilder
+    private var heroBoardPromptCard: some View {
+        let availableCount = HeroBoardService.availableBoardQuestCount(from: cachedFamilyQuests)
+        if availableCount > 0 {
+            HeroBoardPromptCardView(availableQuestCount: availableCount)
         }
     }
 
@@ -392,8 +420,7 @@ struct HeroHomeView: View {
 
     private func rebuildViewModel(_ vm: HeroDashboardViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
-        guard let targetVM = vm ?? viewModel else { return }
-        guard let currentName = currentProfileRow?.recordName else { return }
+        guard let targetVM = vm ?? viewModel, let currentName = currentProfileRow?.recordName else { return }
 
         // WHY: predicate is primary profile scope; secondary in-memory filter guards stale identity when view is not recreated on profile switch.
         let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }

@@ -22,8 +22,7 @@ enum FamilyScopeValidator {
     static func validateOrFault(targetFamily: String, viewName: String) {
         assertNonEmpty(targetFamily: targetFamily, viewName: viewName)
         // WHY: empty is expected during bootstrap (nil -> "" fail-closed); gate + debounce fault to avoid cold-start spam and test noise.
-        guard targetFamily.isEmpty else { return }
-        guard !TestEnvironment.isRunningUnitOrUITests else { return }
+        guard targetFamily.isEmpty, !TestEnvironment.isRunningUnitOrUITests else { return }
         // WHY: Mutex protects the debounce set under Swift 6 strict concurrency.
         guard !emittedFaults.withLock({ $0.contains(viewName) }) else { return }
         emittedFaults.withLock { _ = $0.insert(viewName) }

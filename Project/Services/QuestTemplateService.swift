@@ -39,7 +39,7 @@ final class QuestTemplateService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) {
         let cache: CacheService
         if let cacheService {
@@ -80,11 +80,7 @@ final class QuestTemplateService {
     {
         guard let acting = appState.currentProfile,
               acting.id == createdBy.id,
-              acting.role.isParent
-        else {
-            throw FamilyServiceError.unauthorized
-        }
-        guard createdBy.family.recordID == family.id,
+              acting.role.isParent, createdBy.family.recordID == family.id,
               createdBy.id.zoneID == family.id.zoneID
         else {
             throw FamilyServiceError.unauthorized

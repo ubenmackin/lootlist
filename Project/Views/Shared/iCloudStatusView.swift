@@ -18,7 +18,7 @@ struct iCloudStatusView: View {
     #if DEBUG
         /// WHY protocol seam: the DEBUG seed resolves CloudKit through the lifecycle
         /// coordinator so Release holds no CloudKit dependency in this view.
-        private var seedCloudKit: (any CloudKitServiceProtocol)? {
+        private var seedCloudKit: any CloudKitServiceProtocol? {
             lifecycleCoordinator?.cloudKitService
         }
     #endif

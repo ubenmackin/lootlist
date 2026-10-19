@@ -43,9 +43,9 @@ final class LedgerService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: (any CacheServicing)? = nil,
+        cacheService: any CacheServicing? = nil,
         appState: AppState? = nil,
-        syncCoordinator: (any SyncEnqueuing)? = nil
+        syncCoordinator: any SyncEnqueuing? = nil
     ) {
         self.init(
             cloudKit: cloudKit,
@@ -182,8 +182,7 @@ final class LedgerService {
         } catch {
             return nil
         }
-        guard let activeZone = appState.familyZoneID ?? appState.family?.id.zoneID ?? appState.currentProfile?.id.zoneID else { return nil }
-        guard activeZone == targetZoneID else { return nil }
+        guard let activeZone = appState.familyZoneID ?? appState.family?.id.zoneID ?? appState.currentProfile?.id.zoneID, activeZone == targetZoneID else { return nil }
         // WHY single resolver: scope proves owner so gate, query, and hydrate cannot diverge on stored flag.
         guard let scope = DatabaseScopeResolver.resolvedScope(appState: appState) else { return nil }
         return (scope, scope == .private)

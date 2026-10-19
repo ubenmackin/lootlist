@@ -69,8 +69,7 @@ extension QuestCompletionService {
         _ logs: [QuestCompletion],
         family: Family?
     ) async throws -> [Quest] {
-        guard !logs.isEmpty else { return [] }
-        guard let family else { return [] }
+        guard !logs.isEmpty, let family else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
         let cache = cacheService
         let familyName = family.id.recordName

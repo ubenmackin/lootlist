@@ -25,6 +25,7 @@ struct QuestAssignmentEditFormView: View {
     let heroes: [ProfileCache]
     let hasLogs: Bool
     let allowLockedOverride: Bool
+    let isBoardQuest: Bool
 
     private var isMultiOccurrence: Bool {
         QuestSchedule.isMultiOccurrence(
@@ -54,7 +55,9 @@ struct QuestAssignmentEditFormView: View {
 
     private var heroSection: some View {
         Section("Hero") {
-            if hasLogs, !allowLockedOverride {
+            if isBoardQuest {
+                boardBannerRow
+            } else if hasLogs, !allowLockedOverride {
                 HStack {
                     if let assignee {
                         Text(assignee.displayName)
@@ -72,6 +75,19 @@ struct QuestAssignmentEditFormView: View {
             } else {
                 heroPicker
             }
+        }
+    }
+
+    /// WHY banner instead of picker: choosing a hero here would move a quest off the
+    /// Hero Board; board quests keep the placeholder assignee until a hero claims.
+    private var boardBannerRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Posted on the Hero Board", systemImage: "list.bullet.clipboard")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+            Text("Any hero can claim this quest from the Hero Board. The assignee cannot be changed here.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

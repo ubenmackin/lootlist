@@ -25,7 +25,6 @@ extension AppLifecycleCoordinator {
         let names: Set<String>
     }
 
-    @MainActor
     static func fetchSnapshot(
         for recordType: CachedRecordType,
         cloudKit: any CloudKitServiceProtocol,
@@ -194,10 +193,7 @@ extension AppLifecycleCoordinator {
         familyRecordName: String,
         targetScope: CKDatabase.Scope
     ) async -> Bool {
-        guard !forceSnapshot else { return false }
-        guard !hasPendingBufferOverflow() else { return false }
-        guard syncGate.hasCompletedInitialBootstrap else { return false }
-        guard let cache = appState.cacheService else { return false }
+        guard !forceSnapshot, !hasPendingBufferOverflow(), syncGate.hasCompletedInitialBootstrap, let cache = appState.cacheService else { return false }
         // WHY delta-first: hydrated cache already reflects server state via engine deltas, so skip the snapshot query set.
         guard isSnapshotSkippable(cache: cache, familyRecordName: familyRecordName, targetScope: targetScope) else {
             return false

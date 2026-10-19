@@ -108,9 +108,7 @@ final class SpendDigestService {
         // WHY device-gated: local notifications render on this device only, so a hero device must not buzz with the parent rollup.
         guard let family = appState.family,
               let currentProfile = appState.currentProfile,
-              currentProfile.role.isParent
-        else { return false }
-        guard Self.isDue(now: now, calendar: calendar) else { return false }
+              currentProfile.role.isParent, Self.isDue(now: now, calendar: calendar) else { return false }
         let familyName = family.id.recordName
         let today = Self.dayString(for: now, calendar: calendar)
         guard defaults.string(forKey: Self.digestDateKey(for: familyName)) != today else { return false }
