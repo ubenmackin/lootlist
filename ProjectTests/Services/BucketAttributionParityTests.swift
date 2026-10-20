@@ -66,8 +66,12 @@ struct BucketAttributionParityTests {
         #expect(BucketService.totalBalance(bucketBalances: directBalances) == 10)
 
         let heroRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: "hero1", scope: .allTime, payoutDay: .sunday)
-        #expect(heroRows.count == 3)
-        #expect(Set(heroRows.map(\.id)) == Set(["l_spend", "l_transfer", "l_goal"]))
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        #expect(heroRows.count == 2)
+        #expect(Set(heroRows.map(\.id)) == Set(["l_spend", "l_transfer"]))
+        #expect(BucketService.isLedgerVisible(ledgers[0]) == true)
+        #expect(BucketService.isLedgerVisible(ledgers[1]) == true)
+        #expect(BucketService.isLedgerVisible(ledgers[2]) == false)
 
         let hero = ProfileCache(
             recordName: "hero1",
