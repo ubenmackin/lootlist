@@ -5,7 +5,7 @@
 | 1 | @unchecked Sendable | ✅ Clean | 0 / 0 | Zero violations detected |
 | 2 | nonisolated(unsafe) | ✅ Clean | 0 / 0 | Zero violations detected |
 | 3 | MainActor.assumeIsolated | ✅ Clean | 0 / 0 | Zero violations detected |
-| 4 | Task { @MainActor in ... } Wrapping | ✅ Clean | 0 / 11 | Zero violations detected |
+| 4 | Task { @MainActor in ... } Wrapping | ⚠️ Flagged | 1 / 11 | 1 occurrences flagged for review |
 | 5 | @preconcurrency import | ✅ Clean | 0 / 0 | Zero violations detected |
 | 6 | Force Unwraps (!) & Force Casts (as!) | ✅ Clean | 0 / 0 | Zero violations detected |
 | 7 | fatalError / preconditionFailure Stubs | ✅ Clean | 0 / 3 | Zero violations detected |
@@ -15,7 +15,7 @@
 | 11 | Type-Erasure Escapes (AnyView, Mirror) | ✅ Clean | 0 / 0 | Zero violations detected |
 | 12 | Dynamic Member / Callable Lookup | ✅ Clean | 0 / 0 | Zero violations detected |
 | 13 | ObservableObject vs @Observable Modernization | ✅ Clean | 0 / 0 | 49 @Observable types, 0 legacy ObservableObject |
-| 14 | Checked / Unsafe Continuation Wrappers | ℹ️ Info | 6 / 6 | 6 occurrences flagged for review |
+| 14 | Checked / Unsafe Continuation Wrappers | ℹ️ Info | 6 / 7 | 6 occurrences flagged for review |
 | 15 | Global Top-Level Mutable Variables | ✅ Clean | 0 / 0 | Zero violations detected |
 | 16 | Custom Executorship / DispatchQueue.main | ✅ Clean | 0 / 0 | Zero violations detected |
 | 17 | Swift 6 Language Mode & Strict Concurrency | ✅ Clean | 0 / 0 | Swift 6: Yes, Concurrency Complete: Yes |
@@ -24,10 +24,17 @@
 
 ## Details for Flagged / Informative Items
 
+### Task { @MainActor in ... } Wrapping
+- **Status:** FLAGGED
+- **Production Occurrences:** 1
+- **Test Occurrences:** 11
+- **Matches:**
+  - `Project/Views/Money/BucketTransferView.swift:309`: `Task { @MainActor [bucketService, amountSnapshot, fromSnapshot, toSnapshot, profileSnapshot, familySnapshot, toastManager, dismiss] in`
+
 ### Checked / Unsafe Continuation Wrappers
 - **Status:** INFO
 - **Production Occurrences:** 6
-- **Test Occurrences:** 6
+- **Test Occurrences:** 7
 - **Matches:**
   - `Project/App/AuthenticationCoordinator.swift:553`: `await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in`
   - `Project/Utilities/KeyedAsyncLock.swift:54`: `try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in`

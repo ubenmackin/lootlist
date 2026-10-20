@@ -89,11 +89,11 @@ final class ParentDashboardUITests: XCTestCase {
         XCTAssertTrue(savingsGoalsLink.waitForExistence(timeout: 10.0), "Savings Goals entry point should render on the child detail screen")
         savingsGoalsLink.tap()
 
-        // The focused hero sorts first but every child gets their own section.
+        // When drilled into a child, only that focused child's section and goals render.
         XCTAssertTrue(anyElement("kidsGoals.section-\(Self.mayaRecordName)").waitForExistence(timeout: 10.0),
                       "Maya's goals section should render with per-child attribution")
-        XCTAssertTrue(anyElement("kidsGoals.section-\(Self.leoRecordName)").waitForExistence(timeout: 5.0),
-                      "Leo's goals section should render below the focused hero")
+        XCTAssertFalse(anyElement("kidsGoals.section-\(Self.leoRecordName)").exists,
+                       "Leo's goals section should not render when filtered to Maya")
 
         // Goal cards below the fold only materialize as the scroll view lays
         // them out, so walk downward instead of asserting offscreen elements.
@@ -102,8 +102,7 @@ final class ParentDashboardUITests: XCTestCase {
 
         // Progress bars are exposed through the goal card's combined
         // accessibility label rather than as separate elements.
-        let leoSkateboardCard = scrollToElement(anyElement("kidsGoals.goalCard-goal_leo_skateboard"))
-        waitForLabel(of: leoSkateboardCard, contains: "percent earned")
+        waitForLabel(of: mayaArtCard, contains: "percent earned")
     }
 
     func testInterestMatchEntryPointOpensConfigurationSheet() {
