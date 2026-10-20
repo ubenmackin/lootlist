@@ -486,4 +486,73 @@ struct GoalServiceFIFOTests {
         let afterDelete = cache.fetchGoal(recordName: updated.id.recordName, family: "fam1")
         #expect(afterDelete == nil)
     }
+
+    @Test
+    func `parent can mark goal purchased for child`() async throws {
+        let app = AppState()
+        let familyZoneID = CKRecordZone.ID(zoneName: "family-zone", ownerName: "owner")
+        let familyID = CKRecord.ID(recordName: "fam1", zoneID: familyZoneID)
+        let family = Family(
+            name: "The Clan",
+            creatorUserRecordName: "owner",
+            id: familyID
+        )
+        let parent = Profile(
+            displayName: "Parent",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "user_parent", zoneID: familyZoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "parent1", zoneID: familyZoneID)
+        )
+        let hero = Profile(
+            displayName: "Maya",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user_hero1", zoneID: familyZoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "hero1", zoneID: familyZoneID)
+        )
+        app.family = family
+        app.currentProfile = parent
+        app.authStatus = .authenticated
+        app.familyZoneID = familyZoneID
+        app.isZoneOwner = true
+
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = familyZoneID
+        cloudKit.activeIsOwner = true
+        let cache = try CacheService(inMemory: true)
+        let goalService = GoalService(cloudKit: cloudKit, cacheService: cache, appState: app)
+
+        let deposit = LedgerEntry(
+            profile: CKRecord.Reference(recordID: hero.id, action: .none),
+            amount: 5000,
+            description: "Allowance",
+            date: Date(),
+            source: LedgerSource.manual.rawValue,
+            bucketKind: BucketKind.shortTermSave.rawValue,
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "ledger1", zoneID: familyZoneID)
+        )
+        await cache.upsertLedgerEntry(deposit)
+
+        let goal = Goal(
+            profile: CKRecord.Reference(recordID: hero.id, action: .none),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            bucketKind: .shortTermSave,
+            name: "Drone",
+            targetAmountPennies: 5000,
+            createdAt: Date(),
+            id: CKRecord.ID(recordName: "goal_drone", zoneID: familyZoneID)
+        )
+        await cache.upsertGoal(goal)
+
+        let purchased = try await goalService.markPurchased(goal, family: family)
+        #expect(purchased.isArchived)
+        #expect(purchased.completedAt != nil)
+
+        let ledgers = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: familyID.recordName)
+        let purchaseLedger = ledgers.first { $0.source == LedgerSource.purchase.rawValue }
+        #expect(purchaseLedger != nil)
+        #expect(purchaseLedger?.amount == -5000)
+    }
 }

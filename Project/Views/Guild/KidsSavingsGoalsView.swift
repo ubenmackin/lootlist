@@ -12,6 +12,7 @@ import SwiftUI
 struct KidsSavingsGoalsView: View {
     private static let logger = Logger(category: "KidsSavingsGoalsView")
 
+    private let familyRecordName: String?
     private let focusedProfileRecordName: String?
 
     @Environment(AppState.self) private var appState
@@ -24,8 +25,10 @@ struct KidsSavingsGoalsView: View {
 
     @State private var goalToEdit: GoalCache?
     @State private var goalToDelete: GoalCache?
+    @State private var goalToPurchase: GoalCache?
 
     init(familyRecordName: String? = nil, focusedProfileRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
         self.focusedProfileRecordName = focusedProfileRecordName
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "KidsSavingsGoalsView")
@@ -40,15 +43,7 @@ struct KidsSavingsGoalsView: View {
     private var heroProfiles: [ProfileCache] {
         let heroes = profileCaches.filter { $0.roleEnum == .hero && $0.isActive }
         guard let focused = focusedProfileRecordName else { return heroes }
-        return heroes.sorted { lhs, rhs in
-            if lhs.recordName == focused {
-                return true
-            }
-            if rhs.recordName == focused {
-                return false
-            }
-            return lhs.displayName < rhs.displayName
-        }
+        return heroes.filter { $0.recordName == focused }
     }
 
     private var allocations: [String: Int64] {
@@ -75,11 +70,16 @@ struct KidsSavingsGoalsView: View {
         .sheet(item: $goalToEdit) { goal in
             GoalEditorSheet(
                 goal: goal,
+                familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+                profileRecordName: goal.profileRecordName,
                 onSave: { draft in
                     try await updateGoal(goal, draft: draft)
                 },
                 onDelete: {
                     try await deleteGoal(goal)
+                },
+                onPurchase: {
+                    try await markPurchased(goal)
                 }
             )
         }
@@ -114,6 +114,40 @@ struct KidsSavingsGoalsView: View {
         } message: { goal in
             Text("Are you sure you want to delete “\(goal.name)” for \(displayName(for: goal.profileRecordName))?")
         }
+        .alert(
+            "Mark Purchased?",
+            isPresented: Binding(
+                get: { goalToPurchase != nil },
+                set: {
+                    if !$0 {
+                        goalToPurchase = nil
+                    }
+                }
+            ),
+            presenting: goalToPurchase
+        ) { goal in
+            Button("Mark Purchased") {
+                let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
+                let goalSnapshot = goal.toGoal(zoneID: zoneID)
+                let goalRecordName = goal.recordName
+                Task { [goalSnapshot, goalRecordName] in
+                    do {
+                        try await markPurchased(goalSnapshot)
+                    } catch {
+                        Self.logger.error("Failed to purchase goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
+                        toastManager?.show(message: purchaseErrorMessage(for: goalSnapshot, error: error), type: .error)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                goalToPurchase = nil
+            }
+        } message: { goal in
+            let amount = CurrencyFormatter.string(goal.targetAmountPennies)
+            let heroName = displayName(for: goal.profileRecordName)
+            let bucket = goal.bucketKindEnum?.shortName ?? "savings"
+            Text("This will deduct \(amount) from \(heroName)’s \(bucket) bucket and archive “\(goal.name)”.")
+        }
     }
 
     private var emptyState: some View {
@@ -123,7 +157,10 @@ struct KidsSavingsGoalsView: View {
                 .foregroundStyle(.tertiary)
             Text("No Savings Goals Yet")
                 .font(.headline)
-            Text("When heroes create savings goals they will appear here grouped by child.")
+            let emptyDescription = focusedProfileRecordName != nil
+                ? "This hero does not have any savings goals yet."
+                : "When heroes create savings goals they will appear here grouped by child."
+            Text(emptyDescription)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -330,6 +367,15 @@ struct KidsSavingsGoalsView: View {
         }
         .disabled(!canModifyGoals)
 
+        if !goal.isArchived {
+            Button {
+                goalToPurchase = goal
+            } label: {
+                Label("Mark Purchased", systemImage: "cart.fill")
+            }
+            .disabled(!canModifyGoals)
+        }
+
         Button(role: .destructive) {
             goalToDelete = goal
         } label: {
@@ -405,5 +451,50 @@ struct KidsSavingsGoalsView: View {
             toastManager?.show(message: "Could not delete goal. Please try again.", type: .error)
             throw error
         }
+    }
+
+    private func markPurchased(_ goal: GoalCache) async throws {
+        guard let goalService else {
+            toastManager?.show(message: "Could not purchase goal.", type: .error)
+            return
+        }
+        do {
+            try await goalService.markPurchased(goal, familyRecordName: familyRecordName ?? appState.family?.id.recordName)
+            goalToPurchase = nil
+            HapticsService.success()
+            toastManager?.show(message: "Goal marked as purchased!", type: .success)
+        } catch {
+            goalToPurchase = nil
+            throw error
+        }
+    }
+
+    private func markPurchased(_ goal: Goal) async throws {
+        guard let goalService, let family = appState.family else {
+            toastManager?.show(message: "Could not purchase goal.", type: .error)
+            return
+        }
+        do {
+            try await goalService.markPurchased(goal, family: family)
+            goalToPurchase = nil
+            HapticsService.success()
+            toastManager?.show(message: "Goal marked as purchased!", type: .success)
+        } catch {
+            goalToPurchase = nil
+            throw error
+        }
+    }
+
+    private func purchaseErrorMessage(for goal: Goal, error: Error) -> String {
+        if let goalError = error as? GoalServiceError,
+           case let .insufficientFunds(available, requested) = goalError
+        {
+            let heroName = displayName(for: goal.profile.recordID.recordName)
+            let availStr = CurrencyFormatter.string(available)
+            let reqStr = CurrencyFormatter.string(requested)
+            let bucket = BucketKind(rawValue: goal.bucketKind)?.shortName ?? "savings"
+            return "Cannot purchase “\(goal.name)” yet. \(heroName) only has \(availStr) in their \(bucket) bucket, but needs \(reqStr)."
+        }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }
