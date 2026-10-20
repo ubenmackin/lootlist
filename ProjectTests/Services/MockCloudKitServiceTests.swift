@@ -39,6 +39,26 @@ struct MockCloudKitServiceTests {
     }
 
     @Test
+    func `inviting multiple heroes preserves the single share and accumulates participants`() async throws {
+        let mock = MockCloudKitService()
+        let zoneID = ExhaustiveCacheFixtures.sharedZoneID
+        let rootID = ExhaustiveCacheFixtures.id("root", zoneID: zoneID)
+
+        let initialShare = try await mock.fetchOrCreateShare(for: rootID, role: .hero)
+        _ = try await mock.simulateParticipation(key: "record:caitlin", rootRecordID: rootID, role: .hero)
+
+        let secondInviteShare = try await mock.fetchOrCreateShare(for: rootID, role: .hero)
+        #expect(secondInviteShare.recordID == initialShare.recordID)
+
+        _ = try await mock.simulateParticipation(key: "record:arya", rootRecordID: rootID, role: .hero)
+        #expect(mock.mockShares.filter { $0.recordID.zoneID == zoneID }.count == 1)
+
+        let shareID = initialShare.recordID
+        #expect(mock.mockShareMemberships[shareID]?.contains("record:caitlin") == true)
+        #expect(mock.mockShareMemberships[shareID]?.contains("record:arya") == true)
+    }
+
+    @Test
     func `removeParticipant by identity revokes from the single family share`() async throws {
         let mock = MockCloudKitService()
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID

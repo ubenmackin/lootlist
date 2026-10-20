@@ -24,6 +24,7 @@ struct ChildHubView: View {
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedFamilyQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var cachedGoals: [GoalCache]
@@ -75,6 +76,13 @@ struct ChildHubView: View {
 
         // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(filter: questFilter, sort: HubQueryProvider.questSort())
+        // WHY separate family read: board rows keep the placeholder assignee, so the
+        // assigned-quest slice never contains them and the Hero Board prompt needs
+        // its own family-scoped rows for the service-owned count helper.
+        _cachedFamilyQuests = Query(
+            filter: QuestCache.familyPredicate(familyRecordName: targetFamily),
+            sort: HubQueryProvider.questSort()
+        )
         _cachedCompletions = Query(filter: completionFilter, sort: HubQueryProvider.completionSort())
         _cachedTemplates = Query(filter: templateFilter, sort: HubQueryProvider.templateSort())
         _cachedGoals = Query(filter: goalFilter, sort: HubQueryProvider.goalSort())
@@ -132,6 +140,10 @@ struct ChildHubView: View {
         currentProfileRow?.displayName
     }
 
+    private var availableBoardQuestCount: Int {
+        HeroBoardService.availableBoardQuestCount(from: cachedFamilyQuests)
+    }
+
     private var recentLedgersSlice: [LedgerEntryCache] {
         ChildHubViewModel.recentLedgers(cachedLedgers)
     }
@@ -183,7 +195,8 @@ struct ChildHubView: View {
                 recentLedgers: ledgers,
                 streak: streakValue,
                 cachedTemplates: cachedTemplates,
-                profileRecordName: profileRecordName
+                profileRecordName: profileRecordName,
+                availableBoardQuestCount: availableBoardQuestCount
             )
         }
     }
@@ -194,21 +207,43 @@ struct ChildHubView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: DesignSystemConstants.Padding.standard) {
-                    header
-                    profileStaleBanner
-                    hubContent
-                }
-                .maxContentWidth()
-                .padding(.horizontal, DesignSystemConstants.Padding.standard)
-                .padding(.top, DesignSystemConstants.Padding.small)
-                .padding(.bottom, DesignSystemConstants.Padding.large)
+            hubObserved
+        }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+    }
+
+    private var scrollSurface: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: DesignSystemConstants.Padding.standard) {
+                header
+                profileStaleBanner
+                hubContent
             }
-            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
+            .frame(maxWidth: .infinity)
+            .maxContentWidth()
+            .padding(.horizontal, DesignSystemConstants.Padding.standard)
+            .padding(.top, DesignSystemConstants.Padding.small)
+            .padding(.bottom, DesignSystemConstants.Padding.large)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .refreshable {
+            await lifecycleCoordinator?.performManualSync()
+        }
+    }
+
+    private var hubPresentations: some View {
+        scrollSurface
+            .navigationDestination(for: String.self) { destination in
+                if destination == "heroBoard" {
+                    HeroBoardView(
+                        questService: questService,
+                        appState: appState,
+                        familyRecordName: familyRecordName
+                    )
+                }
             }
             .overlay {
                 CelebrationOverlay(isPresented: showCelebration)
@@ -255,10 +290,15 @@ struct ChildHubView: View {
                     profileRecordName: profileRecordName ?? currentProfileRow?.recordName
                 )
             }
+    }
+
+    private var hubObserved: some View {
+        hubPresentations
             .task {
                 ensureViewModels()
             }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
+            .onChange(of: cachedFamilyQuests) { _, _ in rebuild() }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedTemplates) { _, _ in rebuild() }
             .onChange(of: cachedGoals) { _, _ in rebuild() }
@@ -266,9 +306,6 @@ struct ChildHubView: View {
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .onChange(of: cachedProfiles) { _, _ in rebuild() }
             .onChange(of: currentProfileRows) { _, _ in rebuild() }
-        }
-        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
-        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     // MARK: - Header (focused section)

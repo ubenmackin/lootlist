@@ -26,6 +26,7 @@ struct ChildHubCardsView: View {
     let recentLedgers: [LedgerEntryCache]
     let streak: Int
     let cachedTemplates: [QuestTemplateCache]
+    let availableBoardQuestCount: Int
 
     init(
         viewModel: ChildHubViewModel,
@@ -38,7 +39,8 @@ struct ChildHubCardsView: View {
         recentLedgers: [LedgerEntryCache] = [],
         streak: Int = 0,
         cachedTemplates: [QuestTemplateCache],
-        profileRecordName: String? = nil
+        profileRecordName: String? = nil,
+        availableBoardQuestCount: Int = 0
     ) {
         self.viewModel = viewModel
         self.cachedQuests = cachedQuests
@@ -51,10 +53,18 @@ struct ChildHubCardsView: View {
         self.recentLedgers = recentLedgers
         self.streak = streak
         self.cachedTemplates = cachedTemplates
+        self.availableBoardQuestCount = availableBoardQuestCount
     }
 
     private var templatesByID: [String: QuestTemplateCache] {
         SpecificDaysHelper.templatesByID(cachedTemplates)
+    }
+
+    @ViewBuilder
+    private var heroBoardPromptCard: some View {
+        if availableBoardQuestCount > 0 {
+            HeroBoardPromptCardView(availableQuestCount: availableBoardQuestCount)
+        }
     }
 
     var body: some View {
@@ -65,6 +75,7 @@ struct ChildHubCardsView: View {
                 }
                 .frame(maxWidth: .infinity)
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    heroBoardPromptCard
                     todaysChoresCard
                 }
                 .frame(maxWidth: .infinity)
@@ -75,6 +86,7 @@ struct ChildHubCardsView: View {
             }
         } else {
             VStack(spacing: DesignSystemConstants.Padding.standard) {
+                heroBoardPromptCard
                 todaysChoresCard
                 activeGoalCard
                 streakSparklineCard

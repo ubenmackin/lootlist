@@ -122,6 +122,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         # WHY: test bundles never contribute App Intents metadata, and the extractor spurious-warns when it cannot resolve an AppIntents.framework dependency
         ENABLE_APP_INTENTS_METADATA_EXTRACTION: NO
+        ENABLE_APP_INTENTS_METADATA_GENERATION: NO
 
   LootListUITests:
     type: bundle.ui-testing
@@ -141,6 +142,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         # WHY: test bundles never contribute App Intents metadata, and the extractor spurious-warns when it cannot resolve an AppIntents.framework dependency
         ENABLE_APP_INTENTS_METADATA_EXTRACTION: NO
+        ENABLE_APP_INTENTS_METADATA_GENERATION: NO
 
   LootListIntegrationTests:
     type: bundle.unit-test
@@ -159,6 +161,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         # WHY: test bundles never contribute App Intents metadata, and the extractor spurious-warns when it cannot resolve an AppIntents.framework dependency
         ENABLE_APP_INTENTS_METADATA_EXTRACTION: NO
+        ENABLE_APP_INTENTS_METADATA_GENERATION: NO
 
 schemes:
   LootList:
