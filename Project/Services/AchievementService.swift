@@ -77,8 +77,10 @@ struct ProfileStats: Sendable {
 final class AchievementService {
     private let logger = Logger(category: "AchievementService")
 
-    let cacheService: any CacheServicing?
-    var syncCoordinator: any SyncEnqueuing?
+    // swiftformat:disable:next redundantParens
+    let cacheService: (any CacheServicing)?
+    // swiftformat:disable:next redundantParens
+    var syncCoordinator: (any SyncEnqueuing)?
 
     var appState: AppState?
 
@@ -89,11 +91,13 @@ final class AchievementService {
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: any CacheServicing? = nil,
+        // swiftformat:disable:next redundantParens
+        cacheService: (any CacheServicing)? = nil,
         toastManager _: ToastManager? = nil,
         appState: AppState? = nil,
         celebrationManager: CelebrationManager? = nil,
-        syncCoordinator: any SyncEnqueuing? = nil
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService

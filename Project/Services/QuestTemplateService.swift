@@ -39,7 +39,8 @@ final class QuestTemplateService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: any SyncEnqueuing? = nil
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         let cache: CacheService
         if let cacheService {

@@ -54,7 +54,8 @@ final class NotificationService {
     private(set) var verificationCategoryRegistered = false
     private(set) var currentAppBadgeCount: Int = 0
 
-    let weeklySummaryProvider: any WeeklySummaryProviding?
+    // swiftformat:disable:next redundantParens
+    let weeklySummaryProvider: (any WeeklySummaryProviding)?
 
     private let defaults: UserDefaults
 
@@ -63,7 +64,8 @@ final class NotificationService {
          cacheService: CacheService,
          syncCoordinator: CKSyncEngineCoordinator? = nil,
          toastManager: ToastManager? = nil,
-         weeklySummaryProvider: any WeeklySummaryProviding? = nil,
+         // swiftformat:disable:next redundantParens
+         weeklySummaryProvider: (any WeeklySummaryProviding)? = nil,
          defaults: UserDefaults = .standard)
     {
         self.cloudKit = cloudKit

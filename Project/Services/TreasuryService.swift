@@ -109,10 +109,12 @@ final class TreasuryService {
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
         notificationService: NotificationService? = nil,
-        cacheService: any CacheServicing? = nil,
+        // swiftformat:disable:next redundantParens
+        cacheService: (any CacheServicing)? = nil,
         toastManager: ToastManager? = nil,
         appState: AppState? = nil,
-        syncCoordinator: any SyncEnqueuing? = nil
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         let cache: any CacheServicing
         if let cacheService {

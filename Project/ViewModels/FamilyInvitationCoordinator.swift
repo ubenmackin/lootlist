@@ -29,7 +29,8 @@ final class FamilyInvitationCoordinator: FamilyInviting {
     private let familyService: any FamilyProfileFetching
     private let appState: AppState
     private let invitationResolver: InvitationResolver
-    private let syncCoordinator: any SyncEnqueuing?
+    // swiftformat:disable:next redundantParens
+    private let syncCoordinator: (any SyncEnqueuing)?
     private let lifecycleCoordinator: AppLifecycleCoordinator?
     private let logger = Logger(category: "FamilyInvitationCoordinator")
 
@@ -37,13 +38,15 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         familyService: any FamilyProfileFetching,
         appState: AppState,
         invitationResolver: InvitationResolver = InvitationResolver(),
-        syncCoordinator: any SyncEnqueuing? = nil,
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil,
         lifecycleCoordinator: AppLifecycleCoordinator? = nil
     ) {
         self.familyService = familyService
         self.appState = appState
         self.invitationResolver = invitationResolver
-        let resolvedSync: any SyncEnqueuing? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
+        // swiftformat:disable:next redundantParens
+        let resolvedSync: (any SyncEnqueuing)? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
         self.syncCoordinator = resolvedSync
         self.lifecycleCoordinator = lifecycleCoordinator
     }

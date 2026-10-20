@@ -198,7 +198,8 @@ final class QuestService {
         treasuryService: TreasuryService? = nil,
         toastManager: ToastManager? = nil,
         appState: AppState? = nil,
-        syncCoordinator: any SyncEnqueuing? = nil
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         let cache: CacheService
         if let cacheService {
@@ -209,7 +210,8 @@ final class QuestService {
         }
         let state = appState ?? AppState()
         // WHY single shared engine: ephemeral delegate+coordinator diverge from ingest.
-        let sharedCoord: any SyncEnqueuing? = AppDependencies.shared?.syncCoordinator
+        // swiftformat:disable:next redundantParens
+        let sharedCoord: (any SyncEnqueuing)? = AppDependencies.shared?.syncCoordinator
         if let coord: any SyncEnqueuing = syncCoordinator ?? sharedCoord {
             self.init(
                 cloudKit: cloudKit,

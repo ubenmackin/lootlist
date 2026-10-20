@@ -288,7 +288,7 @@ extension CloudKitService {
     /// reference or any failed re-fetch throws: minting a replacement would
     /// collide with the existing share, so callers fail closed.
     private func resolveFamilyShare(root: CKRecord, using pvtDB: CKDatabase) async throws -> CKShare? {
-        guard let reference = root["share"] as? CKRecord.Reference else { return nil }
+        guard let reference = root.share ?? (root["share"] as? CKRecord.Reference) else { return nil }
         do {
             let record = try await retrying {
                 try await pvtDB.record(for: reference.recordID)
