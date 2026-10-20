@@ -111,42 +111,46 @@ enum RecordBridge {
     }
 
     private static func otherFamilyStatus(for type: CachedRecordType, name: String, requested: String, cacheService: CacheService) -> DeletionCheckResult? {
-        // WHY concrete instantiation: generic probe monomorphizes per type so the index still routes.
+        let target = name
+        // WHY concrete descriptor: #Predicate with generic T: FamilyScopedCache fails inside SwiftData's
+        // keypath validation (PersistentModel.graph_keyPathToString) because the keypath is protocol-rooted.
+        // Instantiating FetchDescriptor per concrete type ensures the keypath roots on the persistent class.
         switch type {
         case .family:
-            otherFamilyFamilyStatus(targetName: name, otherFamily: requested, cacheService: cacheService)
+            return otherFamilyFamilyStatus(targetName: name, otherFamily: requested, cacheService: cacheService)
         case .profile:
-            otherFamilyExists(ProfileCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<ProfileCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .quest:
-            otherFamilyExists(QuestCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .questTemplate:
-            otherFamilyExists(QuestTemplateCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .questCompletion:
-            otherFamilyExists(QuestCompletionCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .ledgerEntry:
-            otherFamilyExists(LedgerEntryCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .allowancePeriod:
-            otherFamilyExists(AllowancePeriodCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .achievement:
-            otherFamilyExists(AchievementCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<AchievementCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .profileAchievement:
-            otherFamilyExists(ProfileAchievementCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .notificationPreference:
-            otherFamilyExists(NotificationPreferenceCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(
+                FetchDescriptor<NotificationPreferenceCache>(predicate: #Predicate { $0.recordName == target }),
+                requested: requested,
+                cacheService: cacheService
+            )
         case .gemLedger:
-            otherFamilyExists(GemLedgerCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<GemLedgerCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .rewardEvent:
-            otherFamilyExists(RewardEventCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         case .goal:
-            otherFamilyExists(GoalCache.self, name: name, requested: requested, cacheService: cacheService)
+            return checkOtherFamily(FetchDescriptor<GoalCache>(predicate: #Predicate { $0.recordName == target }), requested: requested, cacheService: cacheService)
         }
     }
 
     /// WHY equality probe: != bypasses composite index — filter family in memory.
-    private static func otherFamilyExists<T: FamilyScopedCache>(_: T.Type, name: String, requested: String, cacheService: CacheService) -> DeletionCheckResult? {
-        let target = name
-        // WHY untruncated match: recordName equality stays tiny so every family lands in memory.
-        let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == target })
+    private static func checkOtherFamily(_ descriptor: FetchDescriptor<some FamilyScopedCache>, requested: String, cacheService: CacheService) -> DeletionCheckResult? {
         guard let rows = cacheService.tryFetch(descriptor) else { return .unknown }
         for row in rows where row.familyRecordName != requested {
             return .stillPresent
