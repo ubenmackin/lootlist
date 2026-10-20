@@ -222,7 +222,9 @@ struct HeroLedgerView: View {
 
     private func exportEntries(as format: ExportFormat) {
         // cachedLedgers is already profile-scoped via predicate pushdown.
-        let filtered = cachedLedgers.filter { scope.contains($0.date, payoutDay: payoutDay) }
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        let filtered = cachedLedgers.filter { BucketService.isLedgerVisible($0) }
+            .filter { scope.contains($0.date, payoutDay: payoutDay) }
 
         let data: Data
         switch format {

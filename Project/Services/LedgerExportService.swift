@@ -39,6 +39,8 @@ final class LedgerExportService {
 
     /// Builds CSV payload matching canonical import headers.
     func buildCSV(entries: [LedgerEntryCache], childName: String) -> Data {
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        let visibleEntries = entries.filter { BucketService.isLedgerVisible($0) }
         var csv = Self.csvHeader + "\n"
 
         let dateFormatter = DateFormatter()
@@ -46,7 +48,7 @@ final class LedgerExportService {
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
 
-        for entry in entries {
+        for entry in visibleEntries {
             let date = dateFormatter.string(from: entry.date)
             let desc = csvEscape(entry.entryDescription)
             let merchant = csvEscape(entry.location ?? "")
@@ -55,7 +57,7 @@ final class LedgerExportService {
             csv += "\(date),\(desc),\(merchant),\(amount),\(purchasedBy)\n"
         }
 
-        logger.debug("Built CSV export: \(entries.count) rows")
+        logger.debug("Built CSV export: \(visibleEntries.count) rows")
         return Data(csv.utf8)
     }
 
@@ -78,7 +80,9 @@ final class LedgerExportService {
 
     /// Builds structured JSON dump of all ledger entries for backup.
     func buildJSON(entries: [LedgerEntryCache]) throws -> Data {
-        let codableEntries = entries.map { LedgerEntryJSON(from: $0) }
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        let visibleEntries = entries.filter { BucketService.isLedgerVisible($0) }
+        let codableEntries = visibleEntries.map { LedgerEntryJSON(from: $0) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601

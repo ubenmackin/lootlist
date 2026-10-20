@@ -512,10 +512,12 @@ private struct GuildMonthLedgerListView: View {
     }
 
     private var monthLedgerFiltered: [LedgerEntryCache] {
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        let visibleEntries = monthEntries.filter { BucketService.isLedgerVisible($0) }
         // WHY amount gate stays in-memory: the threshold is a display filter, never part of the indexed store predicate.
         let threshold = CurrencyFormatter.pennies(from: minAmountText) ?? 0
-        guard threshold > 0 else { return monthEntries }
-        return monthEntries.filter { abs($0.amount) >= threshold }
+        guard threshold > 0 else { return visibleEntries }
+        return visibleEntries.filter { abs($0.amount) >= threshold }
     }
 
     private var monthLedgerHistory: [LedgerEntryCache] {

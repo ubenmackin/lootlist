@@ -24,7 +24,9 @@ struct PayoutDetailContent: View {
     }
 
     private var weekLedgerEntries: [LedgerEntryCache] {
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
         PayoutWeekCalculator.weekLedgerEntries(for: period, from: cachedLedgers)
+            .filter { BucketService.isLedgerVisible($0) }
     }
 
     private var goalContributions: [(goal: GoalCache, amount: Int64)] {
@@ -32,7 +34,7 @@ struct PayoutDetailContent: View {
     }
 
     private var ledgerRows: [LedgerDisplayRow] {
-        weekLedgerEntries.map { entry in
+        weekLedgerEntries.filter { BucketService.isLedgerVisible($0) }.map { entry in
             LedgerDisplayRow(
                 id: entry.recordName,
                 date: entry.date,

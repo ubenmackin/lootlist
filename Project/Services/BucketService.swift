@@ -125,6 +125,11 @@ final class BucketService {
         entry.isBonusCounted
     }
 
+    /// WHY single source: goal markers reuse counted funds so history shows new money only.
+    nonisolated static func isLedgerVisible(_ entry: some LedgerEntryProtocol) -> Bool {
+        entry.sourceEnum != .goal
+    }
+
     /// Single-source attribution: credits bucketKind; transfers also debit fromBucket so one row moves both sides.
     nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Int64]) {
         // WHY bucket-only: nil-bucket rows are wiped residue, never live money.

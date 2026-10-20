@@ -23,7 +23,8 @@ struct HeroDetailInlineView: View {
     }
 
     private var recentEntries: [LedgerEntryCache] {
-        Array(heroLedgers.prefix(5))
+        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        Array(heroLedgers.filter { BucketService.isLedgerVisible($0) }.prefix(5))
     }
 
     private var balances: [BucketKind: Int64] {

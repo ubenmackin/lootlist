@@ -12,6 +12,8 @@ enum LedgerRowFactory {
     static func spendingRows(from ledgers: [LedgerEntryCache], profileRecordName: String, scope: CalendarScope, payoutDay: PayoutDay) -> [SpendingLogRow] {
         ledgers
             .filter { $0.profileRecordName == profileRecordName }
+            // WHY single source: goal markers reuse counted funds so history shows new money only.
+            .filter { BucketService.isLedgerVisible($0) }
             .filter { scope.contains($0.date, payoutDay: payoutDay) }
             .map { ledger in
                 SpendingLogRow(

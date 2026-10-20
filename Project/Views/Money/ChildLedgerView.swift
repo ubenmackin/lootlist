@@ -46,8 +46,9 @@ struct ChildLedgerView: View {
     // MARK: - Filtered Entries
 
     /// Entries already profile-scoped via predicate pushdown.
+    /// WHY single source: goal markers reuse counted funds so history shows new money only.
     private var childEntries: [LedgerEntryCache] {
-        allLedgers
+        allLedgers.filter { BucketService.isLedgerVisible($0) }
     }
 
     /// Ledger entries grouped by date bucket, preserving reverse-chronological
