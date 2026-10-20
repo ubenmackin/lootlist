@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// Shared three-line grouped ledger card used by child and parent ledgers.
+/// Shared grouped ledger card used by child and parent ledgers.
 struct LedgerGroupRowView: View {
     let group: TransactionGroup
     let isExpanded: Bool
@@ -28,18 +28,6 @@ struct LedgerGroupRowView: View {
 
     private var totalText: String {
         CurrencyFormatter.signed(pennies: group.totalPennies)
-    }
-
-    private var runningText: String {
-        // WHY per-filter running: All shows Total while each bucket filter shows its own bucket running.
-        CurrencyFormatter.string(pennies: group.runningPennies(for: selectedBucketFilter))
-    }
-
-    private var totalColor: Color {
-        // WHY adaptive amount: receipt totals read as primary ink while overdrafts flag red.
-        group.totalPennies >= 0
-            ? .primary
-            : Color(DesignSystemConstants.Colors.dangerRed)
     }
 
     private var sortedSplits: [TransactionSplit] {
@@ -91,45 +79,35 @@ struct LedgerGroupRowView: View {
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("\(group.title), \(totalText), \(LedgerRowStyle.shortDateText(for: group.date))")
         .accessibilityIdentifier("ledger.group-\(group.groupID)")
     }
 
     private var headerRow: some View {
-        // WHY tappable header: progressive disclosure routes every tap through onToggle so default-expanded groups collapse too.
         Button {
             onToggle()
         } label: {
-            HStack(alignment: .top, spacing: DesignSystemConstants.Padding.medium) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(group.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(LedgerRowStyle.shortDateText(for: group.date))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: DesignSystemConstants.Padding.small)
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(totalText)
-                        .font(.subheadline.weight(.bold).monospacedDigit())
-                        .foregroundStyle(totalColor)
-                        .lineLimit(1)
-                    Text("Balance \(runningText)")
-                        .font(.subheadline.weight(.bold).monospacedDigit())
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.gold))
-                        .lineLimit(1)
-                }
-
+            HStack(spacing: DesignSystemConstants.Padding.small) {
+                Text("\(Text(group.title).foregroundStyle(.primary))\(Text(" • \(LedgerRowStyle.shortDateText(for: group.date))").foregroundStyle(.secondary))")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(totalText)
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(group.totalPennies >= 0 ? .primary : Color(DesignSystemConstants.Colors.dangerRed))
+                    .frame(minWidth: 78, alignment: .trailing)
+                    .lineLimit(1)
+                Text(CurrencyFormatter.string(pennies: group.runningPennies(for: selectedBucketFilter)))
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.gold))
+                    .frame(minWidth: 78, alignment: .trailing)
+                    .lineLimit(1)
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 20, height: 20)
             }
             .contentShape(Rectangle())
         }
@@ -161,74 +139,80 @@ struct LedgerGroupRowView: View {
     }
 
     private var splitsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // WHY single sort: ForEach plus anchor share one sorted array so indices cannot drift.
+        let sorted = sortedSplits
+        let anchor = shortAnchorIndex(in: sorted)
+        return VStack(alignment: .leading, spacing: 6) {
             if let weekDetail = questWeekDetailText {
-                Text(weekDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(weekDetail)
+                detailLine(text: weekDetail)
             }
             if let detail = spendDetailText {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(detail)
+                detailLine(text: detail)
             }
-            ForEach(Array(sortedSplits.enumerated()), id: \.element.id) { index, split in
+            ForEach(Array(sorted.enumerated()), id: \.element.id) { index, split in
                 splitRow(for: split)
                 // WHY Short anchor: goal copy reads indented under Short Save even with Long legs present.
-                if index == shortAnchorIndex {
+                if index == anchor {
                     goalSection
                 }
             }
             // WHY trailing fallback: groups without Short legs still surface goals instead of dropping them.
-            if !group.goalChildren.isEmpty, shortAnchorIndex == nil {
+            if !group.goalChildren.isEmpty, anchor == nil {
                 goalSection
             }
         }
     }
 
-    private var shortAnchorIndex: Int? {
+    private func detailLine(text: String) -> some View {
+        // WHY shared geometry: empty Amount plus Balance spacers keep Type left edge identical to header.
+        HStack(spacing: DesignSystemConstants.Padding.small) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Color.clear.frame(minWidth: 78, minHeight: 1)
+            Color.clear.frame(minWidth: 78, minHeight: 1)
+            Color.clear.frame(width: 20, height: 20)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+    }
+
+    private func shortAnchorIndex(in sorted: [TransactionSplit]) -> Int? {
         guard !group.goalChildren.isEmpty else { return nil }
-        // WHY single sort: capture once so the index filter cannot re-sort per element.
-        let sorted = sortedSplits
         let shortIndices = sorted.indices.filter { sorted[$0].bucketKindEnum == .shortTermSave }
         return shortIndices.last
     }
 
     private func splitRow(for split: TransactionSplit) -> some View {
-        // WHY per-filter legs: source-side transfers read as debits so filtered copy matches bucket math.
+        // WHY shared geometry: identical 78 plus 78 plus 20 spacers pixel-match header Amount right edge.
+        // WHY per-filter legs: displayAmount flips transfer source-debit sign under filter so filtered math stays correct.
         let displayPennies = split.displayAmount(for: selectedBucketFilter)
-        let bucketText = bucketDescription(for: split)
-        // WHY title fallback: splits without bucket attribution still need a leading label.
-        let displayBucketText = bucketText.isEmpty ? group.title : bucketText
-        return HStack(spacing: 6) {
-            Text(displayBucketText)
-                .font(.subheadline.weight(.semibold))
+        let amountText = CurrencyFormatter.signed(pennies: displayPennies)
+        let typeName = split.shortName.isEmpty ? group.title : split.shortName
+        return HStack(spacing: DesignSystemConstants.Padding.small) {
+            Text(typeName)
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-            Spacer(minLength: 8)
-            Text(CurrencyFormatter.signed(pennies: displayPennies))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(amountText)
                 .font(.subheadline.weight(.bold).monospacedDigit())
-                .foregroundStyle(
-                    displayPennies >= 0
-                        ? .primary
-                        : Color(DesignSystemConstants.Colors.dangerRed)
-                )
+                .foregroundStyle(displayPennies >= 0 ? .primary : Color(DesignSystemConstants.Colors.dangerRed))
+                .frame(minWidth: 78, alignment: .trailing)
                 .lineLimit(1)
+            Color.clear.frame(minWidth: 78, minHeight: 1)
+            Color.clear.frame(width: 20, height: 20)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(displayBucketText), \(CurrencyFormatter.signed(pennies: displayPennies))")
+        .accessibilityLabel("\(typeName), \(amountText)")
     }
 
     private var goalSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(group.goalChildren) { child in
-                HStack(spacing: 6) {
+                HStack(spacing: DesignSystemConstants.Padding.small) {
                     Image(systemName: "target")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -236,6 +220,11 @@ struct LedgerGroupRowView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // WHY shared geometry: empty Amount plus Balance spacers keep goal right edge identical to header.
+                    Color.clear.frame(minWidth: 78, minHeight: 1)
+                    Color.clear.frame(minWidth: 78, minHeight: 1)
+                    Color.clear.frame(width: 20, height: 20)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, DesignSystemConstants.Padding.standard)
@@ -245,30 +234,38 @@ struct LedgerGroupRowView: View {
         }
     }
 
-    private func bucketDescription(for split: TransactionSplit) -> String {
-        if let fromKind = split.fromBucketEnum,
-           let toKind = split.bucketKindEnum
-        {
+    private func goalCopy(for child: TransactionSplit) -> String {
+        // WHY amount-only: magnitude rides inline so no parenthetical now status ever renders; totals live on goal screens.
+        let magnitude = CurrencyFormatter.magnitude(pennies: child.amount)
+        let rawName = child.entryDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if child.amount >= 0 {
+            if rawName.isEmpty {
+                return "Applied \(magnitude) to goal"
+            }
+            return "Applied \(magnitude) to goal \(rawName)"
+        }
+        if rawName.isEmpty {
+            return "Borrowed \(magnitude) from goal"
+        }
+        return "Borrowed \(magnitude) from goal \(rawName)"
+    }
+}
+
+extension TransactionSplit {
+    /// WHY from-to: transfers credit the destination while debiting the source, so one label reads both sides.
+    var shortName: String {
+        if let fromKind = fromBucketEnum, let toKind = bucketKindEnum ?? toBucketEnum {
             if fromKind != toKind {
                 return "\(fromKind.shortName) to \(toKind.shortName)"
             }
             return toKind.shortName
         }
-        if let kind = split.bucketKindEnum {
+        if let kind = bucketKindEnum ?? toBucketEnum {
             return kind.shortName
         }
-        if let fromKind = split.fromBucketEnum {
+        if let fromKind = fromBucketEnum {
             return fromKind.shortName
         }
         return ""
-    }
-
-    private func goalCopy(for child: TransactionSplit) -> String {
-        // WHY amount-only: magnitude rides inline so no parenthetical now status ever renders; totals live on goal screens.
-        let magnitude = CurrencyFormatter.magnitude(pennies: child.amount)
-        if child.amount >= 0 {
-            return "Applied \(magnitude) to goal"
-        }
-        return "Borrowed \(magnitude) from goal"
     }
 }
