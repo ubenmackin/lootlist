@@ -13,7 +13,7 @@ struct SpendingLogView: View {
     @Binding var scope: CalendarScope
     @Environment(AppState.self) private var appState
 
-    @State private var expandedGroups: Set<String> = []
+    @State private var selectedGroup: TransactionGroup?
     /// Nil shows All; non-nil filters the ledger list to that bucket's attribution.
     @State private var selectedBucketFilter: BucketKind?
 
@@ -65,14 +65,6 @@ struct SpendingLogView: View {
         BucketService.totalBalance(bucketBalances: bucketBalances)
     }
 
-    private func isExpanded(_ group: TransactionGroup) -> Bool {
-        LedgerGroupExpansion.isExpanded(group, expandedIDs: expandedGroups)
-    }
-
-    private func toggle(_ group: TransactionGroup) {
-        LedgerGroupExpansion.toggle(group, expandedIDs: &expandedGroups)
-    }
-
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -94,9 +86,11 @@ struct SpendingLogView: View {
                         ForEach(groups) { group in
                             LedgerGroupRowView(
                                 group: group,
-                                isExpanded: isExpanded(group),
-                                onToggle: { toggle(group) },
-                                selectedBucketFilter: selectedBucketFilter
+                                selectedBucketFilter: selectedBucketFilter,
+                                onSelect: {
+                                    HapticsService.lightImpact()
+                                    selectedGroup = group
+                                }
                             )
                         }
                     }
@@ -120,6 +114,9 @@ struct SpendingLogView: View {
         .task {
             guard !isMissingProfile else { return }
             viewModel.rebuildSpendingLog(from: cachedLedgers, scope: scope, profileRecordName: resolvedProfileName)
+        }
+        .sheet(item: $selectedGroup) { group in
+            LedgerGroupDetailSheet(group: group, selectedBucketFilter: selectedBucketFilter)
         }
     }
 

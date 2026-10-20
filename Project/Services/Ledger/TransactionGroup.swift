@@ -98,7 +98,6 @@ struct TransactionGroup: Sendable, Hashable, Identifiable, Equatable {
     let splits: [TransactionSplit]
     let goalChildren: [TransactionSplit]
     let source: String
-    let isExpandedByDefault: Bool
 
     init(
         groupID: String,
@@ -109,8 +108,7 @@ struct TransactionGroup: Sendable, Hashable, Identifiable, Equatable {
         runningByBucket: [BucketKind: Int64] = [:],
         splits: [TransactionSplit],
         goalChildren: [TransactionSplit],
-        source: String,
-        isExpandedByDefault: Bool
+        source: String
     ) {
         self.groupID = groupID
         self.title = title
@@ -121,7 +119,6 @@ struct TransactionGroup: Sendable, Hashable, Identifiable, Equatable {
         self.splits = splits
         self.goalChildren = goalChildren
         self.source = source
-        self.isExpandedByDefault = isExpandedByDefault
     }
 
     var id: String {

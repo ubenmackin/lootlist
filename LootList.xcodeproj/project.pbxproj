@@ -369,6 +369,7 @@
 		BE44DEF5B0AD1DE615200BF0 /* DismissalKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953068CE6073F4EFA9BAE1C2 /* DismissalKeys.swift */; };
 		BEB187A7D09AB96290A060C7 /* QuestRewardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38AB1A34D15F579C5A146C8E /* QuestRewardServiceTests.swift */; };
 		BF8E8D123D6F818AC37C046C /* WidgetDataBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBADA92A5A45EF0F3C5C24AD /* WidgetDataBridge.swift */; };
+		C0101FF1342C49BEE4FB4FD2 /* LedgerGroupDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC24661E8F3E18711321E62 /* LedgerGroupDetailSheet.swift */; };
 		C015DCE8002EB10CDF841B68 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BFC96A7EB4DB94588DE1F4 /* FeatureFlags.swift */; };
 		C1742F329E117F6320E8FBAC /* ProgressRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2021A4D582EDDE499EABC9CE /* ProgressRingView.swift */; };
 		C1918099647CCE0351E916E4 /* NotificationEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11F43417D2F508F010B5411F /* NotificationEventType.swift */; };
@@ -807,6 +808,7 @@
 		89AB9A4FCD7CD3B589F4D935 /* TreasuryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryUITests.swift; sourceTree = "<group>"; };
 		89E76B844C43F14AC0A0E2DF /* QuestLogFetchHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLogFetchHelper.swift; sourceTree = "<group>"; };
 		8A029B21BB9CA3C965490F84 /* XPServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPServiceTests.swift; sourceTree = "<group>"; };
+		8AC24661E8F3E18711321E62 /* LedgerGroupDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerGroupDetailSheet.swift; sourceTree = "<group>"; };
 		8B15421668F757E0673E4665 /* LedgerImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportViewModel.swift; sourceTree = "<group>"; };
 		8B3E89C7232C29D009B9D064 /* NotificationPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreference.swift; sourceTree = "<group>"; };
 		8BDD77F1813A586E40D5AE89 /* LootListWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListWidgetBundle.swift; sourceTree = "<group>"; };
@@ -1499,6 +1501,7 @@
 			children = (
 				DC969A154514821895033EF1 /* BalanceCardView.swift */,
 				217C92D4D4B72E91FF98BFC9 /* LedgerBalanceHeaderView.swift */,
+				8AC24661E8F3E18711321E62 /* LedgerGroupDetailSheet.swift */,
 				DA6EDE60C512FE261F9CC79F /* LedgerGroupRowView.swift */,
 				82C129EBFC1E4A24C907149C /* LedgerImportView.swift */,
 				BC3966B4D469B3A306D370C5 /* LedgerStaleBanner.swift */,
@@ -2199,6 +2202,7 @@
 				311A36B8F51F7B4451661892 /* LedgerEntry.swift in Sources */,
 				9CA4A3AE779F12A599F703DE /* LedgerEntryCache.swift in Sources */,
 				B218CA7987D1E010F973ED79 /* LedgerExportService.swift in Sources */,
+				C0101FF1342C49BEE4FB4FD2 /* LedgerGroupDetailSheet.swift in Sources */,
 				2A4BE1374A3C4910C9C833BA /* LedgerGroupRowView.swift in Sources */,
 				6FA2480EF7ADF0CCDFBA04EF /* LedgerImportService.swift in Sources */,
 				6CE547EA8A04F0AE5546C2F9 /* LedgerImportView.swift in Sources */,

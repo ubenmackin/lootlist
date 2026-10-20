@@ -20,7 +20,7 @@ struct ChildLedgerView: View {
 
     @State private var isShowingTransfer: Bool = false
     @State private var isShowingSplit: Bool = false
-    @State private var expandedGroups: Set<String> = []
+    @State private var selectedGroup: TransactionGroup?
     /// Nil shows All; non-nil filters the ledger list to that bucket's attribution.
     @State private var selectedBucketFilter: BucketKind?
 
@@ -107,14 +107,6 @@ struct ChildLedgerView: View {
         filteredGroups.isEmpty
     }
 
-    private func isExpanded(_ group: TransactionGroup) -> Bool {
-        LedgerGroupExpansion.isExpanded(group, expandedIDs: expandedGroups)
-    }
-
-    private func toggle(_ group: TransactionGroup) {
-        LedgerGroupExpansion.toggle(group, expandedIDs: &expandedGroups)
-    }
-
     // MARK: - Body
 
     var body: some View {
@@ -161,6 +153,9 @@ struct ChildLedgerView: View {
                     profileRecordName: profileRecordName
                 )
             }
+            .sheet(item: $selectedGroup) { group in
+                LedgerGroupDetailSheet(group: group, selectedBucketFilter: selectedBucketFilter)
+            }
             .navigationTitle("MONEY")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable {
@@ -198,9 +193,11 @@ struct ChildLedgerView: View {
             ForEach(groups) { group in
                 LedgerGroupRowView(
                     group: group,
-                    isExpanded: isExpanded(group),
-                    onToggle: { toggle(group) },
-                    selectedBucketFilter: selectedBucketFilter
+                    selectedBucketFilter: selectedBucketFilter,
+                    onSelect: {
+                        HapticsService.lightImpact()
+                        selectedGroup = group
+                    }
                 )
             }
         }
