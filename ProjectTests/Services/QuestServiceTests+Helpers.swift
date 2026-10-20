@@ -294,7 +294,8 @@ extension QuestServiceTests {
 
         init(
             approvalMode: ApprovalMode = .parentVerify,
-            cloudKitOverride: any CloudKitServiceProtocol? = nil,
+            // swiftformat:disable:next redundantParens
+            cloudKitOverride: (any CloudKitServiceProtocol)? = nil,
             syncCoordinator: Any? = nil,
             useSingleSaveSpy: Bool = false,
             goldReward: Int64 = 1000,

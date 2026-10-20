@@ -16,9 +16,10 @@ struct iCloudStatusView: View {
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     #if DEBUG
-        /// WHY protocol seam: the DEBUG seed resolves CloudKit through the lifecycle
-        /// coordinator so Release holds no CloudKit dependency in this view.
-        private var seedCloudKit: any CloudKitServiceProtocol? {
+        // WHY protocol seam: the DEBUG seed resolves CloudKit through the lifecycle
+        // coordinator so Release holds no CloudKit dependency in this view.
+        // swiftformat:disable:next redundantParens
+        private var seedCloudKit: (any CloudKitServiceProtocol)? {
             lifecycleCoordinator?.cloudKitService
         }
     #endif

@@ -69,7 +69,8 @@ final class ChildHubViewModel {
     /// WHY diff-before-encode: Query pulses refire on unrelated writes, so identical snapshots never reach the bridge.
     @ObservationIgnored private var lastWidgetContent: WidgetSnapshot?
 
-    init(appState: AppState, cacheService: any CacheServicing?, syncCoordinator: any SyncEnqueuing?) {
+    // swiftformat:disable:next redundantParens
+    init(appState: AppState, cacheService: (any CacheServicing)?, syncCoordinator: (any SyncEnqueuing)?) {
         self.appState = appState
         self.bucketService = BucketService(
             cacheService: ServiceInitHelper.resolveCacheService(provided: cacheService, logger: Self.logger, serviceName: "ChildHubViewModel"),

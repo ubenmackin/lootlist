@@ -290,7 +290,8 @@ final class AppLifecycleCoordinator {
     /// Injected references
     weak var appState: AppState?
     let cloudKitService: any CloudKitServiceProtocol
-    let syncCoordinator: any SyncCoordinating?
+    // swiftformat:disable:next redundantParens
+    let syncCoordinator: (any SyncCoordinating)?
     let appSyncCoordinator: AppSyncCoordinator?
     let dataMigrationsCoordinator: DataMigrationsCoordinator?
     let autoPayoutCoordinator: AutoPayoutCoordinator?

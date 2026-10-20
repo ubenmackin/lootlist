@@ -23,7 +23,8 @@ struct QuestRewardServiceTests {
         let family: Family
     }
 
-    private func makeStack(cloudKitOverride: any CloudKitServiceProtocol? = nil) throws -> TestStack {
+    // swiftformat:disable:next redundantParens
+    private func makeStack(cloudKitOverride: (any CloudKitServiceProtocol)? = nil) throws -> TestStack {
         let zoneID = ExhaustiveCacheFixtures.sharedZoneID
         let mock = (cloudKitOverride as? MockCloudKitService) ?? MockCloudKitService()
         mock.activeFamilyZoneID = zoneID

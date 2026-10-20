@@ -80,7 +80,8 @@ final class FamilyDashboardViewModel {
     /// Invitation orchestration is owned by `FamilyInvitationCoordinator` behind
     /// `FamilyInviting` so this ViewModel stays pure `rebuildLists` + bindings.
     private let invitationCoordinator: any FamilyInviting
-    private let syncCoordinator: any SyncEnqueuing?
+    // swiftformat:disable:next redundantParens
+    private let syncCoordinator: (any SyncEnqueuing)?
     private let lifecycleCoordinator: AppLifecycleCoordinator?
 
     /// WHY dedicated host: sync subscription lives off the ViewModel so @Query pulses stay pure rebuilds.
@@ -96,8 +97,10 @@ final class FamilyDashboardViewModel {
          achievementService: AchievementService,
          familyService: any FamilyProfileFetching,
          appState: AppState,
-         invitationCoordinator: any FamilyInviting? = nil,
-         syncCoordinator: any SyncEnqueuing? = nil,
+         // swiftformat:disable:next redundantParens
+         invitationCoordinator: (any FamilyInviting)? = nil,
+         // swiftformat:disable:next redundantParens
+         syncCoordinator: (any SyncEnqueuing)? = nil,
          lifecycleCoordinator: AppLifecycleCoordinator? = nil)
     {
         self.questService = questService
@@ -107,7 +110,8 @@ final class FamilyDashboardViewModel {
         self.appState = appState
         self.invitationCoordinator = invitationCoordinator
             ?? FamilyInvitationCoordinator(familyService: familyService, appState: appState)
-        let resolvedSync: any SyncEnqueuing? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
+        // swiftformat:disable:next redundantParens
+        let resolvedSync: (any SyncEnqueuing)? = syncCoordinator ?? (familyService as? FamilyService)?.syncCoordinator
         self.syncCoordinator = resolvedSync
         self.lifecycleCoordinator = lifecycleCoordinator
     }

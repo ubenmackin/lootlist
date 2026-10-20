@@ -43,9 +43,11 @@ final class LedgerService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: any CacheServicing? = nil,
+        // swiftformat:disable:next redundantParens
+        cacheService: (any CacheServicing)? = nil,
         appState: AppState? = nil,
-        syncCoordinator: any SyncEnqueuing? = nil
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
         self.init(
             cloudKit: cloudKit,
