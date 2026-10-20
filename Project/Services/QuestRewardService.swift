@@ -52,7 +52,8 @@ final class QuestRewardService {
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
-        syncCoordinator: any SyncEnqueuing? = nil,
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil,
         xpService: XPService? = nil,
         treasuryService: TreasuryService? = nil,
         lootDropService: LootDropService? = nil,
