@@ -55,7 +55,8 @@ final class BucketService {
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
     let appState: AppState
-    private let cloudKit: any CloudKitServiceProtocol?
+    // swiftformat:disable:next redundantParens
+    private let cloudKit: (any CloudKitServiceProtocol)?
     /// Preferred Short haircut path; falls back to `cloudKit`-built `GoalService` when nil.
     var shortDrawdown: ShortDrawdownHandler?
 

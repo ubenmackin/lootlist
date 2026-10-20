@@ -128,6 +128,11 @@ struct TransactionGroup: Sendable, Hashable, Identifiable, Equatable {
         groupID
     }
 
+    /// WHY single owner: receipt anchor lives here so builder plus views never drift.
+    var representativeSplit: TransactionSplit? {
+        splits.min(by: { $0.recordName < $1.recordName })
+    }
+
     /// WHY bucket running: All shows Total while each filter shows its own bucket running.
     func runningPennies(for filter: BucketKind?) -> Int64 {
         guard let filter else { return runningTotalPennies }

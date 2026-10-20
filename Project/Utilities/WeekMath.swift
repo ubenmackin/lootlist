@@ -278,4 +278,27 @@ enum WeekMath {
         }
         return range.contains(questWeekOf)
     }
+
+    /// WHY single source: payout copy plus week labels stay here so minting plus parsing never drift.
+    static func payoutWeekLabel(for weekOf: Date, locale: Locale = .current) -> String {
+        weekOf.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(locale))
+    }
+
+    /// WHY single mint: batch plus real-time descriptions share one builder so grouping never drifts.
+    static func payoutDescription(weekLabel: String, bucketDisplayName: String? = nil, isRealTime: Bool = false) -> String {
+        let bucketSuffix = bucketDisplayName.map { " · \($0)" } ?? ""
+        if isRealTime {
+            return "Quest earnings — real-time (week of \(weekLabel))\(bucketSuffix)"
+        }
+        return "Quest earnings (week of \(weekLabel))\(bucketSuffix)"
+    }
+
+    /// WHY paren scan: payout copy embeds the week label as (week of <label>) with an optional bucket suffix after.
+    static func weekLabel(fromPayoutDescription description: String) -> String? {
+        guard let start = description.range(of: "(week of ") else { return nil }
+        let after = description[start.upperBound...]
+        guard let end = after.firstIndex(of: ")") else { return nil }
+        let label = after[..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        return label.isEmpty ? nil : String(label)
+    }
 }

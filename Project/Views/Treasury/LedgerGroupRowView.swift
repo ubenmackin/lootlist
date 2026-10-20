@@ -36,9 +36,47 @@ struct LedgerGroupRowView: View {
     }
 
     private var totalColor: Color {
+        // WHY adaptive amount: receipt totals read as primary ink while overdrafts flag red.
         group.totalPennies >= 0
-            ? Color(DesignSystemConstants.Colors.gold)
+            ? .primary
             : Color(DesignSystemConstants.Colors.dangerRed)
+    }
+
+    private var sortedSplits: [TransactionSplit] {
+        // WHY receipt order: splits stack Spend then Short then Long so bucket columns read consistently.
+        group.splits.sorted {
+            let lhsKeys = sortKeys(for: $0)
+            let rhsKeys = sortKeys(for: $1)
+            if lhsKeys.0 != rhsKeys.0 {
+                return lhsKeys.0 < rhsKeys.0
+            }
+            if lhsKeys.1 != rhsKeys.1 {
+                return lhsKeys.1 < rhsKeys.1
+            }
+            return $0.recordName < $1.recordName
+        }
+    }
+
+    private func sortKeys(for split: TransactionSplit) -> (Int, Int) {
+        // WHY source-first: transfers debit the source, so Spend→Short reads under Spend with real Spend legs.
+        if split.sourceEnum == .transfer {
+            return (bucketOrderKey(for: split.fromBucketEnum), bucketOrderKey(for: split.toBucketEnum ?? split.bucketKindEnum))
+        }
+        let key = bucketOrderKey(for: split.bucketKindEnum ?? split.fromBucketEnum ?? split.toBucketEnum)
+        return (key, key)
+    }
+
+    private func bucketOrderKey(for kind: BucketKind?) -> Int {
+        switch kind {
+        case .spend:
+            0
+        case .shortTermSave:
+            1
+        case .longTermSave:
+            2
+        case nil:
+            3
+        }
     }
 
     var body: some View {
@@ -46,11 +84,6 @@ struct LedgerGroupRowView: View {
             headerRow
             if shouldShowDetails {
                 splitsSection
-                if !group.goalChildren.isEmpty {
-                    goalSection
-                }
-            } else {
-                collapsedPillsRow
             }
         }
         .padding(DesignSystemConstants.Padding.medium)
@@ -59,7 +92,7 @@ struct LedgerGroupRowView: View {
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.title), \(totalText), \(LedgerRowStyle.dateText(for: group.date))")
+        .accessibilityLabel("\(group.title), \(totalText), \(LedgerRowStyle.shortDateText(for: group.date))")
         .accessibilityIdentifier("ledger.group-\(group.groupID)")
     }
 
@@ -69,40 +102,28 @@ struct LedgerGroupRowView: View {
             onToggle()
         } label: {
             HStack(alignment: .top, spacing: DesignSystemConstants.Padding.medium) {
-                let iconInfo = LedgerRowStyle.sourceIcon(
-                    for: group.source,
-                    fallbackTint: Color(DesignSystemConstants.Colors.accentBlue)
-                )
-                Image(systemName: iconInfo.name)
-                    .font(.body)
-                    .foregroundStyle(iconInfo.color)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(iconInfo.color.opacity(0.12)))
-
                 VStack(alignment: .leading, spacing: 2) {
                     Text(group.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    HStack(spacing: 6) {
-                        Text(LedgerRowStyle.dateText(for: group.date))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("•")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Balance \(runningText)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
+                        .lineLimit(1)
+                    Text(LedgerRowStyle.shortDateText(for: group.date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 Spacer(minLength: DesignSystemConstants.Padding.small)
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(totalText)
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .font(.subheadline.weight(.bold).monospacedDigit())
                         .foregroundStyle(totalColor)
+                        .lineLimit(1)
+                    Text("Balance \(runningText)")
+                        .font(.subheadline.weight(.bold).monospacedDigit())
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.gold))
+                        .lineLimit(1)
                 }
 
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -117,56 +138,91 @@ struct LedgerGroupRowView: View {
         .accessibilityIdentifier("ledger.expand-\(group.groupID)")
     }
 
-    private var collapsedPillsRow: some View {
-        HStack(spacing: 6) {
-            if transferPairs.isEmpty {
-                ForEach(distinctBuckets, id: \.self) { kind in
-                    bucketPill(kind)
-                }
-            } else {
-                ForEach(Array(transferPairs.enumerated()), id: \.offset) { _, pair in
-                    HStack(spacing: 4) {
-                        bucketPill(pair.from)
-                        // WHY both sides: transfers debit the source while crediting the destination, so collapsed pills show Spend → Short.
-                        Text("→")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                        bucketPill(pair.to)
-                    }
-                }
-                ForEach(standaloneBuckets, id: \.self) { kind in
-                    bucketPill(kind)
-                }
-            }
+    private var representativeSplit: TransactionSplit? {
+        // WHY single owner: receipt anchor lives on the group so view plus builder never drift.
+        group.representativeSplit
+    }
+
+    private var spendDetailText: String? {
+        // WHY spend-only: What-Where belongs to manual spend receipts; other types keep bucket legs alone.
+        guard group.sourceEnum == .manual, let representative = representativeSplit else { return nil }
+        let what = representative.entryDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !what.isEmpty else { return nil }
+        let whereText = (representative.location ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if whereText.isEmpty {
+            return what
         }
+        return "\(what) at \(whereText)"
+    }
+
+    private var questWeekDetailText: String? {
+        // WHY builder-owned week: representative entry owns the payout week label so filtered receipts read the same.
+        TransactionGroupBuilder.questWeekDetailText(for: group)
     }
 
     private var splitsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(group.splits) { split in
-                // WHY per-filter legs: source-side transfers read as debits so filtered copy matches bucket math.
-                let displayPennies = split.displayAmount(for: selectedBucketFilter)
-                HStack(spacing: 6) {
-                    splitBucketPills(for: split)
-                    if let location = split.location, !location.isEmpty {
-                        Text(location)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    Text(CurrencyFormatter.signed(pennies: displayPennies))
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(
-                            displayPennies >= 0
-                                ? Color(DesignSystemConstants.Colors.gold)
-                                : Color(DesignSystemConstants.Colors.dangerRed)
-                        )
+            if let weekDetail = questWeekDetailText {
+                Text(weekDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(weekDetail)
+            }
+            if let detail = spendDetailText {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(detail)
+            }
+            ForEach(Array(sortedSplits.enumerated()), id: \.element.id) { index, split in
+                splitRow(for: split)
+                // WHY Short anchor: goal copy reads indented under Short Save even with Long legs present.
+                if index == shortAnchorIndex {
+                    goalSection
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(split.entryDescription), \(bucketDescription(for: split)), \(CurrencyFormatter.signed(pennies: displayPennies))")
+            }
+            // WHY trailing fallback: groups without Short legs still surface goals instead of dropping them.
+            if !group.goalChildren.isEmpty, shortAnchorIndex == nil {
+                goalSection
             }
         }
+    }
+
+    private var shortAnchorIndex: Int? {
+        guard !group.goalChildren.isEmpty else { return nil }
+        // WHY single sort: capture once so the index filter cannot re-sort per element.
+        let sorted = sortedSplits
+        let shortIndices = sorted.indices.filter { sorted[$0].bucketKindEnum == .shortTermSave }
+        return shortIndices.last
+    }
+
+    private func splitRow(for split: TransactionSplit) -> some View {
+        // WHY per-filter legs: source-side transfers read as debits so filtered copy matches bucket math.
+        let displayPennies = split.displayAmount(for: selectedBucketFilter)
+        let bucketText = bucketDescription(for: split)
+        // WHY title fallback: splits without bucket attribution still need a leading label.
+        let displayBucketText = bucketText.isEmpty ? group.title : bucketText
+        return HStack(spacing: 6) {
+            Text(displayBucketText)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(CurrencyFormatter.signed(pennies: displayPennies))
+                .font(.subheadline.weight(.bold).monospacedDigit())
+                .foregroundStyle(
+                    displayPennies >= 0
+                        ? .primary
+                        : Color(DesignSystemConstants.Colors.dangerRed)
+                )
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(displayBucketText), \(CurrencyFormatter.signed(pennies: displayPennies))")
     }
 
     private var goalSection: some View {
@@ -180,51 +236,13 @@ struct LedgerGroupRowView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
-                    Spacer(minLength: 8)
-                    // WHY zero counted: goal attribution reuses counted funds, so trail shows $0.00 non-counted while copy carries the attribution magnitude.
-                    Text(CurrencyFormatter.string(pennies: 0))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, DesignSystemConstants.Padding.standard)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(goalCopy(for: child)), \(CurrencyFormatter.string(pennies: 0)) non-counted")
+                .accessibilityLabel(goalCopy(for: child))
             }
         }
-    }
-
-    private var distinctBuckets: [BucketKind] {
-        // WHY both sides: transfers debit fromBucket while crediting the destination, so pills claim both buckets.
-        var seen: [BucketKind] = []
-        for split in group.splits {
-            if let fromKind = split.fromBucketEnum,
-               !seen.contains(fromKind)
-            {
-                seen.append(fromKind)
-            }
-            guard let kind = split.bucketKindEnum, !seen.contains(kind) else { continue }
-            seen.append(kind)
-        }
-        return seen
-    }
-
-    private var transferPairs: [(from: BucketKind, to: BucketKind)] {
-        var seen: [(from: BucketKind, to: BucketKind)] = []
-        for split in group.splits {
-            guard let fromKind = split.fromBucketEnum,
-                  let toKind = split.bucketKindEnum,
-                  fromKind != toKind
-            else { continue }
-            if !seen.contains(where: { $0.from == fromKind && $0.to == toKind }) {
-                seen.append((from: fromKind, to: toKind))
-            }
-        }
-        return seen
-    }
-
-    private var standaloneBuckets: [BucketKind] {
-        let paired = Set(transferPairs.flatMap { [$0.from, $0.to] })
-        return distinctBuckets.filter { !paired.contains($0) }
     }
 
     private func bucketDescription(for split: TransactionSplit) -> String {
@@ -245,46 +263,12 @@ struct LedgerGroupRowView: View {
         return ""
     }
 
-    private func splitBucketPills(for split: TransactionSplit) -> some View {
-        HStack(spacing: 4) {
-            if let fromKind = split.fromBucketEnum,
-               let toKind = split.bucketKindEnum
-            {
-                if fromKind != toKind {
-                    bucketPill(fromKind)
-                    // WHY both sides: transfers debit the source while crediting the destination, so splits show Spend → Short.
-                    Text("→")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                    bucketPill(toKind)
-                } else {
-                    bucketPill(toKind)
-                }
-            } else if let kind = split.bucketKindEnum {
-                bucketPill(kind)
-            } else if let fromKind = split.fromBucketEnum {
-                bucketPill(fromKind)
-            }
-        }
-    }
-
-    private func bucketPill(_ kind: BucketKind) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: kind.iconSystemName)
-                .font(.system(size: 9))
-            Text(kind.shortName)
-                .font(.caption2.weight(.semibold))
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12)))
-        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-    }
-
     private func goalCopy(for child: TransactionSplit) -> String {
+        // WHY amount-only: magnitude rides inline so no parenthetical now status ever renders; totals live on goal screens.
+        let magnitude = CurrencyFormatter.magnitude(pennies: child.amount)
         if child.amount >= 0 {
-            return "Applied \(CurrencyFormatter.magnitude(pennies: child.amount)) to goal"
+            return "Applied \(magnitude) to goal"
         }
-        return "Borrowed \(CurrencyFormatter.magnitude(pennies: child.amount)) from goal"
+        return "Borrowed \(magnitude) from goal"
     }
 }
