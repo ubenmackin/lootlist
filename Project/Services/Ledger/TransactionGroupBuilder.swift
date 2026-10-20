@@ -198,11 +198,33 @@ enum TransactionGroupBuilder {
     private nonisolated static func baseTitle(for entries: [TransactionSplit]) -> String {
         let ordered = entries.sorted { $0.recordName < $1.recordName }
         guard let first = ordered.first else { return "" }
-        // WHY suffix strip: multi-share mints append " · Bucket", single rows keep full copy.
-        if ordered.count > 1, let range = first.entryDescription.range(of: " · ") {
-            return String(first.entryDescription[..<range.lowerBound])
+        // WHY short type: closed source mapping keeps week parentheticals, dash bucket suffixes, and middle-dot suffixes out of titles.
+        switch first.sourceEnum {
+        case .quest:
+            return "Quest Earnings"
+        case .manual:
+            return "Spend"
+        case .deposit:
+            return "Deposit"
+        case .withdrawal:
+            return "Withdrawal"
+        case .transfer:
+            return "Transfer"
+        case .interest:
+            return "Interest"
+        case .match:
+            return "Match"
+        case .purchase:
+            return "Purchase"
+        case .import:
+            return "Import"
+        case .goal:
+            return "Goal"
+        case .none:
+            // WHY visible signal: unknown sources surface raw copy so data issues never hide behind Goal.
+            let fallback = first.entryDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            return fallback.isEmpty ? "" : fallback
         }
-        return first.entryDescription
     }
 
     private nonisolated static func decodedSource(_ raw: String) -> LedgerSource? {
@@ -217,6 +239,23 @@ enum TransactionGroupBuilder {
         default:
             false
         }
+    }
+
+    // MARK: - Quest Week Detail
+
+    /// WHY representative week: split shares share one payout week, so the smallest record owns the Line 2 copy.
+    nonisolated static func questWeekDetailText(for group: TransactionGroup) -> String? {
+        guard group.sourceEnum == .quest,
+              let representative = group.representativeSplit
+        else {
+            return nil
+        }
+        // WHY single source: week labels ride WeekMath so minting plus parsing never drift.
+        if let label = WeekMath.weekLabel(fromPayoutDescription: representative.entryDescription) {
+            return "Payment for week of \(label)"
+        }
+        // WHY explicit fallback: legacy rows without embedded week copy still require Line 2, so date owns the label.
+        return "Payment for week of \(WeekMath.payoutWeekLabel(for: representative.date))"
     }
 
     // MARK: - Goal Children

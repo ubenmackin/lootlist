@@ -6,41 +6,22 @@
 //
 
 import Foundation
-import SwiftUI
 
-/// Shared visual identity for ledger entry rows (source tile / label / date),
-/// used by both the treasury ledger and the per-hero ledger.
+/// Shared date rendering for grouped ledger cards.
 enum LedgerRowStyle {
-    /// WHY Sendable style: per-cell labels reuse value type without shared mutable formatter.
-    private static let dateStyle = Date.FormatStyle(date: .abbreviated, time: .shortened)
+    /// WHY Sendable styles: per-cell labels reuse value types without shared mutable formatter.
+    private static let currentYearStyle: Date.FormatStyle = .dateTime.month(.abbreviated).day().hour().minute()
+    private static let priorYearStyle: Date.FormatStyle = .dateTime.month(.abbreviated).day().year().hour().minute()
 
-    /// Resolves the SF Symbol and tint for a ledger entry's source.
-    /// Unknown sources fall back to the caller-supplied tint so each ledger
-    /// screen keeps its own neutral color for unrecognized sources.
-    static func sourceIcon(for source: String, fallbackTint: Color) -> (name: String, color: Color) {
-        switch source {
-        case "quest": ("checkmark.seal.fill", Color(DesignSystemConstants.Colors.primaryGreen))
-        case "deposit": ("plus.circle.fill", .gold)
-        case "withdrawal": ("minus.circle.fill", Color(DesignSystemConstants.Colors.pendingAmber))
-        case "manual": ("arrow.down.circle.fill", Color(DesignSystemConstants.Colors.dangerRed))
-        default: ("banknote", fallbackTint)
+    /// WHY compact header: short type titles pair with a short timestamp so grouped cards scan in one line.
+    static func shortDateText(for date: Date) -> String {
+        // WHY single now: one sample keeps the year check atomic across midnight.
+        let now = Date()
+        let calendar = Calendar.current
+        let isCurrentYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        if isCurrentYear {
+            return date.formatted(currentYearStyle)
         }
-    }
-
-    /// User-facing name for a ledger entry's source; unknown sources render
-    /// the raw source value capitalized.
-    static func sourceLabel(for source: String) -> String {
-        switch source {
-        case "quest": "Quest"
-        case "deposit": "Deposit"
-        case "withdrawal": "Withdrawal"
-        case "manual": "Spent"
-        default: source.capitalized
-        }
-    }
-
-    /// Shared medium-date + short-time rendering for ledger timestamps.
-    static func dateText(for date: Date) -> String {
-        date.formatted(dateStyle)
+        return date.formatted(priorYearStyle)
     }
 }

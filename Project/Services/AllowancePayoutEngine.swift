@@ -11,9 +11,6 @@ import Foundation
 /// Bucket-attributed payout settlement for `TreasuryService`. Called from `runPayout` after quest
 /// rewards settle: the week's net payout is split by the hero's CURRENT split percentages — read at
 extension TreasuryService {
-    /// WHY Sendable style: per-payout week labels reuse a value type without shared mutable formatter.
-    private static let weekLabelStyle = Date.FormatStyle(date: .abbreviated, time: .omitted).locale(Locale.current)
-
     /// Idempotently mints the ledger entries for one closed weekly payout, split across buckets via
     /// `BucketService.splitPennies`.
     func mintBucketSplitPayout(
@@ -96,7 +93,8 @@ extension TreasuryService {
             .filter { $0.pennies > 0 }
         guard !receiving.isEmpty else { return }
         let zoneID = context.family.recordID.zoneID
-        let weekLabel = context.weekOf.formatted(Self.weekLabelStyle)
+        // WHY single source: week labels ride WeekMath so minting plus parsing never drift.
+        let weekLabel = WeekMath.payoutWeekLabel(for: context.weekOf)
         if context.isRealTime {
             await mintRealTimeDelta(context, receiving: receiving, zoneID: zoneID, weekLabel: weekLabel)
         } else {
@@ -296,12 +294,12 @@ extension TreasuryService {
         isRealTime: Bool
     ) async {
         let isSuffixed = recordName != context.baseRecordName
-        let bucketSuffix = isSuffixed ? " · \(kind.displayName)" : ""
-        let description = if isRealTime {
-            "Quest earnings — real-time (week of \(weekLabel))\(bucketSuffix)"
-        } else {
-            "Quest earnings (week of \(weekLabel))\(bucketSuffix)"
-        }
+        // WHY single source: payout copy rides WeekMath so minting plus parsing never drift.
+        let description = WeekMath.payoutDescription(
+            weekLabel: weekLabel,
+            bucketDisplayName: isSuffixed ? kind.displayName : nil,
+            isRealTime: isRealTime
+        )
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: context.profile.id, action: .none),
             amount: totalPennies,
