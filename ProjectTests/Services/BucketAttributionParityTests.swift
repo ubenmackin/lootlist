@@ -65,7 +65,12 @@ struct BucketAttributionParityTests {
         #expect(directTotal == directBalances.values.reduce(0, +))
         #expect(BucketService.totalBalance(bucketBalances: directBalances) == 10)
 
-        let heroRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: "hero1", scope: .allTime, payoutDay: .sunday)
+        let heroGroups = TransactionGroupBuilder.buildGroups(ledgers: ledgers, profileRecordName: "hero1")
+        var cacheByName: [String: LedgerEntryCache] = [:]
+        for ledger in ledgers where ledger.profileRecordName == "hero1" {
+            cacheByName[ledger.recordName] = ledger
+        }
+        let heroRows = LedgerRowFactory.flattenedRows(from: heroGroups, cacheByName: cacheByName)
         // WHY single source: goal markers reuse counted funds so history shows new money only.
         #expect(heroRows.count == 2)
         #expect(Set(heroRows.map(\.id)) == Set(["l_spend", "l_transfer"]))

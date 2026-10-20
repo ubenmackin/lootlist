@@ -39,10 +39,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     /// Typed view of `source` for exhaustive switching. Additive migration —
     /// `source` remains the persisted CloudKit string.
     var sourceEnum: LedgerSource? {
-        if source.hasPrefix(LedgerSource.import.rawValue) {
-            return .import
-        }
-        return LedgerSource(rawValue: source)
+        LedgerSource.decode(source)
     }
 
     // MARK: - Bucket attribution (V8)

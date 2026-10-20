@@ -23,7 +23,7 @@ final class LedgerService {
     private static let staticLogger = Logger(category: "LedgerService")
     private let logger = Logger(category: "LedgerService")
 
-    private let cloudKit: any CloudKitServiceProtocol
+    let cloudKit: any CloudKitServiceProtocol
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
     let appState: AppState
@@ -289,16 +289,6 @@ final class LedgerService {
         return "\(source)-\(profile.id.recordName)-\(family.id.recordName)-\(ms)-\(cents)-\(descHash)"
     }
 
-    // WHY: collision suffixes must converge cross-device, so one helper owns
-    // the hex+msSuffix extension instead of duplicated inline blocks.
-    private func extendedRecordName(base: String, payload: String, date: Date) -> String {
-        let ms = Int64(date.timeIntervalSince1970 * 1000)
-        let hash = SHA256.hash(data: Data(payload.utf8))
-        let hex = hash.hexPrefix(4)
-        let msSuffix = ms % 1000
-        return "\(base)-\(hex)-\(msSuffix)"
-    }
-
     private func validateScopeAllowingNewHero(family: Family) throws {
         // WHY fail-closed: scope mismatch denies rather than downgrading to family-only.
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
@@ -309,16 +299,23 @@ final class LedgerService {
     // devices, defeating idempotency. On payload collision at the same base
     // name, extend deterministically so every device converges on the same
     // alternate name instead of forking.
+    // WHY fail-closed amount: every discriminating field folds into the match
+    // so hash-colliding payloads cannot dedupe; split waterfall legs share the
+    // request-convergent base and prove completeness via leg-sum verification
+    // in waterfallDebit instead of relying on this single-row check alone.
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Int64, description: String, location: String?, date: Date) -> CKRecord.ID {
         let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, location: location, date: date)
         var recordName = base
-        if let existing = cacheService.fetchLedgerEntry(recordName: base, family: family.id.recordName),
-           existing.source != source
-           || existing.entryDescription != description
-           || !DeterministicRecordID.isSameMillisecond(existing.date, date)
-           || existing.location != location
-           || existing.amount != amount
-        {
+        var attempt = 0
+        while let existing = cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) {
+            guard existing.source != source
+                || existing.entryDescription != description
+                || !DeterministicRecordID.isSameMillisecond(existing.date, date)
+                || existing.location != location
+                || existing.amount != amount
+            else {
+                break
+            }
             // WHY: Extend deterministically — hash all discriminating fields so
             // same divergent payload yields same recordName on any device.
             // Payload must include every field that participates in base-record
@@ -328,10 +325,321 @@ final class LedgerService {
             let cents = Int64(clamping: amount.magnitude)
             let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let trimmedLower = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let payload = "\(trimmedLower)|\(ms)|\(cents)|\(normalizedLocation)|\(source)"
-            recordName = extendedRecordName(base: base, payload: payload, date: date)
+            // WHY unbounded convergent extension: every attempt hashes full payload so all devices agree on each fallback name.
+            let payload = "\(trimmedLower)|\(ms)|\(cents)|\(normalizedLocation)|\(source)|\(attempt)"
+            recordName = DeterministicRecordID.collisionExtendedName(base: base, payload: payload, date: date)
+            attempt += 1
         }
         return CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
+    }
+
+    /// Bounded cash-debit inputs keeping deterministic IDs convergent.
+    private struct ValidatedCashDebitInputs {
+        let request: Int64
+        let trimmedDesc: String
+        let normalizedLocation: String?
+        let effectiveDate: Date
+    }
+
+    /// WHY fail-closed bounds: overlong text and far-future dates reject instead of silently rewriting user intent.
+    private func validatedCashDebitInputs(description: String, location: String?, date: Date, amount: Int64) throws -> ValidatedCashDebitInputs {
+        guard (1 ... 100_000_000).contains(amount) else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1 ... 120).contains(trimmed.count) else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let trimmedDesc = trimmed
+        let rawLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard rawLocation.count <= 80 else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let normalizedLocation: String? = rawLocation.isEmpty ? nil : rawLocation
+        // WHY fail-closed date: far-future timestamps reject so deterministic IDs never silently shift.
+        let cap = Date().addingTimeInterval(300)
+        guard date <= cap else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let effectiveDate = date
+        return ValidatedCashDebitInputs(request: amount, trimmedDesc: trimmedDesc, normalizedLocation: normalizedLocation, effectiveDate: effectiveDate)
+    }
+
+    /// WHY converge on replay: a first run may leave legs without goal drawdown, so replays refill the gap idempotently.
+    func isMatchingWaterfallBase(_ entry: LedgerEntryCache, source: String, description: String, location: String?, date: Date) -> Bool {
+        entry.source == source
+            && entry.entryDescription == description
+            && DeterministicRecordID.isSameMillisecond(entry.date, date)
+            && entry.location == location
+            && entry.bucketKind == BucketKind.spend.rawValue
+    }
+
+    func isMatchingWaterfallShort(_ entry: LedgerEntryCache, source: String, description: String, location: String?, date: Date) -> Bool {
+        entry.source == source
+            && entry.entryDescription == description
+            && DeterministicRecordID.isSameMillisecond(entry.date, date)
+            && entry.location == location
+            && entry.bucketKind == BucketKind.shortTermSave.rawValue
+    }
+
+    /// WHY fork-aware resolve: collision forks append hex-msSuffix before or after `-shortcover`, so exact fetch alone misses extended Short legs.
+    func resolveWaterfallBase(
+        requestBaseName: String,
+        profileRecordName: String,
+        familyName: String,
+        source: String,
+        description: String,
+        location: String?,
+        date: Date
+    ) -> LedgerEntryCache? {
+        if let exact = cacheService.fetchLedgerEntry(recordName: requestBaseName, family: familyName),
+           isMatchingWaterfallBase(exact, source: source, description: description, location: location, date: date)
+        {
+            return exact
+        }
+        let targetBase = waterfallDeleteBase(requestBaseName)
+        let siblings = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyName, recordNamePrefix: requestBaseName)
+        return siblings
+            .filter {
+                !isShortcoverName($0.recordName)
+                    && waterfallDeleteBase($0.recordName) == targetBase
+                    && isMatchingWaterfallBase($0, source: source, description: description, location: location, date: date)
+            }
+            .sorted { $0.recordName < $1.recordName }
+            .first
+    }
+
+    /// WHY fork-aware resolve: shortcover forks live at `base-hex-msSuffix-shortcover` or `base-shortcover-hex-msSuffix`, so prefix search converges both shapes.
+    func resolveWaterfallShort(
+        requestBaseName: String,
+        requestShortName: String,
+        profileRecordName: String,
+        familyName: String,
+        source: String,
+        description: String,
+        location: String?,
+        date: Date
+    ) -> LedgerEntryCache? {
+        if let exact = cacheService.fetchLedgerEntry(recordName: requestShortName, family: familyName),
+           isMatchingWaterfallShort(exact, source: source, description: description, location: location, date: date)
+        {
+            return exact
+        }
+        let tailed = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyName, recordNamePrefix: "\(requestShortName)-")
+        if let hit = tailed
+            .filter({ isMatchingWaterfallShort($0, source: source, description: description, location: location, date: date) })
+            .sorted(by: { $0.recordName < $1.recordName })
+            .first
+        {
+            return hit
+        }
+        let targetBase = waterfallDeleteBase(requestBaseName)
+        let siblings = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyName, recordNamePrefix: requestBaseName)
+        return siblings
+            .filter {
+                isShortcoverName($0.recordName)
+                    && waterfallDeleteBase($0.recordName) == targetBase
+                    && isMatchingWaterfallShort($0, source: source, description: description, location: location, date: date)
+            }
+            .sorted { $0.recordName < $1.recordName }
+            .first
+    }
+
+    /// WHY converge on replay: a first run may leave legs without goal drawdown, so replays refill the gap idempotently.
+    private func ensureShortfallDrawdown(
+        shortcoverName: String,
+        requestBaseName: String,
+        profile: Profile,
+        family: Family,
+        source: String,
+        description: String,
+        location: String?,
+        effectiveDate: Date
+    ) async throws {
+        guard let shortcover = resolveWaterfallShort(
+            requestBaseName: requestBaseName,
+            requestShortName: shortcoverName,
+            profileRecordName: profile.id.recordName,
+            familyName: family.id.recordName,
+            source: source,
+            description: description,
+            location: location,
+            date: effectiveDate
+        ) else { return }
+        let resolvedName = shortcover.recordName
+        let drawn = -shortcover.amount
+        guard drawn > 0 else { return }
+        // WHY fail-closed drawdown: every Short decrease unwinds goal markers so progress never stays inflated.
+        let goalService = GoalService(
+            cloudKit: cloudKit,
+            cacheService: cacheService,
+            appState: appState,
+            syncCoordinator: syncCoordinator
+        )
+        _ = try await goalService.applyDrawdown(
+            amountPennies: drawn,
+            profile: profile,
+            family: family,
+            bucketKind: .shortTermSave,
+            sourceEventID: resolvedName,
+            contributionDate: effectiveDate
+        )
+    }
+
+    /// WHY single query: nine waterfall fields exceed the lint parameter limit, so one value keeps replay convergent.
+    struct WaterfallReplayQuery {
+        let baseName: String
+        let shortName: String
+        let source: String
+        let description: String
+        let location: String?
+        let date: Date
+        let request: Int64
+        let familyName: String
+        let profileRecordName: String
+    }
+
+    /// WHY single waterfall: Spend covers first, Short covers the shortfall with goal drawdown, Long never auto-debits.
+    /// WHY shared request base: Spend leg lives at the request-convergent base, Short leg at base-shortcover
+    /// (plus deterministic hex-msSuffix forks on collision) so grouped ledger strips suffixes to one receipt.
+    private func verifiedWaterfallReplay(_ query: WaterfallReplayQuery) -> LedgerEntryCache? {
+        let base = resolveWaterfallBase(
+            requestBaseName: query.baseName,
+            profileRecordName: query.profileRecordName,
+            familyName: query.familyName,
+            source: query.source,
+            description: query.description,
+            location: query.location,
+            date: query.date
+        )
+        let short = resolveWaterfallShort(
+            requestBaseName: query.baseName,
+            requestShortName: query.shortName,
+            profileRecordName: query.profileRecordName,
+            familyName: query.familyName,
+            source: query.source,
+            description: query.description,
+            location: query.location,
+            date: query.date
+        )
+        guard base != nil || short != nil else { return nil }
+        // WHY sum check: stored amounts are negative debits; only an exact sum replays so partial legs cannot masquerade as full debits.
+        let storedTotal = -(base?.amount ?? 0) + -(short?.amount ?? 0)
+        guard storedTotal == query.request else { return nil }
+        return base ?? short
+    }
+
+    private func waterfallDebit(source: String,
+                                profile: Profile,
+                                family: Family,
+                                request: Int64,
+                                trimmedDesc: String,
+                                normalizedLocation: String?,
+                                effectiveDate: Date,
+                                enqueueContext: String) async throws -> LedgerEntry
+    {
+        let familyName = family.id.recordName
+        let zoneID = family.id.zoneID
+        // WHY request-convergent lookup: replay names derive from the request alone so balance shifts after the first mint cannot fork a duplicate.
+        let requestBaseName = deterministicRecordName(
+            source: source,
+            profile: profile,
+            family: family,
+            amount: -request,
+            description: trimmedDesc,
+            location: normalizedLocation,
+            date: effectiveDate
+        )
+        let requestShortName = "\(requestBaseName)-shortcover"
+        // WHY replay-first: identical payloads converge to the stored rows instead of debiting twice.
+        if let hit = verifiedWaterfallReplay(
+            WaterfallReplayQuery(
+                baseName: requestBaseName,
+                shortName: requestShortName,
+                source: source,
+                description: trimmedDesc,
+                location: normalizedLocation,
+                date: effectiveDate,
+                request: request,
+                familyName: familyName,
+                profileRecordName: profile.id.recordName
+            )
+        ) {
+            // WHY fail-closed replay: a missing drawdown still throws so goal progress never stays inflated.
+            try await ensureShortfallDrawdown(
+                shortcoverName: requestShortName,
+                requestBaseName: requestBaseName,
+                profile: profile,
+                family: family,
+                source: source,
+                description: trimmedDesc,
+                location: normalizedLocation,
+                effectiveDate: effectiveDate
+            )
+            return hit.toLedgerEntry(zoneID: zoneID)
+        }
+        let baseID = makeLedgerID(
+            source: source,
+            profile: profile,
+            family: family,
+            amount: -request,
+            description: trimmedDesc,
+            location: normalizedLocation,
+            date: effectiveDate
+        )
+        if baseID.recordName != requestBaseName,
+           let forkHit = verifiedWaterfallReplay(
+               WaterfallReplayQuery(
+                   baseName: baseID.recordName,
+                   shortName: "\(baseID.recordName)-shortcover",
+                   source: source,
+                   description: trimmedDesc,
+                   location: normalizedLocation,
+                   date: effectiveDate,
+                   request: request,
+                   familyName: familyName,
+                   profileRecordName: profile.id.recordName
+               )
+           )
+        {
+            // WHY fail-closed replay: a missing drawdown still throws so goal progress never stays inflated.
+            try await ensureShortfallDrawdown(
+                shortcoverName: "\(baseID.recordName)-shortcover",
+                requestBaseName: baseID.recordName,
+                profile: profile,
+                family: family,
+                source: source,
+                description: trimmedDesc,
+                location: normalizedLocation,
+                effectiveDate: effectiveDate
+            )
+            return forkHit.toLedgerEntry(zoneID: zoneID)
+        }
+        let inputs = WaterfallInputs(
+            source: source,
+            profile: profile,
+            family: family,
+            request: request,
+            trimmedDesc: trimmedDesc,
+            normalizedLocation: normalizedLocation,
+            effectiveDate: effectiveDate,
+            enqueueContext: enqueueContext
+        )
+        if let gapHit = try await waterfallGapFill(
+            inputs: inputs,
+            requestBaseName: requestBaseName,
+            requestShortName: requestShortName,
+            familyName: familyName,
+            zoneID: zoneID
+        ) {
+            return gapHit
+        }
+        return try await mintWaterfallLegs(
+            inputs: inputs,
+            baseID: baseID,
+            familyName: familyName,
+            zoneID: zoneID
+        )
     }
 
     // MARK: - Mutations (local-first)
@@ -352,42 +660,18 @@ final class LedgerService {
         }
         try validateScopeAllowingNewHero(family: family)
 
-        guard amount > 0 else {
-            throw SpendingServiceError.invalidAmount
-        }
-
-        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDesc.isEmpty else {
-            throw SpendingServiceError.invalidAmount
-        }
-
-        // WHY: manual spends debit the spend bucket so BucketService.applyBucketAttribution
-        // keeps bucket balances consistent with the ledger total.
-        let signedAmount = -abs(amount)
-        let entry = LedgerEntry(
-            profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: signedAmount,
-            description: trimmedDesc,
-            location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
-            date: date,
+        // WHY single waterfall: manual spends and withdrawals share one debit path so bucket splits cannot drift.
+        let inputs = try validatedCashDebitInputs(description: description, location: location, date: date, amount: amount)
+        return try await waterfallDebit(
             source: LedgerSource.manual.rawValue,
-            bucketKind: BucketKind.spend.rawValue,
-            family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: makeLedgerID(
-                source: LedgerSource.manual.rawValue,
-                profile: profile,
-                family: family,
-                amount: signedAmount,
-                description: trimmedDesc,
-                location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
-                date: date
-            )
+            profile: profile,
+            family: family,
+            request: inputs.request,
+            trimmedDesc: inputs.trimmedDesc,
+            normalizedLocation: inputs.normalizedLocation,
+            effectiveDate: inputs.effectiveDate,
+            enqueueContext: "LedgerService.logManual"
         )
-
-        await cacheService.upsertLedgerEntry(entry)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.logManual")
-        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
-        return entry
     }
 
     /// Mints one ledger entry per bucket share; the returned array sums to the full deposit total.
@@ -407,14 +691,27 @@ final class LedgerService {
         }
         try validateScopeAllowingNewHero(family: family)
 
-        guard amount > 0 else {
+        // WHY fail-closed bounds: deposit shares the same 1..100M amount, 1..120 description,
+        // 0..80 location, and sub-300s date discipline as manual debits so IDs stay convergent.
+        guard (1 ... 100_000_000).contains(amount) else {
             throw SpendingServiceError.invalidAmount
         }
 
         let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDesc.isEmpty else {
+        guard (1 ... 120).contains(trimmedDesc.count) else {
             throw SpendingServiceError.invalidAmount
         }
+
+        let rawDepositLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard rawDepositLocation.count <= 80 else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let normalizedLocation: String? = rawDepositLocation.isEmpty ? nil : rawDepositLocation
+        let dateCap = Date().addingTimeInterval(300)
+        guard date <= dateCap else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let effectiveDate = date
 
         // WHY: whole-penny math keeps bucket shares summing to the exact deposit
         // total regardless of how percentages round.
@@ -431,7 +728,6 @@ final class LedgerService {
         }
 
         let depositSource = LedgerSource.deposit.rawValue
-        let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = deterministicRecordName(
             source: depositSource,
             profile: profile,
@@ -439,7 +735,7 @@ final class LedgerService {
             amount: amount,
             description: trimmedDesc,
             location: normalizedLocation,
-            date: date
+            date: effectiveDate
         )
 
         var entries: [LedgerEntry] = []
@@ -454,24 +750,24 @@ final class LedgerService {
             if let existing = cacheService.fetchLedgerEntry(recordName: candidate, family: family.id.recordName),
                existing.source != depositSource
                || existing.entryDescription != shareDescription
-               || !DeterministicRecordID.isSameMillisecond(existing.date, date)
+               || !DeterministicRecordID.isSameMillisecond(existing.date, effectiveDate)
                || existing.location != normalizedLocation
                || existing.amount != share.pennies
             {
                 // WHY: extend deterministically so same divergent payload yields
                 // same recordName on any device, never a random UUID.
-                let ms = Int64(date.timeIntervalSince1970 * 1000)
+                let ms = Int64(effectiveDate.timeIntervalSince1970 * 1000)
                 let trimmedLower = trimmedDesc.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 let locationPart = normalizedLocation ?? ""
                 let payload = "\(trimmedLower)|\(ms)|\(share.pennies)|\(locationPart)|\(depositSource)|\(share.kind.rawValue)"
-                recordName = extendedRecordName(base: candidate, payload: payload, date: date)
+                recordName = DeterministicRecordID.collisionExtendedName(base: candidate, payload: payload, date: effectiveDate)
             }
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: profile.id, action: .none),
                 amount: shareAmount,
                 description: shareDescription,
                 location: normalizedLocation,
-                date: date,
+                date: effectiveDate,
                 source: depositSource,
                 bucketKind: share.kind.rawValue,
                 family: CKRecord.Reference(recordID: family.id, action: .none),
@@ -507,7 +803,7 @@ final class LedgerService {
                         family: family,
                         bucketKind: share.kind,
                         sourceEventID: base,
-                        contributionDate: date
+                        contributionDate: effectiveDate
                     )
                 } catch {
                     logger.warning("Goal allocation failed for deposit \(base, privacy: .private): \(error, privacy: .private)")
@@ -537,40 +833,18 @@ final class LedgerService {
         }
         try validateScopeAllowingNewHero(family: family)
 
-        guard amount > 0 else {
-            throw SpendingServiceError.invalidAmount
-        }
-
-        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDesc.isEmpty else {
-            throw SpendingServiceError.invalidAmount
-        }
-
-        let signedAmount = -abs(amount)
-        let entry = LedgerEntry(
-            profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: signedAmount,
-            description: trimmedDesc,
-            location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
-            date: date,
+        // WHY single waterfall: manual spends and withdrawals share one debit path so bucket splits cannot drift.
+        let inputs = try validatedCashDebitInputs(description: description, location: location, date: date, amount: amount)
+        return try await waterfallDebit(
             source: LedgerSource.withdrawal.rawValue,
-            bucketKind: BucketKind.spend.rawValue,
-            family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: makeLedgerID(
-                source: LedgerSource.withdrawal.rawValue,
-                profile: profile,
-                family: family,
-                amount: signedAmount,
-                description: trimmedDesc,
-                location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
-                date: date
-            )
+            profile: profile,
+            family: family,
+            request: inputs.request,
+            trimmedDesc: inputs.trimmedDesc,
+            normalizedLocation: inputs.normalizedLocation,
+            effectiveDate: inputs.effectiveDate,
+            enqueueContext: "LedgerService.withdraw"
         )
-
-        await cacheService.upsertLedgerEntry(entry)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerService.withdraw")
-        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
-        return entry
     }
 
     func delete(_ entry: LedgerEntry) async throws {
@@ -586,19 +860,23 @@ final class LedgerService {
 
         try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
 
-        // WHY single step: tombstone is captured inside the helper so the delete survives row removal.
-        await ActiveFamilyScopeGuard.deleteAndEnqueue(
-            cacheService: cacheService,
-            target: .init(recordID: entry.id, familyRecordName: entry.family.recordID.recordName),
-            type: .ledgerEntry,
-            deleteContext: .init(
-                coordinator: syncCoordinator,
-                appState: appState,
-                logger: logger,
-                context: "LedgerService.delete",
-                expectedActiveZone: appState.familyZoneID
+        // WHY atomic waterfall: Spend/shortcover legs share one receipt, so deleting one leg alone would orphan its sibling plus drawdown markers.
+        let targets = waterfallDeleteTargets(for: entry)
+        for target in targets {
+            // WHY single step: tombstone is captured inside the helper so the delete survives row removal.
+            await ActiveFamilyScopeGuard.deleteAndEnqueue(
+                cacheService: cacheService,
+                target: target,
+                type: .ledgerEntry,
+                deleteContext: .init(
+                    coordinator: syncCoordinator,
+                    appState: appState,
+                    logger: logger,
+                    context: "LedgerService.delete",
+                    expectedActiveZone: appState.familyZoneID
+                )
             )
-        )
+        }
     }
 
     // MARK: - Generic Persistence

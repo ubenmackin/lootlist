@@ -9,46 +9,6 @@ import Foundation
 import Observation
 import os
 
-struct SpendingLogRow: Identifiable, Equatable {
-    let id: String
-    /// Whole pennies (signed).
-    let amount: Int64
-    let description: String
-    let location: String?
-    let date: Date
-    let source: String
-    let rawCache: LedgerEntryCache?
-
-    init(id: String,
-         amount: Int64,
-         description: String,
-         location: String? = nil,
-         date: Date,
-         source: String,
-         rawCache: LedgerEntryCache? = nil)
-    {
-        self.id = id
-        self.amount = amount
-        self.description = description
-        self.location = location
-        self.date = date
-        self.source = source
-        self.rawCache = rawCache
-    }
-
-    var formattedAmount: String {
-        CurrencyFormatter.string(pennies: amount)
-    }
-
-    var bucketKind: String? {
-        rawCache?.bucketKind
-    }
-
-    var bucketKindEnum: BucketKind? {
-        bucketKind.flatMap { BucketKind(rawValue: $0) }
-    }
-}
-
 @MainActor
 @Observable
 final class TreasuryViewModel {
@@ -92,7 +52,7 @@ final class TreasuryViewModel {
 
     private(set) var allowancePeriod: AllowancePeriodCache?
 
-    private(set) var spendingLog: [SpendingLogRow] = []
+    private(set) var spendingGroups: [TransactionGroup] = []
 
     private(set) var isLoading: Bool = false
 
@@ -245,21 +205,32 @@ final class TreasuryViewModel {
             paidAmount: paidAmount
         )
 
-        spendingLog = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
+        // WHY builder-first: grouped ledger is single truth, display filters after running accumulates.
+        spendingGroups = TransactionGroupBuilder.buildGroups(ledgers: ledgers, profileRecordName: profileName)
+            .filter { scope.contains($0.date, payoutDay: payoutDay) }
         // WHY late flag: rebuild completed so skeleton must yield to empty-or-content on next render.
         hasLoadedOnce = true
     }
 
-    func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], scope: CalendarScope, viewerRow: ProfileCache? = nil, familyRow: FamilyCache? = nil) {
-        // WHY row-first: identity must mirror @Query rows so spending math never disagrees with gating.
-        guard let profileName = viewerRow?.recordName ?? appState.currentProfile?.id.recordName else { return }
+    func rebuildSpendingLog(
+        from cachedLedgers: [LedgerEntryCache],
+        scope: CalendarScope,
+        viewerRow: ProfileCache? = nil,
+        familyRow: FamilyCache? = nil,
+        profileRecordName: String? = nil
+    ) {
+        // WHY param-first: pushed log owns the query predicate so explicit scope wins over session identity.
+        guard let profileName = profileRecordName.sanitizedNilIfEmpty ?? viewerRow?.recordName
+            ?? appState.currentProfile?.id.recordName else { return }
         let payoutDay: PayoutDay = if viewerRow != nil || familyRow != nil {
             PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
         } else {
             resolvedPayoutDay
         }
         spendBalance = BucketService.resolvedSpendBalance(for: cachedLedgers, profileRecordName: profileName)
-        spendingLog = LedgerRowFactory.spendingRows(from: cachedLedgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
+        // WHY builder-first: grouped ledger is single truth, display filters after running accumulates.
+        spendingGroups = TransactionGroupBuilder.buildGroups(ledgers: cachedLedgers, profileRecordName: profileName)
+            .filter { scope.contains($0.date, payoutDay: payoutDay) }
         // WHY late flag: spending-only rebuilds also retire the skeleton.
         hasLoadedOnce = true
     }
@@ -289,7 +260,14 @@ final class TreasuryViewModel {
             setError(.missingDescription)
             return false
         }
-        guard amount > 0 else {
+        // WHY fail-closed bounds: mirrors service debit validation so oversized payloads reject at the UI boundary.
+        guard (1 ... 120).contains(trimmed.count), (1 ... 100_000_000).contains(amount) else {
+            setError(.invalidAmount)
+            return false
+        }
+        let rawLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // WHY fail-closed date: far-future timestamps reject so deterministic IDs never silently shift.
+        guard rawLocation.count <= 80, date <= Date().addingTimeInterval(300) else {
             setError(.invalidAmount)
             return false
         }
@@ -300,8 +278,7 @@ final class TreasuryViewModel {
             return false
         }
         let familyRecordName = family.id.recordName
-        let trimmedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let locationValue = trimmedLocation.flatMap { $0.isEmpty ? nil : $0 }
+        let locationValue: String? = rawLocation.isEmpty ? nil : rawLocation
 
         do {
             _ = try await spending.logManual(
@@ -331,7 +308,7 @@ final class TreasuryViewModel {
         spendBalance = 0
         weeklyBreakdown = nil
         allowancePeriod = nil
-        spendingLog = []
+        spendingGroups = []
         clearError()
         isLoading = false
         pendingUploadCount = 0

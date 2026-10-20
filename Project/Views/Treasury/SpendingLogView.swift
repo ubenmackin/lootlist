@@ -11,12 +11,22 @@ import SwiftUI
 struct SpendingLogView: View {
     @Bindable var viewModel: TreasuryViewModel
     @Binding var scope: CalendarScope
+    @Environment(AppState.self) private var appState
+
+    @State private var expandedGroups: Set<String> = []
+    /// Nil shows All; non-nil filters the ledger list to that bucket's attribution.
+    @State private var selectedBucketFilter: BucketKind?
+
+    private let familyRecordName: String?
+    private let profileRecordName: String?
 
     @Query private var cachedLedgers: [LedgerEntryCache]
 
     init(viewModel: TreasuryViewModel, familyRecordName: String? = nil, profileRecordName: String? = nil, scope: Binding<CalendarScope>) {
         self.viewModel = viewModel
         _scope = scope
+        self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
         let ledgerFilter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
@@ -27,18 +37,67 @@ struct SpendingLogView: View {
         )
     }
 
+    private var resolvedProfileName: String {
+        // WHY explicit profile: never fall back to the first ledger row, which would collapse a parent view to one hero.
+        profileRecordName ?? ""
+    }
+
+    private var isMissingProfile: Bool {
+        resolvedProfileName.isEmpty
+    }
+
+    private var payoutDay: PayoutDay {
+        appState.resolvedPayoutDay
+    }
+
+    private var groups: [TransactionGroup] {
+        // WHY single truth: grouping plus running totals live in the view model so the log never rebuilds beside it.
+        guard let filter = selectedBucketFilter else { return viewModel.spendingGroups }
+        return viewModel.spendingGroups.compactMap { TransactionGroupBuilder.filteredGroup($0, for: filter) }
+    }
+
+    private var bucketBalances: [BucketKind: Int64] {
+        // WHY cache-first: header tiles reuse the queried rows so totals match the ledger list.
+        BucketService.bucketBalances(for: cachedLedgers, profileRecordName: resolvedProfileName)
+    }
+
+    private var totalBalance: Int64 {
+        BucketService.totalBalance(bucketBalances: bucketBalances)
+    }
+
+    private func isExpanded(_ group: TransactionGroup) -> Bool {
+        LedgerGroupExpansion.isExpanded(group, expandedIDs: expandedGroups)
+    }
+
+    private func toggle(_ group: TransactionGroup) {
+        LedgerGroupExpansion.toggle(group, expandedIDs: &expandedGroups)
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                CalendarScopeFilterView(scope: $scope)
+                LedgerStaleBanner(familyRecordName: familyRecordName, count: cachedLedgers.count)
+                    .padding(.horizontal)
+                if !isMissingProfile {
+                    balanceHeader
+                        .padding(.horizontal)
+                }
+                CalendarScopeFilterView(scope: $scope, payoutDay: payoutDay)
                     .padding(.horizontal)
 
-                if viewModel.spendingLog.isEmpty {
+                if isMissingProfile {
+                    missingProfileState
+                } else if groups.isEmpty {
                     emptyState
                 } else {
                     LazyVStack(spacing: 12) {
-                        ForEach(viewModel.spendingLog) { entry in
-                            LedgerEntryRow(entry: entry)
+                        ForEach(groups) { group in
+                            LedgerGroupRowView(
+                                group: group,
+                                isExpanded: isExpanded(group),
+                                onToggle: { toggle(group) },
+                                selectedBucketFilter: selectedBucketFilter
+                            )
                         }
                     }
                     .padding(.horizontal)
@@ -50,98 +109,46 @@ struct SpendingLogView: View {
         .navigationTitle("Scroll of Spending")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: scope) { _, newScope in
-            viewModel.rebuildSpendingLog(from: cachedLedgers, scope: newScope)
+            // WHY single identity: header and groups share resolvedProfileName, so skip fallback rebuilds while missing.
+            guard !isMissingProfile else { return }
+            viewModel.rebuildSpendingLog(from: cachedLedgers, scope: newScope, profileRecordName: resolvedProfileName)
         }
         .onChange(of: cachedLedgers) { _, newLedgers in
-            viewModel.rebuildSpendingLog(from: newLedgers, scope: scope)
+            guard !isMissingProfile else { return }
+            viewModel.rebuildSpendingLog(from: newLedgers, scope: scope, profileRecordName: resolvedProfileName)
         }
         .task {
-            viewModel.rebuildSpendingLog(from: cachedLedgers, scope: scope)
+            guard !isMissingProfile else { return }
+            viewModel.rebuildSpendingLog(from: cachedLedgers, scope: scope, profileRecordName: resolvedProfileName)
         }
     }
 
     private var emptyState: some View {
         EmptyStateView(
             systemImage: "scroll.fill",
-            title: "Empty Ledger",
+            title: LedgerEmptyState.title(for: selectedBucketFilter, defaultTitle: "Empty Ledger"),
             description: scope.emptyStateCopy,
             topPadding: 64
         )
     }
-}
 
-struct LedgerEntryRow: View {
-    let entry: SpendingLogRow
+    private var missingProfileState: some View {
+        // WHY explicit profile: without a hero scope the log cannot attribute buckets, so require selection instead of first-row fallback.
+        EmptyStateView(
+            systemImage: "person.crop.circle.badge.questionmark",
+            title: "Select a Hero",
+            description: "Choose a hero to view their Scroll of Spending.",
+            topPadding: 64
+        )
+    }
 
-    var body: some View {
-        VStack(spacing: 4) {
-            HStack(alignment: .top, spacing: 12) {
-                let iconInfo = LedgerRowStyle.sourceIcon(
-                    for: entry.source,
-                    fallbackTint: entry.amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed)
-                )
-                Image(systemName: iconInfo.name)
-                    .font(.title2)
-                    .foregroundStyle(iconInfo.color)
-                    .frame(width: 32)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.description)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-                    if let location = entry.location, !location.isEmpty {
-                        HStack(spacing: 3) {
-                            Image(systemName: "mappin.and.ellipse")
-                                .font(.caption2)
-                            Text(location)
-                                .font(.caption.weight(.medium))
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 6) {
-                        Text(LedgerRowStyle.sourceLabel(for: entry.source))
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(iconInfo.color)
-                        if let bucket = entry.bucketKindEnum {
-                            Text("•")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            HStack(spacing: 3) {
-                                Image(systemName: bucket.iconSystemName)
-                                    .font(.system(size: 9))
-                                Text(bucket.shortName)
-                                    .font(.caption2.weight(.semibold))
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
-                            )
-                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                        }
-                        Text("•")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(LedgerRowStyle.dateText(for: entry.date))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 12)
-
-                Text(CurrencyFormatter.signed(entry.amount))
-                    .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed))
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-            )
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(entry.description), \(CurrencyFormatter.signed(entry.amount)), \(LedgerRowStyle.dateText(for: entry.date))")
+    private var balanceHeader: some View {
+        LedgerBalanceHeaderView(
+            totalBalance: totalBalance,
+            bucketBalances: bucketBalances,
+            selectedBucketFilter: selectedBucketFilter,
+            onSelectTotal: { selectedBucketFilter = nil },
+            onSelectBucket: { selectedBucketFilter = LedgerBucketFilter.toggled(selectedBucketFilter, with: $0) }
+        )
     }
 }

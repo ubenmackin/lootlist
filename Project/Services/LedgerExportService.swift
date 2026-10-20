@@ -39,8 +39,15 @@ final class LedgerExportService {
 
     /// Builds CSV payload matching canonical import headers.
     func buildCSV(entries: [LedgerEntryCache], childName: String) -> Data {
-        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        // WHY history-faithful: goal markers reuse counted funds so exports mirror ledger history, including legacy rows.
+        // WHY newest-first: display inverts accumulation order so equal dates reverse tie-break.
         let visibleEntries = entries.filter { BucketService.isLedgerVisible($0) }
+            .sorted {
+                if $0.date != $1.date {
+                    return $0.date > $1.date
+                }
+                return $0.recordName > $1.recordName
+            }
         var csv = Self.csvHeader + "\n"
 
         let dateFormatter = DateFormatter()
@@ -80,8 +87,15 @@ final class LedgerExportService {
 
     /// Builds structured JSON dump of all ledger entries for backup.
     func buildJSON(entries: [LedgerEntryCache]) throws -> Data {
-        // WHY single source: goal markers reuse counted funds so history shows new money only.
+        // WHY history-faithful: goal markers reuse counted funds so backups mirror ledger history, including legacy rows.
+        // WHY newest-first: display inverts accumulation order so equal dates reverse tie-break.
         let visibleEntries = entries.filter { BucketService.isLedgerVisible($0) }
+            .sorted {
+                if $0.date != $1.date {
+                    return $0.date > $1.date
+                }
+                return $0.recordName > $1.recordName
+            }
         let codableEntries = visibleEntries.map { LedgerEntryJSON(from: $0) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

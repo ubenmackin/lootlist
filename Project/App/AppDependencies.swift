@@ -341,7 +341,7 @@ final class AppDependencies {
         let interest = InterestService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         let match = MatchService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         let ledgerImport = LedgerImportService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let bucket = BucketService(cacheService: cache, syncCoordinator: syncCoord, appState: app)
+        let bucket = BucketService(cacheService: cache, syncCoordinator: syncCoord, appState: app, cloudKit: ck)
         let goal = GoalService(
             cloudKit: ck,
             cacheService: cache,

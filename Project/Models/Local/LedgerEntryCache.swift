@@ -44,16 +44,13 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var sourceDatabaseScope: String?
 
     var bucketKindEnum: BucketKind? {
-        bucketKind.flatMap { BucketKind(rawValue: $0) }
+        BucketKind.decode(bucketKind)
     }
 
     /// Typed view of `source` for exhaustive switching. Additive migration —
     /// `source` remains the persisted CloudKit string.
     var sourceEnum: LedgerSource? {
-        if source.hasPrefix(LedgerSource.import.rawValue) {
-            return .import
-        }
-        return LedgerSource(rawValue: source)
+        LedgerSource.decode(source)
     }
 
     init(recordName: String,

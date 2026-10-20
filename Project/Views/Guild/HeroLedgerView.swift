@@ -20,10 +20,12 @@ struct HeroLedgerView: View {
     @State private var viewModel: HeroLedgerViewModel?
     @State private var isShowingDeposit: Bool = false
     @State private var isShowingWithdraw: Bool = false
+    @State private var isShowingTransfer: Bool = false
 
     @State private var showExportPicker = false
     @State private var showShareSheet = false
     @State private var shareURL: URL?
+    @State private var expandedGroups: Set<String> = []
     private let exportService = LedgerExportService()
 
     /// Persisted date-range scope for this hero's ledger screen.
@@ -119,11 +121,14 @@ struct HeroLedgerView: View {
         SheetsModifier(
             isShowingDeposit: $isShowingDeposit,
             isShowingWithdraw: $isShowingWithdraw,
+            isShowingTransfer: $isShowingTransfer,
             showExportPicker: $showExportPicker,
             showShareSheet: $showShareSheet,
             shareURL: shareURL,
             viewModel: viewModel,
             heroName: hero.displayName,
+            familyRecordName: familyRecordName,
+            heroRecordName: hero.recordName,
             onExport: { exportEntries(as: $0) }
         )
     }
@@ -151,6 +156,8 @@ struct HeroLedgerView: View {
 
     private var contentStack: some View {
         VStack(spacing: 20) {
+            LedgerStaleBanner(familyRecordName: familyRecordName, count: cachedLedgers.count)
+                .padding(.horizontal)
             balanceSection
             scopeFilterSection
             actionsRow
@@ -160,11 +167,13 @@ struct HeroLedgerView: View {
     }
 
     private var balanceSection: some View {
-        BalanceCardView(
-            balance: viewModel?.balance,
-            weekOf: nil,
-            status: nil,
-            pendingPayoutAmount: viewModel?.pendingQuestGold
+        LedgerBalanceHeaderView(
+            totalBalance: viewModel?.balance,
+            bucketBalances: viewModel?.bucketBalances ?? [:],
+            selectedBucketFilter: viewModel?.selectedBucketFilter,
+            pendingPayoutAmount: viewModel?.pendingQuestGold,
+            onSelectTotal: { viewModel?.clearBucketFilter() },
+            onSelectBucket: { viewModel?.toggleBucketFilter($0) }
         )
     }
 
@@ -177,6 +186,7 @@ struct HeroLedgerView: View {
         HStack(spacing: 12) {
             depositButton
             withdrawButton
+            moveMoneyButton
         }
         .padding(.horizontal)
     }
@@ -297,127 +307,56 @@ struct HeroLedgerView: View {
         }
     }
 
+    private var moveMoneyButton: some View {
+        Button {
+            HapticsService.lightImpact()
+            isShowingTransfer = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.left.arrow.right")
+                Text("Move Money")
+                    .font(.subheadline.weight(.bold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
+            )
+            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.4), lineWidth: 1)
+            )
+        }
+        .accessibilityIdentifier("ledger.moveMoneyButton")
+        .accessibilityHint("Move money between buckets")
+    }
+
     @ViewBuilder
     private var ledgerList: some View {
         if let vm = viewModel {
-            if vm.ledgerRows.isEmpty {
+            if vm.filteredLedgerGroups.isEmpty {
                 EmptyStateView(
-                    systemImage: "scroll.fill",
-                    title: "Empty Scroll",
+                    systemImage: "banknote.fill",
+                    title: LedgerEmptyState.title(for: vm.selectedBucketFilter, defaultTitle: "Empty Scroll"),
                     description: scope.emptyStateCopy,
                     topPadding: 32
                 )
             } else {
                 LazyVStack(spacing: 12) {
-                    ForEach(vm.ledgerRows) { entry in
-                        heroLedgerEntryRow(entry)
+                    ForEach(vm.filteredLedgerGroups) { group in
+                        LedgerGroupRowView(
+                            group: group,
+                            isExpanded: LedgerGroupExpansion.isExpanded(group, expandedIDs: expandedGroups),
+                            onToggle: { LedgerGroupExpansion.toggle(group, expandedIDs: &expandedGroups) },
+                            selectedBucketFilter: vm.selectedBucketFilter
+                        )
                     }
                 }
                 .padding(.horizontal)
             }
         }
-    }
-
-    private func heroLedgerEntryRow(_ entry: SpendingLogRow) -> some View {
-        VStack(spacing: 4) {
-            entryCardContent(entry)
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(DesignSystemConstants.Colors.cardSurface))
-                )
-        }
-    }
-
-    private func entryCardContent(_ entry: SpendingLogRow) -> some View {
-        let iconInfo: (name: String, color: Color) = LedgerRowStyle.sourceIcon(for: entry.source, fallbackTint: .primary)
-        return HStack(alignment: .top, spacing: 12) {
-            entryIcon(iconInfo: iconInfo)
-            entryDetails(entry, sourceColor: iconInfo.color)
-            Spacer(minLength: 12)
-            entryAmount(entry.amount)
-        }
-    }
-
-    private func entryIcon(iconInfo: (name: String, color: Color)) -> some View {
-        entryIconView(name: iconInfo.name, color: iconInfo.color)
-    }
-
-    private func entryIconView(name: String, color: Color) -> some View {
-        Image(systemName: name)
-            .font(.title2)
-            .foregroundStyle(color)
-            .frame(width: 32)
-    }
-
-    private func entryDetails(_ entry: SpendingLogRow, sourceColor: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(entry.description)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2)
-            if let location = entry.location, !location.isEmpty {
-                entryLocationRow(location)
-            }
-            entryMetaRow(entry, sourceColor: sourceColor)
-        }
-    }
-
-    private func entryLocationRow(_ location: String) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: "mappin.and.ellipse")
-                .font(.caption2)
-            Text(location)
-                .font(.caption.weight(.medium))
-        }
-        .foregroundStyle(.secondary)
-    }
-
-    private func entryMetaRow(_ entry: SpendingLogRow, sourceColor: Color) -> some View {
-        HStack(spacing: 6) {
-            entrySourceLabel(entry, sourceColor: sourceColor)
-            if let bucket = entry.bucketKindEnum {
-                dotSeparator
-                bucketBadge(bucket)
-            }
-            dotSeparator
-            Text(LedgerRowStyle.dateText(for: entry.date))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func entrySourceLabel(_ entry: SpendingLogRow, sourceColor: Color) -> some View {
-        Text(LedgerRowStyle.sourceLabel(for: entry.source))
-            .font(.caption.weight(.medium))
-            .foregroundStyle(sourceColor)
-    }
-
-    private var dotSeparator: some View {
-        Text("•")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-    }
-
-    private func bucketBadge(_ bucket: BucketKind) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: bucket.iconSystemName)
-                .font(.system(size: 9))
-            Text(bucket.shortName)
-                .font(.caption2.weight(.semibold))
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(
-            Capsule()
-                .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
-        )
-        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-    }
-
-    private func entryAmount(_ amount: Int64) -> some View {
-        Text(CurrencyFormatter.signed(amount))
-            .font(.subheadline.weight(.bold).monospacedDigit())
-            .foregroundStyle(amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed))
     }
 }
 
@@ -427,11 +366,14 @@ private extension HeroLedgerView {
     struct SheetsModifier: ViewModifier {
         @Binding var isShowingDeposit: Bool
         @Binding var isShowingWithdraw: Bool
+        @Binding var isShowingTransfer: Bool
         @Binding var showExportPicker: Bool
         @Binding var showShareSheet: Bool
         let shareURL: URL?
         let viewModel: HeroLedgerViewModel?
         let heroName: String
+        let familyRecordName: String?
+        let heroRecordName: String
         let onExport: (ExportFormat) -> Void
 
         func body(content: Content) -> some View {
@@ -445,6 +387,9 @@ private extension HeroLedgerView {
                     if let viewModel {
                         HeroTransactionView(mode: .withdraw, viewModel: viewModel, heroName: heroName)
                     }
+                }
+                .sheet(isPresented: $isShowingTransfer) {
+                    BucketTransferView(familyRecordName: familyRecordName, profileRecordName: heroRecordName)
                 }
                 .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
                     Button("Export as CSV") { onExport(.csv) }

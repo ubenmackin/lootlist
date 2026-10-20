@@ -347,9 +347,31 @@ final class LedgerImportService {
     }
 
     /// WHY explicit gate: excluded rows never block finalization.
+    /// WHY fail-closed bounds: mirrors manual-debit limits so crafted CSV cannot mint rows the manual path rejects.
     static func blockingRows(in stagedRows: [StagedImportRow]) -> [StagedImportRow] {
-        stagedRows.filter { row in
-            !row.isExcluded && (!row.isAssigned || row.parseIssue != nil || row.amount == nil || row.date == nil)
+        // WHY single cap: one snapshot per pass keeps far-future checks stable across rows.
+        let dateCap = Date().addingTimeInterval(300)
+        return stagedRows.filter { row in
+            guard !row.isExcluded else { return false }
+            if !row.isAssigned || row.parseIssue != nil || row.amount == nil || row.date == nil {
+                return true
+            }
+            guard let amount = row.amount, let date = row.date else { return true }
+            if !(1 ... 100_000_000).contains(amount) {
+                return true
+            }
+            let trimmedDescription = row.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !(1 ... 120).contains(trimmedDescription.count) {
+                return true
+            }
+            let trimmedMerchant = row.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedMerchant.count > 80 {
+                return true
+            }
+            if date > dateCap {
+                return true
+            }
+            return false
         }
     }
 
@@ -383,12 +405,20 @@ final class LedgerImportService {
         let zoneID = appState.resolvedFamilyZoneID()
         var importedCount = 0
         var skippedDuplicates = 0
+        // WHY single cap: mint-time recheck closes the gap when the clock advances past the gate.
+        let mintCap = Date().addingTimeInterval(300)
 
         for row in included {
             guard let profileRecordName = row.assignedProfileRecordName,
                   let amount = row.amount,
                   let date = row.date
             else { continue }
+            // WHY fail-closed mint: rechecks the gate so out-of-bounds rows never reach upsertLedgerEntry.
+            guard (1 ... 100_000_000).contains(amount) else { continue }
+            let trimmedDescription = row.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard (1 ... 120).contains(trimmedDescription.count) else { continue }
+            let trimmedMerchant = row.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmedMerchant.count <= 80, date <= mintCap else { continue }
 
             let recordName = Self.recordName(for: row, profileRecordName: profileRecordName)
             // WHY idempotent: deterministic ID already cached means row was confirmed before.
@@ -404,8 +434,8 @@ final class LedgerImportService {
                     action: .none
                 ),
                 amount: amount,
-                description: trimmedNonEmpty(row.descriptionText) ?? "Imported transaction",
-                location: trimmedNonEmpty(row.merchant),
+                description: trimmedDescription,
+                location: trimmedMerchant.isEmpty ? nil : trimmedMerchant,
                 date: date,
                 source: LedgerSource.import.rawValue,
                 bucketKind: BucketKind.spend.rawValue,
@@ -423,11 +453,6 @@ final class LedgerImportService {
     }
 
     // MARK: - Helpers
-
-    private func trimmedNonEmpty(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 
     private func validateScope(family: Family) throws {
         // WHY fail-closed: tests establish full session, never family-only fallback.

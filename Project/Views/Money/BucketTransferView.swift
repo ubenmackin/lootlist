@@ -27,6 +27,8 @@ struct BucketTransferView: View {
     private let profileRecordName: String?
 
     @Query private var ledgerCaches: [LedgerEntryCache]
+    @Query private var subjectRows: [ProfileCache]
+    @Query private var viewerRows: [ProfileCache]
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.profileRecordName = profileRecordName
@@ -37,14 +39,39 @@ struct BucketTransferView: View {
         // == profile.id) requires profile scope.
         let filter = LedgerEntryCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
         _ledgerCaches = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+        let subjectFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
+        _subjectRows = Query(filter: subjectFilter, sort: \ProfileCache.displayName)
+        // WHY cache-derived viewer: role resolves from the cached row like HeroLedgerView so gating never reads session domain state.
+        _viewerRows = Query(filter: ProfileCache.familyPredicate(familyRecordName: targetFamily), sort: \ProfileCache.displayName)
     }
 
-    private var profile: Profile? {
-        appState.currentProfile
+    private var subjectProfileRow: ProfileCache? {
+        ProfileRowResolver.resolve(rows: subjectRows, targetRecordName: profileRecordName)
+    }
+
+    private var subjectProfile: Profile? {
+        guard let row = subjectProfileRow else { return nil }
+        return row.toProfile(zoneID: appState.resolvedFamilyZoneID())
+    }
+
+    /// Viewer row from cache; session identity only selects the row, never the role.
+    private var viewerRow: ProfileCache? {
+        ProfileRowResolver.resolve(rows: viewerRows, targetRecordName: appState.currentProfile?.id.recordName)
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        viewerRow?.roleEnum
     }
 
     private var family: Family? {
         appState.family
+    }
+
+    /// WHY subject versus viewer: balances and the transfer act on the ledger owner, the Long gate reads the viewer role only.
+    /// WHY fail-closed Long gate: unknown role locks like hero so Long-Term Save never renders unlocked before cache resolves.
+    private var isHeroViewer: Bool {
+        viewerRole?.isParent != true
     }
 
     private var balances: [BucketKind: Int64] {
@@ -66,15 +93,18 @@ struct BucketTransferView: View {
         BucketKind.allCases.filter { $0 != fromBucket }
     }
 
+    /// WHY fail-closed bounds: mirrors service debit validation so oversized payloads reject at the UI boundary.
     private var parsedAmount: Int64? {
         guard let value = CurrencyFormatter.pennies(from: amountText),
-              value > 0
+              (1 ... 100_000_000).contains(value)
         else { return nil }
         return value
     }
 
     private var canTransfer: Bool {
-        parsedAmount != nil && fromBucket != toBucket && profile != nil && family != nil
+        guard let amount = parsedAmount, (1 ... 100_000_000).contains(amount) else { return false }
+        return fromBucket != toBucket && subjectProfile != nil && family != nil
+            && !(isHeroViewer && fromBucket == .longTermSave)
     }
 
     private var sourceAvailable: Int64 {
@@ -140,17 +170,38 @@ struct BucketTransferView: View {
                         Text(balanceText(for: kind))
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
+                        if isHeroViewer, kind == .longTermSave {
+                            Image(systemName: "lock.fill")
+                                .font(.caption)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                        }
                     }
                     .tag(kind)
                     // Stable ids per section — labels are locale-dependent.
                     .accessibilityIdentifier("transfer.fromOption-\(kind.rawValue)")
+                    .disabled(isHeroViewer && kind == .longTermSave)
                 }
             }
             .pickerStyle(.inline)
+            .onAppear {
+                if isHeroViewer, fromBucket == .longTermSave {
+                    fromBucket = .spend
+                }
+            }
+            .onChange(of: isHeroViewer) { _, isHero in
+                if isHero, fromBucket == .longTermSave {
+                    fromBucket = .spend
+                }
+            }
         } header: {
             Text("Source Bucket")
         } footer: {
-            Text("Available: \(CurrencyFormatter.string(sourceAvailable))")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Available: \(CurrencyFormatter.string(sourceAvailable))")
+                if isHeroViewer {
+                    Text("Long-Term Save is locked. Ask a parent for help to move money from there.")
+                }
+            }
         }
     }
 
@@ -236,10 +287,15 @@ struct BucketTransferView: View {
 
     private func performTransfer() {
         guard let amount = parsedAmount,
-              let profile,
+              let subjectProfile,
               let family
         else {
             toastManager?.show(message: "Please check your transfer details.", type: .warning)
+            return
+        }
+        // WHY locked bucket: heroes never debit Long-Term Save without parent help.
+        if isHeroViewer, fromBucket == .longTermSave {
+            toastManager?.show(message: "Long-Term Save is locked. Ask a parent for help.", type: .warning)
             return
         }
 
@@ -247,10 +303,10 @@ struct BucketTransferView: View {
         let amountSnapshot = amount
         let fromSnapshot = fromBucket
         let toSnapshot = toBucket
-        let profileSnapshot = profile
+        let profileSnapshot = subjectProfile
         let familySnapshot = family
-        // WHY MainActor view: isSaving mutates on the isolated task so Sendable captures stay race-free.
-        Task { [bucketService, amountSnapshot, fromSnapshot, toSnapshot, profileSnapshot, familySnapshot, toastManager, dismiss] in
+        // WHY MainActor hop: isSaving/dismiss/toast mutate MainActor state so the task stays isolated.
+        Task { @MainActor [bucketService, amountSnapshot, fromSnapshot, toSnapshot, profileSnapshot, familySnapshot, toastManager, dismiss] in
             isSaving = true
             defer { isSaving = false }
             do {

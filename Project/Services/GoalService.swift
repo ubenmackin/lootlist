@@ -129,6 +129,26 @@ final class GoalService {
         DeterministicRecordID.purchase(goalRecordName: goalRecordName)
     }
 
+    /// Single-source root for goal-drawdown record names so calculators and services never drift.
+    /// WHY nonisolated: pure string identity shared with background calculators without a MainActor hop.
+    nonisolated static let drawdownRoot = "drawdown-"
+
+    /// Returns true when `recordName` is any goal-drawdown record.
+    nonisolated static func isDrawdownRecord(_ recordName: String) -> Bool {
+        recordName.hasPrefix(drawdownRoot)
+    }
+
+    /// `drawdown-{goalRecordName}-{sourceEventID}` — CloudKit dedupes the record
+    /// name across devices, making every drawdown double-run safe.
+    nonisolated static func drawdownRecordName(goalRecordName: String, sourceEventID: String) -> String {
+        "\(drawdownRoot)\(goalRecordName)-\(sourceEventID)"
+    }
+
+    /// Prefix for a specific goal's drawdown records: `drawdown-{goalRecordName}-`.
+    nonisolated static func drawdownPrefix(for goalRecordName: String) -> String {
+        "\(drawdownRoot)\(goalRecordName)-"
+    }
+
     // MARK: - FIFO Allocator (pure, no side effects)
 
     /// FIFO allocation within a single bucket. Callers must filter to one
@@ -176,17 +196,18 @@ final class GoalService {
     /// profile (hero creates own goals) OR be a parent creating on behalf of a
     /// child. Unauthorized callers get `GoalServiceError.unauthorized`.
     @discardableResult
-    func createGoal(name: String,
-                    category: String? = nil,
-                    emojiIcon: String? = nil,
-                    targetAmountPennies: Int64,
-                    bucketKind: BucketKind,
-                    targetDate: Date? = nil,
-                    linkURL: String? = nil,
-                    imageURL: String? = nil,
-                    for targetProfile: Profile,
-                    family: Family) async throws -> Goal
-    {
+    func createGoal(
+        name: String,
+        category: String? = nil,
+        emojiIcon: String? = nil,
+        targetAmountPennies: Int64,
+        bucketKind: BucketKind,
+        targetDate: Date? = nil,
+        linkURL: String? = nil,
+        imageURL: String? = nil,
+        for targetProfile: Profile,
+        family: Family
+    ) async throws -> Goal {
         guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
@@ -299,17 +320,18 @@ final class GoalService {
     /// Updates an existing savings goal. The acting profile must match the goal's owner
     /// (hero updates own) OR be a parent (parents may update any goal).
     @discardableResult
-    func updateGoal(_ goal: Goal,
-                    name: String,
-                    category: String? = nil,
-                    emojiIcon: String? = nil,
-                    targetAmountPennies: Int64,
-                    bucketKind: BucketKind,
-                    targetDate: Date? = nil,
-                    linkURL: String? = nil,
-                    imageURL: String? = nil,
-                    family: Family) async throws -> Goal
-    {
+    func updateGoal(
+        _ goal: Goal,
+        name: String,
+        category: String? = nil,
+        emojiIcon: String? = nil,
+        targetAmountPennies: Int64,
+        bucketKind: BucketKind,
+        targetDate: Date? = nil,
+        linkURL: String? = nil,
+        imageURL: String? = nil,
+        family: Family
+    ) async throws -> Goal {
         guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
@@ -348,10 +370,7 @@ final class GoalService {
     }
 
     /// Updates straight from a `GoalCache` row.
-    func updateGoal(_ goalCache: GoalCache,
-                    draft: GoalDraft,
-                    familyRecordName: String?) async throws
-    {
+    func updateGoal(_ goalCache: GoalCache, draft: GoalDraft, familyRecordName: String?) async throws {
         guard let family = appState.family else {
             throw ScopeViolation.noActiveFamily
         }
@@ -598,13 +617,14 @@ final class GoalService {
 
     /// Allocates deposit across active goals FIFO, returning created contribution events.
     @discardableResult
-    func contributeToBucket(amountPennies: Int64,
-                            profile: Profile,
-                            family: Family,
-                            bucketKind: BucketKind,
-                            sourceEventID: String,
-                            contributionDate: Date = Date()) async throws -> [GoalAllocation]
-    {
+    func contributeToBucket(
+        amountPennies: Int64,
+        profile: Profile,
+        family: Family,
+        bucketKind: BucketKind,
+        sourceEventID: String,
+        contributionDate: Date = Date()
+    ) async throws -> [GoalAllocation] {
         guard amountPennies > 0 else { return [] }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
@@ -613,19 +633,13 @@ final class GoalService {
         )
 
         // Fetch goals scoped to this profile + bucket, ordered by createdAt.
-        let activeGoals = cacheService.fetchGoals(
-            profileRecordName: profile.id.recordName,
-            bucketKind: bucketKind.rawValue,
-            familyRecordName: family.id.recordName
-        )
+        let activeGoals = cacheService.fetchGoals(profileRecordName: profile.id.recordName, bucketKind: bucketKind.rawValue, familyRecordName: family.id.recordName)
 
         // WHY remaining need: earlier payouts already funded part of each target, so the cascade tops up only the shortfall.
         var priorMap: [String: Int64] = [:]
         priorMap.reserveCapacity(activeGoals.count)
         for goal in activeGoals {
-            priorMap[goal.recordName] = priorContributedPennies(goalRecordName: goal.recordName,
-                                                                profileRecordName: profile.id.recordName,
-                                                                familyRecordName: family.id.recordName)
+            priorMap[goal.recordName] = priorContributedPennies(goalRecordName: goal.recordName, profileRecordName: profile.id.recordName, familyRecordName: family.id.recordName)
         }
         let allocations = Self.allocate(amountPennies: amountPennies, goals: activeGoals, priorContributedPennies: priorMap)
         guard !allocations.isEmpty else { return [] }
@@ -637,10 +651,7 @@ final class GoalService {
         var ledgerEntries: [LedgerEntry] = []
         ledgerEntries.reserveCapacity(allocations.count)
         for alloc in allocations {
-            let recordName = Self.contributionRecordName(
-                goalRecordName: alloc.goalRecordName,
-                sourceEventID: sourceEventID
-            )
+            let recordName = Self.contributionRecordName(goalRecordName: alloc.goalRecordName, sourceEventID: sourceEventID)
             // WHY cumulative-aware: same event reuses one ID across settlements, so shortfall adds to prior total instead of regressing.
             let existingPennies: Int64 = {
                 guard let existing = cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) else { return 0 }
@@ -698,13 +709,102 @@ final class GoalService {
         }
 
         for completed in completedGoals {
-            triggerGoalCompletionFeedback(
-                goalName: completed.name,
-                profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                family: family
-            )
+            triggerGoalCompletionFeedback(goalName: completed.name, profile: CKRecord.Reference(recordID: profile.id, action: .none), family: family)
             logger.info("Goal \"\(completed.name, privacy: .private)\" completed via contribution")
         }
+
+        return allocations
+    }
+
+    // MARK: - Draw Down Goals (Reverse-FIFO)
+
+    /// Draws down active goals newest-first to mirror a bucket decrease.
+    @discardableResult
+    func applyDrawdown(
+        amountPennies: Int64,
+        profile: Profile,
+        family: Family,
+        bucketKind: BucketKind,
+        sourceEventID: String,
+        contributionDate: Date = Date()
+    ) async throws -> [GoalAllocation] {
+        guard amountPennies > 0 else { return [] }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
+
+        let activeGoals = cacheService.fetchGoals(profileRecordName: profile.id.recordName, bucketKind: bucketKind.rawValue, familyRecordName: family.id.recordName)
+        // WHY reverse-FIFO: newest goals unwind first so oldest progress survives shortfalls.
+        let sorted = activeGoals.filter(\.isActiveGoal).sorted {
+            if $0.createdAt != $1.createdAt {
+                return $0.createdAt > $1.createdAt
+            }
+            return $0.recordName > $1.recordName
+        }
+        guard !sorted.isEmpty else { return [] }
+
+        var remaining = amountPennies
+        var allocations: [GoalAllocation] = []
+        var ledgerEntries: [LedgerEntry] = []
+        for goal in sorted {
+            guard remaining > 0 else { break }
+            let available = netDrawdownAvailable(goalRecordName: goal.recordName, profileRecordName: goal.profileRecordName,
+                                                 familyRecordName: goal.familyRecordName, sourceEventID: sourceEventID)
+            guard available > 0 else { continue }
+            let debit = min(remaining, available)
+            let base = Self.drawdownRecordName(goalRecordName: goal.recordName, sourceEventID: sourceEventID)
+            var recordName = base
+            var attempt = 0
+            var isConverged = false
+            while let existing = cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) {
+                if isIdenticalDrawdown(existing, debitPennies: debit, bucketKind: bucketKind, date: contributionDate) {
+                    isConverged = true
+                    break
+                }
+                // WHY convergent extension: divergent payloads fork through the shared hex-msSuffix helper so every device agrees on the fallback name.
+                let ms = Int64(contributionDate.timeIntervalSince1970 * 1000)
+                let payload = "\(base)|\(debit)|\(bucketKind.rawValue)|\(ms)|\(attempt)"
+                recordName = DeterministicRecordID.collisionExtendedName(base: base, payload: payload, date: contributionDate)
+                attempt += 1
+            }
+            allocations.append(GoalAllocation(goalRecordName: goal.recordName, profileRecordName: goal.profileRecordName, bucketKind: goal.bucketKind, allocatedPennies: -debit))
+            guard !isConverged else {
+                remaining -= debit
+                continue
+            }
+            // WHY single-count: bucketKind stays for goal-progress attribution; balances skip source goal.
+            let entry = LedgerEntry(
+                profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                amount: -debit,
+                description: "Goal Drawdown",
+                date: contributionDate,
+                source: LedgerSource.goal.rawValue,
+                bucketKind: bucketKind.rawValue,
+                family: CKRecord.Reference(recordID: family.id, action: .none),
+                id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
+            )
+            ledgerEntries.append(entry)
+            logger.info("Drew down \(debit)p from goal \(goal.recordName, privacy: .private)")
+            remaining -= debit
+        }
+        guard !ledgerEntries.isEmpty else { return allocations }
+
+        // WHY never-reopen: completed rows already hold funds and clear via purchase, so drawdown leaves completion flags untouched.
+        await cacheService.batchUpsertLedgerEntriesAndGoals(
+            ledgerEntries: ledgerEntries,
+            goals: [],
+            familyRecordName: family.id.recordName
+        )
+        ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+            syncCoordinator,
+            ids: ledgerEntries.map(\.id),
+            appState: appState,
+            logger: logger,
+            context: "GoalService.applyDrawdown"
+        )
+        Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
 
         return allocations
     }
@@ -712,9 +812,7 @@ final class GoalService {
     // MARK: - Completion Detection
 
     /// Returns GoalCache rows that reached full funding from recent allocations.
-    private func detectCompletions(allocations: [GoalAllocation],
-                                   goals: [GoalCache]) -> [GoalCache]
-    {
+    private func detectCompletions(allocations: [GoalAllocation], goals: [GoalCache]) -> [GoalCache] {
         let goalMap = Dictionary(uniqueKeysWithValues: goals.map { ($0.recordName, $0) })
         var completed: [GoalCache] = []
 
@@ -724,9 +822,7 @@ final class GoalService {
             else { continue }
 
             // Sum prior contributions for this goal from cache ledger entries.
-            let priorPennies = priorContributedPennies(goalRecordName: alloc.goalRecordName,
-                                                       profileRecordName: alloc.profileRecordName,
-                                                       familyRecordName: goal.familyRecordName)
+            let priorPennies = priorContributedPennies(goalRecordName: alloc.goalRecordName, profileRecordName: alloc.profileRecordName, familyRecordName: goal.familyRecordName)
 
             let totalAfter = priorPennies + alloc.allocatedPennies
             if totalAfter >= goal.targetAmountPennies {
@@ -737,23 +833,40 @@ final class GoalService {
         return completed
     }
 
-    /// Sums all contribution ledger entries for a goal so the completion check
-    /// accounts for prior payouts and multi-event fills.
-    private func priorContributedPennies(goalRecordName: String,
-                                         profileRecordName: String,
-                                         familyRecordName: String) -> Int64
-    {
-        let prefix = DeterministicRecordID.contributionPrefix(for: goalRecordName)
-        let entries = cacheService.fetchLedgerEntries(
-            profileRecordName: profileRecordName,
-            family: familyRecordName,
-            recordNamePrefix: prefix
-        )
+    /// Net held pennies for a goal so progress nets contributions against drawdowns.
+    private func priorContributedPennies(goalRecordName: String, profileRecordName: String, familyRecordName: String) -> Int64 {
+        // WHY net held: drawdowns reuse the contribution namespace in reverse, so progress drops by the drawn total.
+        let contribPrefix = DeterministicRecordID.contributionPrefix(for: goalRecordName)
+        let contribTotal = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyRecordName, recordNamePrefix: contribPrefix)
+            .reduce(into: Int64(0)) { $0 += $1.amount }
+        let drawPrefix = Self.drawdownPrefix(for: goalRecordName)
+        let drawTotal = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyRecordName, recordNamePrefix: drawPrefix)
+            .reduce(into: Int64(0)) { $0 += $1.amount }
+        return contribTotal + drawTotal
+    }
 
-        return entries
-            .reduce(into: Int64(0)) { acc, entry in
-                acc += entry.amount
-            }
+    /// Net debitable pennies excluding the current drawdown event so retries converge instead of double-debiting.
+    private func netDrawdownAvailable(goalRecordName: String, profileRecordName: String, familyRecordName: String, sourceEventID: String) -> Int64 {
+        // WHY exclude current: the in-flight event already counts on replay, so only other drawdowns reduce availability.
+        let contribPrefix = DeterministicRecordID.contributionPrefix(for: goalRecordName)
+        let contribTotal = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyRecordName, recordNamePrefix: contribPrefix)
+            .reduce(into: Int64(0)) { $0 += $1.amount }
+        let prefix = Self.drawdownPrefix(for: goalRecordName)
+        let draws = cacheService.fetchLedgerEntries(profileRecordName: profileRecordName, family: familyRecordName, recordNamePrefix: prefix)
+        let base = Self.drawdownRecordName(goalRecordName: goalRecordName, sourceEventID: sourceEventID)
+        let other = draws
+            .filter { !($0.recordName == base || $0.recordName.hasPrefix(base + "-")) }
+            .reduce(into: Int64(0)) { $0 += $1.amount }
+        return max(contribTotal + other, 0)
+    }
+
+    /// WHY convergent: same debit converges, divergent payloads fork via hash extension.
+    private func isIdenticalDrawdown(_ existing: LedgerEntryCache, debitPennies: Int64, bucketKind: BucketKind, date: Date) -> Bool {
+        guard existing.source == LedgerSource.goal.rawValue,
+              existing.bucketKind == bucketKind.rawValue,
+              existing.amount == -debitPennies
+        else { return false }
+        return DeterministicRecordID.isSameMillisecond(existing.date, date)
     }
 
     // MARK: - Celebration Feedback (centralized)
@@ -761,10 +874,7 @@ final class GoalService {
     /// Single helper for goal-completion feedback so haptic + overlay calls
     /// stay centralized and reconcilable. The spec maps `CelebrationOverlay`
     /// (Views/Shared/) and `HapticsService` (Utilities/) to this hook.
-    private func triggerGoalCompletionFeedback(goalName _: String,
-                                               profile: CKRecord.Reference,
-                                               family: Family)
-    {
+    private func triggerGoalCompletionFeedback(goalName _: String, profile: CKRecord.Reference, family: Family) {
         HapticsService.success()
         // Trigger canvas confetti via CelebrationManager — the overlay modifier
         // on the root view reads isConfettiShowing and presents the CelebrationOverlay.
@@ -773,17 +883,11 @@ final class GoalService {
         // Also notify AchievementService for "Goal Getter" re-evaluation.
         if let achievementService {
             let profileID = profile.recordID
-            if let cached = cacheService.fetchProfile(
-                recordName: profileID.recordName,
-                family: family.id.recordName
-            ) {
+            if let cached = cacheService.fetchProfile(recordName: profileID.recordName, family: family.id.recordName) {
                 let domainProfile = cached.toProfile(zoneID: family.id.zoneID)
                 Task { [achievementService, domainProfile, family, logger] in
                     do {
-                        try await achievementService.handleGoalCompleted(
-                            for: domainProfile,
-                            family: family
-                        )
+                        try await achievementService.handleGoalCompleted(for: domainProfile, family: family)
                     } catch {
                         logger.error("Failed to evaluate goal completion achievements: \(error, privacy: .private)")
                     }

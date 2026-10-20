@@ -119,7 +119,7 @@ struct HeroLedgerViewModelTests {
             .filter { CalendarScope.thisWeek.contains($0.date) }
             .sorted { $0.date > $1.date }
             .map(\.recordName)
-        #expect(viewModel.ledgerRows.map(\.id) == expected)
+        #expect(viewModel.ledgerGroups.map(\.groupID) == expected)
         #expect(expected.contains("l_today"))
         #expect(!expected.contains("l_year"))
     }
@@ -135,7 +135,7 @@ struct HeroLedgerViewModelTests {
             .filter { CalendarScope.thisMonth.contains($0.date) }
             .sorted { $0.date > $1.date }
             .map(\.recordName)
-        #expect(viewModel.ledgerRows.map(\.id) == expected)
+        #expect(viewModel.ledgerGroups.map(\.groupID) == expected)
         #expect(expected.contains("l_today"))
         #expect(!expected.contains("l_year"))
     }
@@ -151,7 +151,7 @@ struct HeroLedgerViewModelTests {
             .filter { CalendarScope.thisQuarter.contains($0.date) }
             .sorted { $0.date > $1.date }
             .map(\.recordName)
-        #expect(viewModel.ledgerRows.map(\.id) == expected)
+        #expect(viewModel.ledgerGroups.map(\.groupID) == expected)
         #expect(expected.contains("l_today"))
         #expect(!expected.contains("l_year"))
     }
@@ -164,7 +164,7 @@ struct HeroLedgerViewModelTests {
         viewModel.rebuildLedger(ledgers: fixtures, quests: [], completions: [], allowancePeriods: [], templates: [], scope: .allTime)
 
         let expectedRecordNames = fixtures.map(\.recordName)
-        #expect(viewModel.ledgerRows.map(\.id).sorted() == expectedRecordNames.sorted())
+        #expect(viewModel.ledgerGroups.map(\.groupID).sorted() == expectedRecordNames.sorted())
         #expect(expectedRecordNames.count == 5)
     }
 
@@ -183,7 +183,7 @@ struct HeroLedgerViewModelTests {
             heroProfile: setup.hero, spending: makeSpendingService(appState: setup.appState), appState: setup.appState
         )
         viewModel.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], allowancePeriods: [], templates: [], scope: .thisWeek)
-        #expect(viewModel.ledgerRows.map(\.id).contains("l_gap"))
+        #expect(viewModel.ledgerGroups.map(\.groupID).contains("l_gap"))
     }
 
     @Test
@@ -198,7 +198,7 @@ struct HeroLedgerViewModelTests {
             heroProfile: setup.hero, spending: makeSpendingService(appState: setup.appState), appState: setup.appState
         )
         viewModel.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], allowancePeriods: [], templates: [], scope: .thisWeek)
-        #expect(!viewModel.ledgerRows.map(\.id).contains("l_gap"))
+        #expect(!viewModel.ledgerGroups.map(\.groupID).contains("l_gap"))
     }
 
     @Test
@@ -214,7 +214,7 @@ struct HeroLedgerViewModelTests {
             heroProfile: overrideSetup.hero, spending: makeSpendingService(appState: overrideSetup.appState), appState: overrideSetup.appState
         )
         overrideVM.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], allowancePeriods: [], templates: [], scope: .thisWeek)
-        #expect(overrideVM.ledgerRows.map(\.id).contains("l_gap"))
+        #expect(overrideVM.ledgerGroups.map(\.groupID).contains("l_gap"))
 
         // Hero nil + family friday → family fallback, entry kept.
         let familySetup = makeConfiguredHero(payoutDay: nil, familyPayoutDay: .friday)
@@ -222,7 +222,7 @@ struct HeroLedgerViewModelTests {
             heroProfile: familySetup.hero, spending: makeSpendingService(appState: familySetup.appState), appState: familySetup.appState
         )
         familyVM.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], allowancePeriods: [], templates: [], scope: .thisWeek)
-        #expect(familyVM.ledgerRows.map(\.id).contains("l_gap"))
+        #expect(familyVM.ledgerGroups.map(\.groupID).contains("l_gap"))
     }
 
     @Test
@@ -250,7 +250,7 @@ struct HeroLedgerViewModelTests {
                 .filter { scope.contains($0.date, payoutDay: .friday) }
                 .sorted { $0.date > $1.date }
                 .map(\.recordName)
-            #expect(viewModel.ledgerRows.map(\.id) == expected)
+            #expect(viewModel.ledgerGroups.map(\.groupID) == expected)
         }
     }
 
@@ -274,9 +274,9 @@ struct HeroLedgerViewModelTests {
 
         for scope in [CalendarScope.thisMonth, .thisQuarter, .allTime] {
             fridayVM.rebuildLedger(ledgers: ledgers, quests: [], completions: [], allowancePeriods: [], templates: [], scope: scope)
-            let fridayRows = fridayVM.ledgerRows.map(\.id)
+            let fridayRows = fridayVM.ledgerGroups.map(\.groupID)
             sundayVM.rebuildLedger(ledgers: ledgers, quests: [], completions: [], allowancePeriods: [], templates: [], scope: scope)
-            let sundayRows = sundayVM.ledgerRows.map(\.id)
+            let sundayRows = sundayVM.ledgerGroups.map(\.groupID)
             #expect(fridayRows == sundayRows)
         }
     }
