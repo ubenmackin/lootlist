@@ -25,7 +25,7 @@ struct HeroLedgerView: View {
     @State private var showExportPicker = false
     @State private var showShareSheet = false
     @State private var shareURL: URL?
-    @State private var expandedGroups: Set<String> = []
+    @State private var selectedGroup: TransactionGroup?
     private let exportService = LedgerExportService()
 
     /// Persisted date-range scope for this hero's ledger screen.
@@ -112,6 +112,9 @@ struct HeroLedgerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ledgerToolbar }
             .modifier(sheetsModifier)
+            .sheet(item: $selectedGroup) { group in
+                LedgerGroupDetailSheet(group: group, selectedBucketFilter: viewModel?.selectedBucketFilter)
+            }
             .modifier(lifecycleModifier)
             // WHY: view identity tracks family+subject+viewer so @Query predicates (init-captured) are recreated on scope switch.
             .id(viewIdentity)
@@ -348,9 +351,11 @@ struct HeroLedgerView: View {
                     ForEach(vm.filteredLedgerGroups) { group in
                         LedgerGroupRowView(
                             group: group,
-                            isExpanded: LedgerGroupExpansion.isExpanded(group, expandedIDs: expandedGroups),
-                            onToggle: { LedgerGroupExpansion.toggle(group, expandedIDs: &expandedGroups) },
-                            selectedBucketFilter: vm.selectedBucketFilter
+                            selectedBucketFilter: vm.selectedBucketFilter,
+                            onSelect: {
+                                HapticsService.lightImpact()
+                                selectedGroup = group
+                            }
                         )
                     }
                 }

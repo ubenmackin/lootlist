@@ -198,23 +198,6 @@ enum LedgerBucketFilter {
     }
 }
 
-/// Shared expand-state predicate so every ledger list expands the same groups.
-enum LedgerGroupExpansion {
-    static func isExpanded(_ group: TransactionGroup, expandedIDs: Set<String>) -> Bool {
-        // WHY toggle inverts default: quest/deposit receipts start open yet header taps still collapse them.
-        group.isExpandedByDefault != expandedIDs.contains(group.groupID)
-    }
-
-    @MainActor static func toggle(_ group: TransactionGroup, expandedIDs: inout Set<String>) {
-        HapticsService.lightImpact()
-        if expandedIDs.contains(group.groupID) {
-            expandedIDs.remove(group.groupID)
-        } else {
-            expandedIDs.insert(group.groupID)
-        }
-    }
-}
-
 /// Shared empty-state copy so filtered versus unfiltered titles never drift.
 enum LedgerEmptyState {
     static func title(for filter: BucketKind?, defaultTitle: String) -> String {

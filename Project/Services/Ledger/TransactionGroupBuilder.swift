@@ -48,7 +48,6 @@ enum TransactionGroupBuilder {
             let splits: [TransactionSplit]
             let goalChildren: [TransactionSplit]
             let source: String
-            let isExpandedByDefault: Bool
             let orderedSplits: [TransactionSplit]
             let representativeRecordName: String
         }
@@ -82,7 +81,6 @@ enum TransactionGroupBuilder {
                 splits: splits,
                 goalChildren: children,
                 source: rawSource,
-                isExpandedByDefault: isExpandedByDefault(for: rawSource),
                 orderedSplits: ordered,
                 representativeRecordName: representative.recordName
             ))
@@ -131,8 +129,7 @@ enum TransactionGroupBuilder {
                 runningByBucket: item.runningByBucket,
                 splits: item.draft.splits,
                 goalChildren: item.draft.goalChildren,
-                source: item.draft.source,
-                isExpandedByDefault: item.draft.isExpandedByDefault
+                source: item.draft.source
             )
         }
         .sorted {
@@ -227,20 +224,6 @@ enum TransactionGroupBuilder {
         }
     }
 
-    private nonisolated static func decodedSource(_ raw: String) -> LedgerSource? {
-        LedgerSource.decode(raw)
-    }
-
-    private nonisolated static func isExpandedByDefault(for rawSource: String) -> Bool {
-        // WHY open payouts: split shares plus goal children read as one receipt, singletons stay collapsed.
-        switch decodedSource(rawSource) {
-        case .quest, .deposit:
-            true
-        default:
-            false
-        }
-    }
-
     // MARK: - Quest Week Detail
 
     /// WHY representative week: split shares share one payout week, so the smallest record owns the Line 2 copy.
@@ -332,8 +315,7 @@ enum TransactionGroupBuilder {
             runningByBucket: group.runningByBucket,
             splits: matchingSplits,
             goalChildren: matchingGoals,
-            source: group.source,
-            isExpandedByDefault: group.isExpandedByDefault
+            source: group.source
         )
     }
 }
