@@ -87,8 +87,8 @@ struct TreasuryViewModelTransferHardeningTests {
         let viewModel = try makeTreasuryViewModel(state)
         let ledgers = scaffold.entries()
         viewModel.rebuildLists(logs: [], ledgers: ledgers, quests: [], allowancePeriods: [], scope: .allTime, templates: [])
-        #expect(viewModel.spendingLog.map(\.id).contains(first.id.recordName))
-        #expect(viewModel.spendingLog.map(\.id).contains(second.id.recordName))
+        #expect(viewModel.spendingGroups.map(\.groupID).contains(first.id.recordName))
+        #expect(viewModel.spendingGroups.map(\.groupID).contains(second.id.recordName))
         #expect(viewModel.balance == 2000)
         #expect(viewModel.spendBalance == 1000)
     }
@@ -150,7 +150,7 @@ struct TreasuryViewModelTransferHardeningTests {
         let state = makeAppState()
         let viewModel = try makeTreasuryViewModel(state)
         viewModel.rebuildLists(logs: [], ledgers: refreshed, quests: [], allowancePeriods: [], scope: .allTime, templates: [])
-        #expect(viewModel.spendingLog.map(\.id).contains(transferName))
+        #expect(viewModel.spendingGroups.map(\.groupID).contains(transferName))
 
         // WHY re-enqueue: the unsynced scan finds the pending transfer for the next sync pass.
         guard let container = scaffold.cache.container else {
@@ -186,7 +186,13 @@ struct TreasuryViewModelTransferHardeningTests {
         #expect(entry.fromBucket == BucketKind.spend.rawValue)
         #expect(entry.toBucket == BucketKind.shortTermSave.rawValue)
 
-        let rows = LedgerRowFactory.spendingRows(from: scaffold.entries(), profileRecordName: "hero1", scope: .allTime, payoutDay: .sunday)
+        let scaffoldLedgers = scaffold.entries()
+        var scaffoldCacheByName: [String: LedgerEntryCache] = [:]
+        for ledger in scaffoldLedgers where ledger.profileRecordName == "hero1" {
+            scaffoldCacheByName[ledger.recordName] = ledger
+        }
+        let scaffoldGroups = TransactionGroupBuilder.buildGroups(ledgers: scaffoldLedgers, profileRecordName: "hero1")
+        let rows = LedgerRowFactory.flattenedRows(from: scaffoldGroups, cacheByName: scaffoldCacheByName)
         guard let row = rows.first(where: { $0.id == entry.id.recordName }) else {
             Issue.record("Transfer row missing from spending rows")
             return
@@ -200,6 +206,6 @@ struct TreasuryViewModelTransferHardeningTests {
         let state = makeAppState()
         let viewModel = try makeTreasuryViewModel(state)
         viewModel.rebuildLists(logs: [], ledgers: scaffold.entries(), quests: [], allowancePeriods: [], scope: .allTime, templates: [])
-        #expect(viewModel.spendingLog.map(\.id).contains(entry.id.recordName))
+        #expect(viewModel.spendingGroups.map(\.groupID).contains(entry.id.recordName))
     }
 }

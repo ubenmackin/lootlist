@@ -189,7 +189,7 @@ struct TreasuryViewModelTests {
             .filter { CalendarScope.thisWeek.contains($0.date) }
             .sorted { $0.date > $1.date }
             .map(\.recordName)
-        #expect(viewModel.spendingLog.map(\.id) == expected)
+        #expect(viewModel.spendingGroups.map(\.groupID) == expected)
         #expect(expected.contains("l_today"))
         #expect(!expected.contains("l_year"))
     }
@@ -211,7 +211,7 @@ struct TreasuryViewModelTests {
             .filter { CalendarScope.thisMonth.contains($0.date) }
             .sorted { $0.date > $1.date }
             .map(\.recordName)
-        #expect(viewModel.spendingLog.map(\.id) == expected)
+        #expect(viewModel.spendingGroups.map(\.groupID) == expected)
         #expect(expected.contains("l_today"))
         #expect(!expected.contains("l_year"))
     }
@@ -233,7 +233,7 @@ struct TreasuryViewModelTests {
             .filter { CalendarScope.thisQuarter.contains($0.date) }
             .sorted { $0.date > $1.date }
             .map(\.recordName)
-        #expect(viewModel.spendingLog.map(\.id) == expected)
+        #expect(viewModel.spendingGroups.map(\.groupID) == expected)
         #expect(expected.contains("l_today"))
         #expect(!expected.contains("l_year"))
     }
@@ -252,7 +252,7 @@ struct TreasuryViewModelTests {
         )
 
         let expectedRecordNames = fixtures.map(\.recordName)
-        #expect(viewModel.spendingLog.map(\.id).sorted() == expectedRecordNames.sorted())
+        #expect(viewModel.spendingGroups.map(\.groupID).sorted() == expectedRecordNames.sorted())
         #expect(expectedRecordNames.count == 5)
     }
 
@@ -334,7 +334,7 @@ struct TreasuryViewModelTests {
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
             allowancePeriods: [], scope: .thisWeek, templates: []
         )
-        #expect(fridayVM.spendingLog.map(\.id).contains("l_gap"))
+        #expect(fridayVM.spendingGroups.map(\.groupID).contains("l_gap"))
 
         let sundayState = makeAppState(familyPayoutDay: .sunday)
         let sundayVM = try makeTreasuryViewModel(sundayState)
@@ -342,7 +342,7 @@ struct TreasuryViewModelTests {
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
             allowancePeriods: [], scope: .thisWeek, templates: []
         )
-        #expect(!sundayVM.spendingLog.map(\.id).contains("l_gap"))
+        #expect(!sundayVM.spendingGroups.map(\.groupID).contains("l_gap"))
     }
 
     @Test
@@ -368,7 +368,7 @@ struct TreasuryViewModelTests {
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
             allowancePeriods: [], scope: .thisWeek, templates: []
         )
-        #expect(overrideVM.spendingLog.map(\.id).contains("l_gap"))
+        #expect(overrideVM.spendingGroups.map(\.groupID).contains("l_gap"))
     }
 
     @Test
@@ -391,12 +391,12 @@ struct TreasuryViewModelTests {
         let fridayState = makeAppState(familyPayoutDay: .friday)
         let fridayVM = try makeTreasuryViewModel(fridayState)
         fridayVM.rebuildSpendingLog(from: [gapLedger, todayLedger], scope: .thisWeek)
-        #expect(fridayVM.spendingLog.map(\.id).contains("l_gap"))
+        #expect(fridayVM.spendingGroups.map(\.groupID).contains("l_gap"))
 
         let sundayState = makeAppState(familyPayoutDay: .sunday)
         let sundayVM = try makeTreasuryViewModel(sundayState)
         sundayVM.rebuildSpendingLog(from: [gapLedger, todayLedger], scope: .thisWeek)
-        #expect(!sundayVM.spendingLog.map(\.id).contains("l_gap"))
+        #expect(!sundayVM.spendingGroups.map(\.groupID).contains("l_gap"))
     }
 
     private func makeTreasuryViewModel(_ state: TestAppState, cacheService: CacheService? = nil) throws -> TreasuryViewModel {

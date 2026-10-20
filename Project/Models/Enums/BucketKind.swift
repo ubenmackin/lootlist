@@ -42,4 +42,9 @@ enum BucketKind: String, CaseIterable, Sendable {
         case .longTermSave: "lock.shield.fill"
         }
     }
+
+    /// WHY single truth: raw bucket strings decode in one place so cache rows and grouped snapshots never drift.
+    static func decode(_ raw: String?) -> BucketKind? {
+        raw.flatMap { BucketKind(rawValue: $0) }
+    }
 }

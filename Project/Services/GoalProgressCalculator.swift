@@ -18,8 +18,10 @@ import SwiftData
 /// filtering through this single source to prevent divergence.
 enum GoalProgressCalculator {
     static func allocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
-        let hasContribIDs = ledgerEntries.contains { DeterministicRecordID.isContributionRecord($0.recordName) }
-        if hasContribIDs {
+        let hasDeterministicIDs = ledgerEntries.contains {
+            DeterministicRecordID.isContributionRecord($0.recordName) || GoalService.isDrawdownRecord($0.recordName)
+        }
+        if hasDeterministicIDs {
             return directContributionAllocations(goals: goals, ledgerEntries: ledgerEntries)
         }
         return fifoAllocations(goals: goals, ledgerEntries: ledgerEntries)
@@ -27,11 +29,16 @@ enum GoalProgressCalculator {
 
     // MARK: - Shared Contribution Helpers
 
-    /// Total pennies attributed to `goal` from deterministic contribution records.
+    /// Net pennies attributed to `goal` from deterministic contribution plus drawdown records.
+    /// WHY single truth: drawdown identity stays behind GoalService so calculators never drift.
     static func contributionPennies(for goal: GoalCache, in ledgerEntries: [LedgerEntryCache]) -> Int64 {
         let prefix = DeterministicRecordID.contributionPrefix(for: goal.recordName)
+        let drawPrefix = GoalService.drawdownPrefix(for: goal.recordName)
         return ledgerEntries
-            .filter { $0.recordName.hasPrefix(prefix) && $0.profileRecordName == goal.profileRecordName }
+            .filter {
+                $0.profileRecordName == goal.profileRecordName
+                    && ($0.recordName.hasPrefix(prefix) || $0.recordName.hasPrefix(drawPrefix))
+            }
             .reduce(into: Int64(0)) { acc, entry in
                 acc += entry.amount
             }
@@ -52,6 +59,7 @@ enum GoalProgressCalculator {
     private static func directContributionAllocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
         var result: [String: Int64] = [:]
         for goal in goals where goal.isListedGoal {
+            // WHY net drawdowns: Short haircuts unwind via drawdown- negatives, so progress nets positives with negatives.
             let pennies = contributionPennies(for: goal, in: ledgerEntries)
             result[goal.recordName] = max(pennies, 0)
         }

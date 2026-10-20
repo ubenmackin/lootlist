@@ -20,10 +20,18 @@ final class HeroLedgerViewModel {
 
     private(set) var balance: Int64?
     private(set) var spendBalance: Int64 = 0
+    private(set) var shortBalance: Int64 = 0
+    private(set) var longBalance: Int64 = 0
     private(set) var pendingQuestGold: Int64 = 0
-    private(set) var ledgerRows: [SpendingLogRow] = []
     private(set) var errorMessage: String?
     private(set) var isLoading: Bool = false
+
+    /// Nil means All; non-nil filters the ledger list to that bucket's attribution.
+    var selectedBucketFilter: BucketKind?
+    private(set) var bucketBalances: [BucketKind: Int64] = [:]
+
+    /// Scope-filtered groups before the bucket predicate, preserving builder running totals.
+    private var scopedGroups: [TransactionGroup] = []
 
     init(heroProfile: ProfileCache, spending: SpendingService, appState: AppState) {
         self.heroProfile = heroProfile
@@ -36,6 +44,29 @@ final class HeroLedgerViewModel {
         BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: heroProfile.recordName)
     }
 
+    func bucketBalance(_ kind: BucketKind) -> Int64 {
+        bucketBalances[kind] ?? 0
+    }
+
+    /// WHY delegate: tapping the active bucket clears back to All via the shared filter.
+    func toggleBucketFilter(_ kind: BucketKind) {
+        selectedBucketFilter = LedgerBucketFilter.toggled(selectedBucketFilter, with: kind)
+    }
+
+    func clearBucketFilter() {
+        selectedBucketFilter = nil
+    }
+
+    /// Bucket-filtered view of the scoped groups for live toggling without a rebuild.
+    var filteredLedgerGroups: [TransactionGroup] {
+        filteredGroups(from: scopedGroups, filter: selectedBucketFilter)
+    }
+
+    /// Single-truth alias: filtered view is the only grouping truth so stored plus computed copies cannot drift.
+    var ledgerGroups: [TransactionGroup] {
+        filteredLedgerGroups
+    }
+
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
         quests: [QuestCache],
@@ -45,8 +76,12 @@ final class HeroLedgerViewModel {
         scope: CalendarScope
     ) {
         // WHY one helper: bucket sum is the total on every surface.
-        balance = BucketService.totalBalance(for: ledgers, profileRecordName: heroProfile.recordName)
-        spendBalance = BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: heroProfile.recordName)
+        let computedBalances = BucketService.bucketBalances(for: ledgers, profileRecordName: heroProfile.recordName)
+        bucketBalances = computedBalances
+        balance = BucketService.totalBalance(bucketBalances: computedBalances)
+        spendBalance = computedBalances[.spend] ?? 0
+        shortBalance = computedBalances[.shortTermSave] ?? 0
+        longBalance = computedBalances[.longTermSave] ?? 0
 
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -76,7 +111,19 @@ final class HeroLedgerViewModel {
             )
         }
 
-        ledgerRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
+        // WHY builder-first: running totals accumulate over all entries, display filters after.
+        let built = TransactionGroupBuilder.buildGroups(ledgers: ledgers, profileRecordName: heroProfile.recordName)
+        scopedGroups = built.filter { scope.contains($0.date, payoutDay: payoutDay) }
+    }
+
+    private func filteredGroups(from groups: [TransactionGroup], filter: BucketKind?) -> [TransactionGroup] {
+        guard let filter else { return groups }
+        return groups.compactMap { adjustedGroup($0, for: filter) }
+    }
+
+    private func adjustedGroup(_ group: TransactionGroup, for filter: BucketKind) -> TransactionGroup? {
+        // WHY single pattern: shared builder helper keeps match plus counted total identical on every ledger surface.
+        TransactionGroupBuilder.filteredGroup(group, for: filter)
     }
 
     private func withLedgerAction(

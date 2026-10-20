@@ -11,11 +11,6 @@ import SwiftUI
 
 /// Read-only transaction history for a child profile, grouped by date into daily sections.
 struct ChildLedgerView: View {
-    /// WHY Sendable styles: per-cell labels reuse value types without shared mutable formatters.
-    private static let shortTimeStyle = Date.FormatStyle(date: .omitted, time: .shortened)
-
-    private static let mediumDateStyle = Date.FormatStyle(date: .abbreviated, time: .omitted)
-
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(AppState.self) private var appState
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
@@ -25,6 +20,9 @@ struct ChildLedgerView: View {
 
     @State private var isShowingTransfer: Bool = false
     @State private var isShowingSplit: Bool = false
+    @State private var expandedGroups: Set<String> = []
+    /// Nil shows All; non-nil filters the ledger list to that bucket's attribution.
+    @State private var selectedBucketFilter: BucketKind?
 
     @Query private var allLedgers: [LedgerEntryCache]
 
@@ -43,56 +41,78 @@ struct ChildLedgerView: View {
         )
     }
 
-    // MARK: - Filtered Entries
+    // MARK: - Grouped Entries
 
-    /// Entries already profile-scoped via predicate pushdown.
-    /// WHY single source: goal markers reuse counted funds so history shows new money only.
-    private var childEntries: [LedgerEntryCache] {
-        allLedgers.filter { BucketService.isLedgerVisible($0) }
+    private var targetProfileName: String {
+        profileRecordName ?? ""
     }
 
-    /// Ledger entries grouped by date bucket, preserving reverse-chronological
-    /// order within each bucket.
-    private var dateBuckets: [(title: String, entries: [LedgerEntryCache])] {
+    private var groups: [TransactionGroup] {
+        TransactionGroupBuilder.buildGroups(ledgers: allLedgers, profileRecordName: targetProfileName)
+    }
+
+    private var bucketBalances: [BucketKind: Int64] {
+        // WHY cache-first: header tiles reuse the queried rows so totals match the ledger list.
+        BucketService.bucketBalances(for: allLedgers, profileRecordName: targetProfileName)
+    }
+
+    private var totalBalance: Int64 {
+        BucketService.totalBalance(bucketBalances: bucketBalances)
+    }
+
+    private var filteredGroups: [TransactionGroup] {
+        guard let filter = selectedBucketFilter else { return groups }
+        return groups.compactMap { TransactionGroupBuilder.filteredGroup($0, for: filter) }
+    }
+
+    private var dateBuckets: [(title: String, groups: [TransactionGroup])] {
         let payoutDay = appState.resolvedPayoutDay
         let today = Date()
         let thisWeekStart = WeekMath.startOfWeek(for: today, payoutDay: payoutDay)
 
-        var todayEntries: [LedgerEntryCache] = []
-        var yesterdayEntries: [LedgerEntryCache] = []
-        var thisWeekEntries: [LedgerEntryCache] = []
-        var olderEntries: [LedgerEntryCache] = []
+        var todayGroups: [TransactionGroup] = []
+        var yesterdayGroups: [TransactionGroup] = []
+        var thisWeekGroups: [TransactionGroup] = []
+        var olderGroups: [TransactionGroup] = []
 
-        for entry in childEntries {
-            if WeekMath.isToday(entry.date) {
-                todayEntries.append(entry)
-            } else if WeekMath.isYesterday(entry.date) {
-                yesterdayEntries.append(entry)
-            } else if WeekMath.startOfWeek(for: entry.date, payoutDay: payoutDay) == thisWeekStart {
-                thisWeekEntries.append(entry)
+        for group in filteredGroups {
+            if WeekMath.isToday(group.date) {
+                todayGroups.append(group)
+            } else if WeekMath.isYesterday(group.date) {
+                yesterdayGroups.append(group)
+            } else if WeekMath.startOfWeek(for: group.date, payoutDay: payoutDay) == thisWeekStart {
+                thisWeekGroups.append(group)
             } else {
-                olderEntries.append(entry)
+                olderGroups.append(group)
             }
         }
 
-        var buckets: [(title: String, entries: [LedgerEntryCache])] = []
-        if !todayEntries.isEmpty {
-            buckets.append(("Today", todayEntries))
+        var buckets: [(title: String, groups: [TransactionGroup])] = []
+        if !todayGroups.isEmpty {
+            buckets.append(("Today", todayGroups))
         }
-        if !yesterdayEntries.isEmpty {
-            buckets.append(("Yesterday", yesterdayEntries))
+        if !yesterdayGroups.isEmpty {
+            buckets.append(("Yesterday", yesterdayGroups))
         }
-        if !thisWeekEntries.isEmpty {
-            buckets.append(("This Week", thisWeekEntries))
+        if !thisWeekGroups.isEmpty {
+            buckets.append(("This Week", thisWeekGroups))
         }
-        if !olderEntries.isEmpty {
-            buckets.append(("Older", olderEntries))
+        if !olderGroups.isEmpty {
+            buckets.append(("Older", olderGroups))
         }
         return buckets
     }
 
     private var isEmpty: Bool {
-        childEntries.isEmpty
+        filteredGroups.isEmpty
+    }
+
+    private func isExpanded(_ group: TransactionGroup) -> Bool {
+        LedgerGroupExpansion.isExpanded(group, expandedIDs: expandedGroups)
+    }
+
+    private func toggle(_ group: TransactionGroup) {
+        LedgerGroupExpansion.toggle(group, expandedIDs: &expandedGroups)
     }
 
     // MARK: - Body
@@ -101,6 +121,8 @@ struct ChildLedgerView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    LedgerStaleBanner(familyRecordName: familyRecordName, count: allLedgers.count)
+                    balanceHeader
                     if horizontalSizeClass == .regular {
                         HStack(alignment: .top, spacing: 16) {
                             bucketSplitCard
@@ -114,7 +136,7 @@ struct ChildLedgerView: View {
                         emptyState
                     } else {
                         ForEach(dateBuckets, id: \.title) { bucket in
-                            bucketSection(title: bucket.title, entries: bucket.entries)
+                            bucketSection(title: bucket.title, groups: bucket.groups)
                         }
                     }
                 }
@@ -133,9 +155,10 @@ struct ChildLedgerView: View {
                 BucketTransferView(familyRecordName: familyRecordName, profileRecordName: profileRecordName)
             }
             .sheet(isPresented: $isShowingSplit) {
+                // WHY subject scope: split edits the ledger owner's allocation, never the viewer's.
                 SavingsSplitView(
                     familyRecordName: familyRecordName,
-                    profileRecordName: appState.currentProfile?.id.recordName
+                    profileRecordName: profileRecordName
                 )
             }
             .navigationTitle("MONEY")
@@ -150,6 +173,16 @@ struct ChildLedgerView: View {
 
     // MARK: - Bucket Split Entry
 
+    private var balanceHeader: some View {
+        LedgerBalanceHeaderView(
+            totalBalance: totalBalance,
+            bucketBalances: bucketBalances,
+            selectedBucketFilter: selectedBucketFilter,
+            onSelectTotal: { selectedBucketFilter = nil },
+            onSelectBucket: { selectedBucketFilter = LedgerBucketFilter.toggled(selectedBucketFilter, with: $0) }
+        )
+    }
+
     private var bucketSplitCard: some View {
         BucketSplitEntryRow(accessibilityIdentifier: "ledger.bucketSplitRow") {
             isShowingSplit = true
@@ -158,92 +191,19 @@ struct ChildLedgerView: View {
 
     // MARK: - Bucket Section
 
-    private func bucketSection(title: String, entries: [LedgerEntryCache]) -> some View {
+    private func bucketSection(title: String, groups: [TransactionGroup]) -> some View {
         VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
             SectionHeader(title)
 
-            ForEach(entries, id: \.recordName) { entry in
-                ledgerRow(for: entry)
+            ForEach(groups) { group in
+                LedgerGroupRowView(
+                    group: group,
+                    isExpanded: isExpanded(group),
+                    onToggle: { toggle(group) },
+                    selectedBucketFilter: selectedBucketFilter
+                )
             }
         }
-    }
-
-    // MARK: - Ledger Row
-
-    private func ledgerRow(for entry: LedgerEntryCache) -> some View {
-        let isCredit = entry.amount >= 0
-
-        return HStack(spacing: DesignSystemConstants.Padding.medium) {
-            // Source icon.
-            Image(systemName: iconName(for: entry.source))
-                .font(.body)
-                .foregroundStyle(iconColor(for: entry.source))
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle()
-                        .fill(iconColor(for: entry.source).opacity(0.12))
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.entryDescription)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-
-                HStack(spacing: 6) {
-                    if let bucket = entry.bucketKindEnum {
-                        HStack(spacing: 3) {
-                            Image(systemName: bucket.iconSystemName)
-                                .font(.system(size: 9))
-                            Text(bucket.shortName)
-                                .font(.caption2.weight(.semibold))
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
-                        )
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-
-                        Text("•")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // Subtitle: formatted relative date or short date for older
-                    // entries.
-                    Text(formattedDate(entry.date))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-
-            Text(formattedAmount(entry.amount))
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(
-                    isCredit
-                        ? Color(DesignSystemConstants.Colors.primaryGreen)
-                        : Color(DesignSystemConstants.Colors.dangerRed)
-                )
-        }
-        .padding(DesignSystemConstants.Padding.medium)
-        .background(
-            RoundedRectangle(
-                cornerRadius: DesignSystemConstants.CornerRadius.small,
-                style: .continuous
-            )
-            .fill(Color(DesignSystemConstants.Colors.cardSurface))
-        )
-        .hoverEffect(.highlight)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(entry.entryDescription): \(formattedAmount(entry.amount))"
-        )
-        .accessibilityIdentifier("ledger.row-\(entry.recordName)")
     }
 
     // MARK: - Empty State
@@ -254,7 +214,7 @@ struct ChildLedgerView: View {
                 .font(.system(size: 56))
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
 
-            Text("No Transactions Yet")
+            Text(emptyStateTitle)
                 .font(.title2.weight(.bold))
                 .foregroundStyle(.primary)
 
@@ -273,6 +233,10 @@ struct ChildLedgerView: View {
         .accessibilityIdentifier("ledger.emptyState")
     }
 
+    private var emptyStateTitle: String {
+        LedgerEmptyState.title(for: selectedBucketFilter, defaultTitle: "No Transactions Yet")
+    }
+
     // MARK: - Move Money CTA
 
     private var moveMoneyBar: some View {
@@ -282,7 +246,8 @@ struct ChildLedgerView: View {
         } label: {
             Label("Move Money", systemImage: "arrow.left.arrow.right")
                 .font(.headline)
-                .foregroundStyle(.white)
+                // WHY card surface on accent fill: token text keeps contrast in both modes.
+                .foregroundStyle(Color(DesignSystemConstants.Colors.cardSurface))
                 .frame(maxWidth: .infinity)
                 .padding(14)
                 .background(
@@ -292,55 +257,5 @@ struct ChildLedgerView: View {
         }
         .accessibilityHint("Move money between your buckets")
         .accessibilityIdentifier("ledger.moveMoneyButton")
-    }
-
-    // MARK: - Helpers
-
-    /// Maps a ledger source string to its semantic SF Symbol name.
-    private func iconName(for source: String) -> String {
-        switch source {
-        case "quest": "checkmark.seal.fill"
-        case "interest": "percent"
-        case "match": "heart.fill"
-        case "transfer": "arrow.left.arrow.right"
-        case "manual": "cart.fill"
-        default:
-            // Import-tagged sources and unknown entries use a generic receipt
-            // icon.
-            "doc.text.fill"
-        }
-    }
-
-    /// Maps a ledger source string to a semantic tint color.
-    private func iconColor(for source: String) -> Color {
-        switch source {
-        case "quest":
-            Color(DesignSystemConstants.Colors.primaryGreen)
-        case "interest":
-            Color(DesignSystemConstants.Colors.accentBlue)
-        case "match":
-            Color(DesignSystemConstants.Colors.primaryGreen)
-        case "transfer":
-            Color(DesignSystemConstants.Colors.pendingAmber)
-        case "manual":
-            Color(DesignSystemConstants.Colors.dangerRed)
-        default:
-            Color.secondary
-        }
-    }
-
-    /// WHY single source: signed money rides FormatStyle minus via penny canon.
-    private func formattedAmount(_ amount: Int64) -> String {
-        CurrencyFormatter.signed(pennies: amount)
-    }
-
-    /// Returns a human-readable date label. Today/Yesterday buckets show the
-    /// time; older entries show the abbreviated date.
-    private func formattedDate(_ date: Date) -> String {
-        if WeekMath.isToday(date) || WeekMath.isYesterday(date) {
-            date.formatted(Self.shortTimeStyle)
-        } else {
-            date.formatted(Self.mediumDateStyle)
-        }
     }
 }

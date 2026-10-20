@@ -17,6 +17,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     case sameBucket
     case invalidAmount
     case unauthorized
+    case longLocked
     case persistenceFailed
     case duplicateTodayTransfer
 
@@ -29,7 +30,9 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
         case .invalidAmount:
             "Enter a valid positive amount."
         case .unauthorized:
-            "Only the bucket's owner can move money between buckets."
+            "You don't have permission to move this money."
+        case .longLocked:
+            "Ask a parent for help to move money out of Long-Term Save."
         case .persistenceFailed:
             "Could not save the transfer. Please try again."
         case .duplicateTodayTransfer:
@@ -45,18 +48,29 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
 @MainActor
 @Observable
 final class BucketService {
+    /// Explicit Short-drawdown operation so Short transfers never depend on an optional handle.
+    typealias ShortDrawdownHandler = (Int64, Profile, Family, String, Date) async throws -> Void
+
     private let logger = Logger(category: "BucketService")
     let cacheService: any CacheServicing
     let syncCoordinator: any SyncEnqueuing
     let appState: AppState
+    private let cloudKit: any CloudKitServiceProtocol?
+    /// Preferred Short haircut path; falls back to `cloudKit`-built `GoalService` when nil.
+    var shortDrawdown: ShortDrawdownHandler?
 
     init(cacheService: any CacheServicing,
          syncCoordinator: any SyncEnqueuing,
-         appState: AppState)
+         appState: AppState,
+         // swiftformat:disable:next redundantParens
+         cloudKit: (any CloudKitServiceProtocol)? = nil,
+         shortDrawdown: ShortDrawdownHandler? = nil)
     {
         self.cacheService = cacheService
         self.syncCoordinator = syncCoordinator
         self.appState = appState
+        self.cloudKit = cloudKit
+        self.shortDrawdown = shortDrawdown
     }
 
     // MARK: - Split Math
@@ -126,25 +140,32 @@ final class BucketService {
     }
 
     /// WHY single source: goal markers reuse counted funds so history shows new money only.
+    /// WHY visible-not-counted: legacy nil-bucket and transfer rows stay visible; totals stay counted-only.
     nonisolated static func isLedgerVisible(_ entry: some LedgerEntryProtocol) -> Bool {
         entry.sourceEnum != .goal
     }
 
-    /// Single-source attribution: credits bucketKind; transfers also debit fromBucket so one row moves both sides.
-    nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Int64]) {
+    /// Single-source attribution over the ledger protocol so cache rows and grouped snapshots share one truth.
+    /// WHY generic core: TransactionGroupBuilder snapshots delegate here so header tiles and running balances never drift.
+    nonisolated static func applyBucketAttribution(_ entry: some LedgerEntryProtocol, fromBucket: String?, to balances: inout [BucketKind: Int64]) {
         // WHY bucket-only: nil-bucket rows are wiped residue, never live money.
-        guard let kind = entry.bucketKindEnum else { return }
+        guard let raw = entry.bucketKind, let kind = BucketKind(rawValue: raw) else { return }
         // WHY single-count: goal entries reuse counted funds, not new money.
         if entry.sourceEnum == .goal {
             return
         }
         if entry.sourceEnum == .transfer,
-           let fromRaw = entry.fromBucket,
+           let fromRaw = fromBucket,
            let fromKind = BucketKind(rawValue: fromRaw)
         {
             balances[fromKind, default: 0] -= entry.amount
         }
         balances[kind, default: 0] += entry.amount
+    }
+
+    /// Single-source attribution: credits bucketKind; transfers also debit fromBucket so one row moves both sides.
+    nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Int64]) {
+        applyBucketAttribution(entry, fromBucket: entry.fromBucket, to: &balances)
     }
 
     /// WHY parity: counted excludes goal/transfer/nil-bucket so ledger total matches bucket total; transfers net zero via debit+credit.
@@ -260,19 +281,31 @@ final class BucketService {
         guard from != to else {
             throw BucketServiceError.sameBucket
         }
-        guard amount > 0 else {
+        guard amount >= 1, amount <= 100_000_000 else {
+            throw BucketServiceError.invalidAmount
+        }
+        // WHY fail-closed date: far-future timestamps reject so deterministic IDs never silently shift.
+        guard date <= Date().addingTimeInterval(300) else {
             throw BucketServiceError.invalidAmount
         }
 
-        // WHY single gate: self-ownership plus family scope share one helper so child self-only never drifts.
+        // WHY parent moves: self or parent may move buckets; heroes still need a parent for Long-out.
+        let acting: Profile
         do {
-            _ = try ActiveFamilyScopeGuard.requireMutationContext(
+            acting = try ActiveFamilyScopeGuard.requireMutationContext(
                 appState: appState,
-                familyRecordName: family.id.recordName,
-                expectedSelf: profile
+                familyRecordName: family.id.recordName
             )
         } catch let error as FamilyServiceError where error == .unauthorized {
             throw BucketServiceError.unauthorized
+        }
+        guard acting.id == profile.id || acting.role.isParent else {
+            throw BucketServiceError.unauthorized
+        }
+
+        // WHY Long lock: heroes never move out of Long-Term Save alone; parents help.
+        if from == .longTermSave, acting.role == .hero {
+            throw BucketServiceError.longLocked
         }
 
         // Check available balance in the source bucket.
@@ -322,10 +355,56 @@ final class BucketService {
             id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
         )
 
+        // WHY atomic: Short haircut draws down before persist so a drawdown failure never leaves a persisted transfer without its reverse-FIFO haircut.
+        // WHY fail-before-persist: injected drawdown or CloudKit scope resolves inside drawdownShortGoals before any cache write.
+        if from == .shortTermSave {
+            try await drawdownShortGoals(
+                amount: amount,
+                profile: profile,
+                family: family,
+                sourceEventID: recordName,
+                date: date
+            )
+        }
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "BucketService.transfer")
         Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return entry
+    }
+
+    /// Routes the Short haircut through the single goal drawdown so transfer
+    /// markers and spend shortfalls share one reverse-FIFO path.
+    private func drawdownShortGoals(
+        amount: Int64,
+        profile: Profile,
+        family: Family,
+        sourceEventID: String,
+        date: Date
+    ) async throws {
+        // WHY fail-closed drawdown: every Short decrease unwinds goal markers so progress never stays inflated.
+        // WHY injected-first: tests and previews supply a drawdown closure so Short transfers work without a CloudKit handle.
+        if let shortDrawdown {
+            try await shortDrawdown(amount, profile, family, sourceEventID, date)
+            return
+        }
+        guard let cloudKit else {
+            logger.error("Short goal drawdown missing CloudKit scope for \(sourceEventID, privacy: .private)")
+            throw BucketServiceError.persistenceFailed
+        }
+        let goalService = GoalService(
+            cloudKit: cloudKit,
+            cacheService: cacheService,
+            appState: appState,
+            syncCoordinator: syncCoordinator
+        )
+        _ = try await goalService.applyDrawdown(
+            amountPennies: amount,
+            profile: profile,
+            family: family,
+            bucketKind: .shortTermSave,
+            sourceEventID: sourceEventID,
+            contributionDate: date
+        )
     }
 
     // MARK: - Deterministic-ID Helpers

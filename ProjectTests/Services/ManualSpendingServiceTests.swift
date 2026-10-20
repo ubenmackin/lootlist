@@ -694,12 +694,15 @@ struct SpendingServiceTests {
         #expect(name1 == name2, "Different payload divergent ID must be deterministic across devices")
         #expect(name1 != baseName, "Divergent payload must not collide with base recordName")
         #expect(!name1.lowercased().contains("uuid"), "Extended ID must not contain random UUID")
-        // WHY extension format: base plus deterministic hex-ms suffix.
+        // WHY extension format: base plus deterministic c-prefixed hex-ms suffix.
         #expect(name1.hasPrefix(baseName + "-"), "Extended ID must extend base with deterministic suffix")
         let suffix = String(name1.dropFirst(baseName.count + 1))
         let parts = suffix.split(separator: "-")
-        #expect(parts.count == 2, "Suffix must be hex(8)-msSuffix")
-        #expect(parts[0].count == 8 && parts[0].allSatisfy(\.isHexDigit), "First suffix part must be 4-byte hex")
+        #expect(parts.count == 2, "Suffix must be c-hex(9)-msSuffix")
+        let fork = String(parts[0])
+        #expect(fork.count == 9 && fork.lowercased().hasPrefix("c") && String(fork.dropFirst()).allSatisfy(\.isHexDigit), "First suffix part must be c-prefixed 4-byte hex")
+        #expect(DeterministicRecordID.isCollisionHex(fork), "Fork marker must round-trip through single-source check")
+        #expect(!DeterministicRecordID.isCollisionHex("12345678"), "All-digit tail must never read as collision hex")
     }
 
     @Test

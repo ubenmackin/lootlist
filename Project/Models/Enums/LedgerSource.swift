@@ -21,4 +21,12 @@ enum LedgerSource: String, Codable, Sendable, CaseIterable {
     case purchase
     case deposit
     case withdrawal
+
+    /// WHY single truth: import-prefixed rows decode to `.import` everywhere so ledger grouping never drifts.
+    static func decode(_ raw: String) -> LedgerSource? {
+        if raw.hasPrefix(LedgerSource.import.rawValue) {
+            return .import
+        }
+        return LedgerSource(rawValue: raw)
+    }
 }

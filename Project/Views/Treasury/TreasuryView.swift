@@ -267,15 +267,8 @@ struct TreasuryView: View {
 
     @ViewBuilder
     private func loadedContent(_ viewModel: TreasuryViewModel) -> some View {
-        if !targetFamilyForStale.isEmpty {
-            StaleDataBanner(
-                family: targetFamilyForStale,
-                type: .ledgerEntry,
-                count: cachedLedgers.count + cachedCompletions.count,
-                isSyncing: syncHealth.isSyncing
-            )
+        LedgerStaleBanner(familyRecordName: familyRecordName, count: cachedLedgers.count)
             .padding(.horizontal)
-        }
 
         syncFootnote
             .padding(.horizontal)
