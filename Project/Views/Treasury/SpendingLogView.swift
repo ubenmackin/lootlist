@@ -16,11 +16,13 @@ struct SpendingLogView: View {
     @State private var selectedGroup: TransactionGroup?
     /// Nil shows All; non-nil filters the ledger list to that bucket's attribution.
     @State private var selectedBucketFilter: BucketKind?
+    @State private var wishlistRoute: GoalWishlistRoute?
 
     private let familyRecordName: String?
     private let profileRecordName: String?
 
     @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedGoals: [GoalCache]
 
     init(viewModel: TreasuryViewModel, familyRecordName: String? = nil, profileRecordName: String? = nil, scope: Binding<CalendarScope>) {
         self.viewModel = viewModel
@@ -35,6 +37,32 @@ struct SpendingLogView: View {
             sort: \LedgerEntryCache.date,
             order: .reverse
         )
+        let goalFilter = GoalCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        _cachedGoals = Query(
+            filter: goalFilter,
+            sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
+        )
+    }
+
+    /// Display mapping from goal record name to GoalCache name for sheet wiring.
+    private var goalNames: [String: String] {
+        GoalWiring.goalNames(from: cachedGoals)
+    }
+
+    /// Archived goal identities stay non-tappable fail-closed.
+    private var archivedGoalIDs: Set<String> {
+        GoalWiring.archivedIDs(from: cachedGoals)
+    }
+
+    private func handleGoalTap(_ goalRecordName: String) {
+        guard let route = GoalWiring.wishlistRoute(
+            for: goalRecordName,
+            profileRecordName: resolvedProfileName,
+            goalNames: goalNames,
+            archivedGoalIDs: archivedGoalIDs
+        ) else { return }
+        selectedGroup = nil
+        wishlistRoute = route
     }
 
     private var resolvedProfileName: String {
@@ -116,7 +144,20 @@ struct SpendingLogView: View {
             viewModel.rebuildSpendingLog(from: cachedLedgers, scope: scope, profileRecordName: resolvedProfileName)
         }
         .sheet(item: $selectedGroup) { group in
-            LedgerGroupDetailSheet(group: group, selectedBucketFilter: selectedBucketFilter)
+            LedgerGroupDetailSheet(
+                group: group,
+                selectedBucketFilter: selectedBucketFilter,
+                goalNames: goalNames,
+                archivedGoalIDs: archivedGoalIDs,
+                onGoalTap: { handleGoalTap($0) }
+            )
+        }
+        .navigationDestination(item: $wishlistRoute) { route in
+            MyGoalsView(
+                familyRecordName: familyRecordName,
+                profileRecordName: route.profileRecordName,
+                highlightGoalRecordName: route.highlightGoalRecordName
+            )
         }
     }
 

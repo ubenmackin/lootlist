@@ -30,6 +30,9 @@ enum DesignSystemConstants {
         /// Light #FF3B30 / Dark #FF453A — destructive actions, overdue.
         static let dangerRed = "dangerRed"
 
+        /// Light #FF2D55 / Dark #FF375F — parent-match heart affordance.
+        static let matchPink = "matchPink"
+
         /// Light #D9A834 / Dark #E8C05C asset-backed semantic gold token.
         static let gold = "gold"
 
