@@ -75,20 +75,28 @@ struct LedgerGroupDetailSheet: View {
         group.totalPennies == 0 && group.sourceEnum == .transfer
     }
 
+    private var shouldHideMovement: Bool {
+        group.splits.count <= 1 && group.goalChildren.isEmpty && group.sourceEnum != .transfer
+    }
+
     private var representativeSplit: TransactionSplit? {
         group.representativeSplit
     }
 
-    private var spendDetailText: String? {
+    private var detailWhat: String? {
         // WHY spend-only: manual spends alone carry what-where copy, other sources would misread.
         guard group.sourceEnum == .manual, let representative = representativeSplit else { return nil }
         let what = representative.entryDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !what.isEmpty else { return nil }
+        return what
+    }
+
+    private var detailWhere: String? {
+        // WHY separate Where: location renders as its own pair so What stays clean without concatenation.
+        guard group.sourceEnum == .manual, let representative = representativeSplit else { return nil }
         let whereText = (representative.location ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if whereText.isEmpty {
-            return what
-        }
-        return "\(what) at \(whereText)"
+        guard !whereText.isEmpty else { return nil }
+        return whereText
     }
 
     private var questWeekDetailText: String? {
@@ -123,11 +131,13 @@ struct LedgerGroupDetailSheet: View {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     headerView
-                    moneyMovementSection
+                    if !shouldHideMovement {
+                        moneyMovementSection
+                    }
                     if !group.goalChildren.isEmpty {
                         goalImpactSection
                     }
-                    if spendDetailText != nil || questWeekDetailText != nil {
+                    if detailWhat != nil || detailWhere != nil || questWeekDetailText != nil {
                         detailsSection
                     }
                     balancesSection
@@ -195,6 +205,7 @@ struct LedgerGroupDetailSheet: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
+                // WHY single owner: transfer legs expand in splitRow so combined totals never render.
                 ForEach(sortedSplits) { split in
                     splitRow(for: split)
                 }
@@ -204,26 +215,64 @@ struct LedgerGroupDetailSheet: View {
         .accessibilityIdentifier("ledgerDetail.splits")
     }
 
+    @ViewBuilder
     private func splitRow(for split: TransactionSplit) -> some View {
-        // WHY neutral move: transfers relocate money with no gain, so magnitude plus secondary reads without sign.
-        let isNeutralTransfer = split.sourceEnum == .transfer || isNetZeroTransfer
-        let amount = split.displayAmount(for: selectedBucketFilter)
-        let name = split.shortName.isEmpty ? group.title : split.shortName
-        let amountText = isNeutralTransfer ? CurrencyFormatter.magnitude(pennies: amount) : CurrencyFormatter.signed(pennies: amount)
-        let tint: Color = isNeutralTransfer ? .secondary : (amount > 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : .primary)
-        return HStack(spacing: DesignSystemConstants.Padding.small) {
-            Text(name)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(amountText)
-                .font(.subheadline.weight(.bold).monospacedDigit())
-                .foregroundStyle(tint)
-                .lineLimit(1)
+        if split.sourceEnum == .transfer,
+           let fromKind = split.fromBucketEnum,
+           let toKind = split.bucketKindEnum,
+           fromKind != toKind
+        {
+            // WHY two legs: transfers relocate with no gain, so From plus To magnitudes read neutral without sign.
+            let magnitudeText = CurrencyFormatter.magnitude(pennies: split.displayAmount(for: selectedBucketFilter))
+            VStack(spacing: DesignSystemConstants.Padding.small) {
+                HStack(spacing: DesignSystemConstants.Padding.small) {
+                    Text("From \(fromKind.shortName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(magnitudeText)
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("From \(fromKind.shortName), \(magnitudeText)")
+                HStack(spacing: DesignSystemConstants.Padding.small) {
+                    Text("To \(toKind.shortName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(magnitudeText)
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("To \(toKind.shortName), \(magnitudeText)")
+            }
+        } else {
+            // WHY neutral move: transfers relocate money with no gain, so magnitude plus secondary reads without sign.
+            let isNeutralTransfer = split.sourceEnum == .transfer || isNetZeroTransfer
+            let amount = split.displayAmount(for: selectedBucketFilter)
+            let name = split.shortName.isEmpty ? group.title : split.shortName
+            let amountText = isNeutralTransfer ? CurrencyFormatter.magnitude(pennies: amount) : CurrencyFormatter.signed(pennies: amount)
+            let tint: Color = isNeutralTransfer ? .secondary : (amount > 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : .primary)
+            HStack(spacing: DesignSystemConstants.Padding.small) {
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(amountText)
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(name), \(amountText)")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), \(amountText)")
     }
 
     private var goalImpactSection: some View {
@@ -320,17 +369,36 @@ struct LedgerGroupDetailSheet: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("ledgerDetail.detailsTitle")
-            if let detail = spendDetailText {
-                Text(detail)
+            if let what = detailWhat {
+                Text("What")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("ledgerDetail.whatWhere")
+                Text(what)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("ledgerDetail.what")
             }
-            if let weekDetail = questWeekDetailText {
-                Text(weekDetail)
+            if let whereText = detailWhere {
+                Text("Where")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(whereText)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("ledgerDetail.where")
+            }
+            if let weekDetail = questWeekDetailText {
+                Text("Week")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(weekDetail)
+                    .font(.body)
+                    .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("ledgerDetail.week")
             }
@@ -348,7 +416,8 @@ struct LedgerGroupDetailSheet: View {
             balanceRow(
                 label: "Total",
                 amount: group.runningTotalPennies,
-                identifier: "ledgerDetail.balance"
+                identifier: "ledgerDetail.balance",
+                isTotal: true
             )
             balanceRow(
                 label: "Spend",
@@ -370,15 +439,15 @@ struct LedgerGroupDetailSheet: View {
         .accessibilityIdentifier("ledgerDetail.balances")
     }
 
-    private func balanceRow(label: String, amount: Int64, identifier: String) -> some View {
+    private func balanceRow(label: String, amount: Int64, identifier: String, isTotal: Bool = false) -> some View {
         HStack(spacing: DesignSystemConstants.Padding.small) {
             Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(isTotal ? .subheadline.bold() : .caption)
+                .foregroundStyle(isTotal ? .primary : .secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(CurrencyFormatter.string(pennies: amount))
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(isTotal ? .subheadline.bold().monospacedDigit() : .caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(isTotal ? .primary : .secondary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label) balance after posting \(CurrencyFormatter.string(pennies: amount))")
