@@ -37,6 +37,8 @@ struct HeroLedgerView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var currentProfileRows: [ProfileCache]
+    @Query private var cachedGoals: [GoalCache]
+    @State private var wishlistRoute: GoalWishlistRoute?
 
     init(hero: ProfileCache, familyRecordName: String?, spending: SpendingService, profileRecordName: String? = nil) {
         self.hero = hero
@@ -72,6 +74,11 @@ struct HeroLedgerView: View {
             filter: templateFilter,
             sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
         )
+        let goalFilter = GoalCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        _cachedGoals = Query(
+            filter: goalFilter,
+            sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
+        )
         // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
         if let viewerProfile = profileRecordName.sanitizedNilIfEmpty {
             _currentProfileRows = Query(
@@ -106,6 +113,27 @@ struct HeroLedgerView: View {
         return family + "-" + subject + "-" + viewer
     }
 
+    /// Display mapping from goal record name to GoalCache name for sheet wiring.
+    private var goalNames: [String: String] {
+        GoalWiring.goalNames(from: cachedGoals)
+    }
+
+    /// Archived goal identities stay non-tappable fail-closed.
+    private var archivedGoalIDs: Set<String> {
+        GoalWiring.archivedIDs(from: cachedGoals)
+    }
+
+    private func handleGoalTap(_ goalRecordName: String) {
+        guard let route = GoalWiring.wishlistRoute(
+            for: goalRecordName,
+            profileRecordName: hero.recordName,
+            goalNames: goalNames,
+            archivedGoalIDs: archivedGoalIDs
+        ) else { return }
+        selectedGroup = nil
+        wishlistRoute = route
+    }
+
     var body: some View {
         scrollBody
             .navigationTitle("Treasury")
@@ -113,7 +141,20 @@ struct HeroLedgerView: View {
             .toolbar { ledgerToolbar }
             .modifier(sheetsModifier)
             .sheet(item: $selectedGroup) { group in
-                LedgerGroupDetailSheet(group: group, selectedBucketFilter: viewModel?.selectedBucketFilter)
+                LedgerGroupDetailSheet(
+                    group: group,
+                    selectedBucketFilter: viewModel?.selectedBucketFilter,
+                    goalNames: goalNames,
+                    archivedGoalIDs: archivedGoalIDs,
+                    onGoalTap: { handleGoalTap($0) }
+                )
+            }
+            .navigationDestination(item: $wishlistRoute) { route in
+                MyGoalsView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: route.profileRecordName,
+                    highlightGoalRecordName: route.highlightGoalRecordName
+                )
             }
             .modifier(lifecycleModifier)
             // WHY: view identity tracks family+subject+viewer so @Query predicates (init-captured) are recreated on scope switch.

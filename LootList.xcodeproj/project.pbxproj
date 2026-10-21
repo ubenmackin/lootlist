@@ -300,6 +300,7 @@
 		9DB16AC8F51B50638622E28E /* ExportChildPickerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D88B6F370A39EE21F662AE9 /* ExportChildPickerSheetView.swift */; };
 		9E3953C5BA275D545B1772B9 /* RewardEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C330ACAE67922B0B30148B77 /* RewardEvent.swift */; };
 		A0A078F5FB5E392E26CF1CFD /* SpriteGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE684DF487476858652A0E3 /* SpriteGalleryView.swift */; };
+		A0A544734D067E2E1C73C8A5 /* GoalWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = A481D403D59F24A3087B4B01 /* GoalWiring.swift */; };
 		A0BA974108B526252089C3A0 /* InviteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D92E8E4D26035A4AD79BA24 /* InviteError.swift */; };
 		A0E0D37A83E4D649F38C0160 /* SessionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AB946A210D6EF55CE20DE3 /* SessionStorage.swift */; };
 		A26F81266B230B02484B4AFA /* PayoutStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */; };
@@ -851,6 +852,7 @@
 		A29AFF3513D151637BD6AD3B /* PayoutHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutHistoryView.swift; sourceTree = "<group>"; };
 		A34FE13DD4A715B570394D68 /* LedgerImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportService.swift; sourceTree = "<group>"; };
 		A3A14024274BCCB6C894C00D /* JourneyServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyServiceTests.swift; sourceTree = "<group>"; };
+		A481D403D59F24A3087B4B01 /* GoalWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalWiring.swift; sourceTree = "<group>"; };
 		A493B2D63AD2438369662C66 /* ProfileAchievementCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAchievementCache.swift; sourceTree = "<group>"; };
 		A49B5A27C700FC780D0D78C1 /* FamilyShareReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyShareReconcilerTests.swift; sourceTree = "<group>"; };
 		A57E62588DC0424AC3E8758D /* GoalEnhancementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalEnhancementTests.swift; sourceTree = "<group>"; };
@@ -1611,6 +1613,7 @@
 				0787E35E82ABF461CAFEC9FF /* EmptyStateView.swift */,
 				2F4138CD884CDA4932C53310 /* FamilyScopeValidator.swift */,
 				3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */,
+				A481D403D59F24A3087B4B01 /* GoalWiring.swift */,
 				728481C95C3C2C620C57038C /* GoldBadge.swift */,
 				55D9B190E857B276A4369A5D /* iCloudStatusView.swift */,
 				3C22B036E9EAF910A5DA8043 /* LedgerRowStyle.swift */,
@@ -2150,6 +2153,7 @@
 				BD14E74FC02EB24B19FDCC6B /* GoalPacingCalculator.swift in Sources */,
 				6D539B9892BCABF62DE57EEE /* GoalProgressCalculator.swift in Sources */,
 				90050C153747EE7ED5757EC4 /* GoalService.swift in Sources */,
+				A0A544734D067E2E1C73C8A5 /* GoalWiring.swift in Sources */,
 				46230B910FEDE4B1BB3B6260 /* GoldBadge.swift in Sources */,
 				36E4DD204025308AB25033EB /* GoldCalculation.swift in Sources */,
 				64B55F6C887164FA3B7F67A3 /* GuildDangerZoneSectionView.swift in Sources */,

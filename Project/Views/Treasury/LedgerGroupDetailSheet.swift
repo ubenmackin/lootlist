@@ -11,12 +11,27 @@ import SwiftUI
 struct LedgerGroupDetailSheet: View {
     let group: TransactionGroup
     let selectedBucketFilter: BucketKind?
+    /// Display mapping from goal record name to GoalCache name.
+    let goalNames: [String: String]
+    /// Archived goal identities stay non-tappable.
+    let archivedGoalIDs: Set<String>
+    /// Host-owned tap handler; nil blocks navigation fail-closed.
+    let onGoalTap: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
 
-    init(group: TransactionGroup, selectedBucketFilter: BucketKind? = nil) {
+    init(
+        group: TransactionGroup,
+        selectedBucketFilter: BucketKind? = nil,
+        goalNames: [String: String] = [:],
+        archivedGoalIDs: Set<String> = [],
+        onGoalTap: ((String) -> Void)? = nil
+    ) {
         self.group = group
         self.selectedBucketFilter = selectedBucketFilter
+        self.goalNames = goalNames
+        self.archivedGoalIDs = archivedGoalIDs
+        self.onGoalTap = onGoalTap
     }
 
     private var sortedSplits: [TransactionSplit] {
@@ -56,6 +71,10 @@ struct LedgerGroupDetailSheet: View {
         }
     }
 
+    private var isNetZeroTransfer: Bool {
+        group.totalPennies == 0 && group.sourceEnum == .transfer
+    }
+
     private var representativeSplit: TransactionSplit? {
         group.representativeSplit
     }
@@ -77,20 +96,26 @@ struct LedgerGroupDetailSheet: View {
         TransactionGroupBuilder.questWeekDetailText(for: group)
     }
 
-    private func goalCopy(for child: TransactionSplit) -> String {
-        // WHY amount-only: sign alone decides Applied versus Borrowed so empty names stay truthful.
-        let magnitude = CurrencyFormatter.magnitude(pennies: child.amount)
-        let rawName = child.entryDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if child.amount >= 0 {
-            if rawName.isEmpty {
-                return "Applied \(magnitude) to goal"
+    // MARK: - Goal Identity
+
+    /// Resolves the owning goal record name for a contribution marker.
+    /// WHY longest-first: goal IDs nest by prefix, so specific wins deterministically.
+    private func goalRecordName(for markerRecordName: String) -> String? {
+        for key in goalNames.keys.sorted(by: { lhs, rhs in
+            if lhs.count != rhs.count {
+                return lhs.count > rhs.count
             }
-            return "Applied \(magnitude) to goal \(rawName)"
+            return lhs < rhs
+        }) {
+            if DeterministicRecordID.isContribution(markerRecordName, for: key) {
+                return key
+            }
+            if markerRecordName.hasPrefix(GoalService.drawdownPrefix(for: key)) {
+                return key
+            }
         }
-        if rawName.isEmpty {
-            return "Borrowed \(magnitude) from goal"
-        }
-        return "Borrowed \(magnitude) from goal \(rawName)"
+        // WHY single owner: structural parse lives in GoalService so sheet plus grouping never drift.
+        return GoalService.goalRecordName(fromMarkerRecordName: markerRecordName)
     }
 
     var body: some View {
@@ -98,10 +123,14 @@ struct LedgerGroupDetailSheet: View {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     headerView
-                    splitsSection
-                    whatWhereSection
-                    goalsSection
-                    weekSection
+                    moneyMovementSection
+                    if !group.goalChildren.isEmpty {
+                        goalImpactSection
+                    }
+                    if spendDetailText != nil || questWeekDetailText != nil {
+                        detailsSection
+                    }
+                    balancesSection
                 }
                 .padding(DesignSystemConstants.Padding.standard)
             }
@@ -129,45 +158,59 @@ struct LedgerGroupDetailSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("ledgerDetail.type")
             }
-            Text(CurrencyFormatter.signed(pennies: group.totalPennies))
-                .font(.headline.bold())
-                .foregroundStyle(group.totalPennies >= 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("ledgerDetail.amount")
+            // WHY dash: net-zero transfers move between buckets with no gain, so an em dash reads neutral.
+            if isNetZeroTransfer {
+                Text("—")
+                    .font(.headline.bold())
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("no net change")
+                    .accessibilityIdentifier("ledgerDetail.amount")
+            } else {
+                Text(CurrencyFormatter.signed(pennies: group.totalPennies))
+                    .font(.headline.bold())
+                    .foregroundStyle(group.totalPennies > 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("ledgerDetail.amount")
+            }
             Text("Posted \(LedgerRowStyle.shortDateText(for: group.date))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("ledgerDetail.postedDate")
-            Text("Balance after posting \(CurrencyFormatter.string(pennies: group.runningPennies(for: selectedBucketFilter)))")
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("ledgerDetail.balance")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var splitsSection: some View {
-        if group.splits.isEmpty {
-            EmptyView()
-        } else {
-            VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+    private var moneyMovementSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+            Text("MONEY MOVEMENT")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("ledgerDetail.moneyMovementTitle")
+            if group.splits.isEmpty {
+                Text("—")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
                 ForEach(sortedSplits) { split in
                     splitRow(for: split)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("ledgerDetail.splits")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("ledgerDetail.splits")
     }
 
     private func splitRow(for split: TransactionSplit) -> some View {
+        // WHY neutral move: transfers relocate money with no gain, so magnitude plus secondary reads without sign.
+        let isNeutralTransfer = split.sourceEnum == .transfer || isNetZeroTransfer
         let amount = split.displayAmount(for: selectedBucketFilter)
         let name = split.shortName.isEmpty ? group.title : split.shortName
-        let amountText = CurrencyFormatter.signed(pennies: amount)
-        let tint: Color = amount >= 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : .primary
+        let amountText = isNeutralTransfer ? CurrencyFormatter.magnitude(pennies: amount) : CurrencyFormatter.signed(pennies: amount)
+        let tint: Color = isNeutralTransfer ? .secondary : (amount > 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : .primary)
         return HStack(spacing: DesignSystemConstants.Padding.small) {
             Text(name)
                 .font(.subheadline.weight(.semibold))
@@ -183,52 +226,163 @@ struct LedgerGroupDetailSheet: View {
         .accessibilityLabel("\(name), \(amountText)")
     }
 
-    @ViewBuilder
-    private var whatWhereSection: some View {
-        if let detail = spendDetailText {
-            Text(detail)
-                .font(.caption)
+    private var goalImpactSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+            Text("GOAL IMPACT")
+                .font(.caption.weight(.bold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("ledgerDetail.whatWhere")
+                .accessibilityIdentifier("ledgerDetail.goalImpactTitle")
+            ForEach(group.goalChildren) { child in
+                goalRow(for: child)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("ledgerDetail.goals")
     }
 
     @ViewBuilder
-    private var goalsSection: some View {
-        if group.goalChildren.isEmpty {
-            EmptyView()
-        } else {
-            VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
-                ForEach(group.goalChildren) { child in
+    private func goalRow(for child: TransactionSplit) -> some View {
+        // WHY single resolve: one lookup per row keeps prefix matches deterministic plus avoids repeated scans.
+        if let key = goalRecordName(for: child.recordName),
+           let rawName = goalNames[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawName.isEmpty
+        {
+            if archivedGoalIDs.contains(key) {
+                HStack(spacing: DesignSystemConstants.Padding.small) {
+                    Image(systemName: "target")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(rawName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Archived")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color(DesignSystemConstants.Colors.tertiaryFill))
+                        )
+                        .accessibilityLabel("Archived")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(rawName), Archived, \(CurrencyFormatter.magnitude(pennies: child.amount))")
+                .accessibilityIdentifier("ledgerDetail.goalArchived-\(child.recordName)")
+            } else {
+                let magnitude = CurrencyFormatter.magnitude(pennies: child.amount)
+                Button {
+                    onGoalTap?(key)
+                } label: {
                     HStack(spacing: DesignSystemConstants.Padding.small) {
                         Image(systemName: "target")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(goalCopy(for: child))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text("\(magnitude) · \(rawName)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(goalCopy(for: child))
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(rawName), \(magnitude)")
+                .accessibilityHint("Opens wishlist goal")
+                .accessibilityIdentifier("ledgerDetail.goalTap-\(child.recordName)")
+            }
+        } else {
+            HStack(spacing: DesignSystemConstants.Padding.small) {
+                Image(systemName: "target")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Goal removed")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("ledgerDetail.goals")
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Goal removed, \(CurrencyFormatter.magnitude(pennies: child.amount))")
+            .accessibilityIdentifier("ledgerDetail.goalRemoved-\(child.recordName)")
         }
     }
 
-    @ViewBuilder
-    private var weekSection: some View {
-        if let weekDetail = questWeekDetailText {
-            Text(weekDetail)
+    private var detailsSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+            Text("DETAILS")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("ledgerDetail.detailsTitle")
+            if let detail = spendDetailText {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("ledgerDetail.whatWhere")
+            }
+            if let weekDetail = questWeekDetailText {
+                Text(weekDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("ledgerDetail.week")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var balancesSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+            Text("BALANCES AFTER POSTING")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("ledgerDetail.balancesTitle")
+            balanceRow(
+                label: "Total",
+                amount: group.runningTotalPennies,
+                identifier: "ledgerDetail.balance"
+            )
+            balanceRow(
+                label: "Spend",
+                amount: group.runningByBucket[.spend] ?? 0,
+                identifier: "ledgerDetail.balance-spend"
+            )
+            balanceRow(
+                label: "Short Save",
+                amount: group.runningByBucket[.shortTermSave] ?? 0,
+                identifier: "ledgerDetail.balance-shortSave"
+            )
+            balanceRow(
+                label: "Long Save",
+                amount: group.runningByBucket[.longTermSave] ?? 0,
+                identifier: "ledgerDetail.balance-longSave"
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("ledgerDetail.balances")
+    }
+
+    private func balanceRow(label: String, amount: Int64, identifier: String) -> some View {
+        HStack(spacing: DesignSystemConstants.Padding.small) {
+            Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("ledgerDetail.week")
+            Text(CurrencyFormatter.string(pennies: amount))
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label) balance after posting \(CurrencyFormatter.string(pennies: amount))")
+        .accessibilityIdentifier(identifier)
     }
 }
 

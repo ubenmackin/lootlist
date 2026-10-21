@@ -149,6 +149,52 @@ final class GoalService {
         "\(drawdownRoot)\(goalRecordName)-"
     }
 
+    /// Extracts the owning goal record name from a contribution or drawdown marker.
+    /// WHY single owner: sheet plus grouping parse markers here so prefix plus collision rules never drift.
+    nonisolated static func goalRecordName(fromMarkerRecordName marker: String) -> String? {
+        // WHY strip first: collision forks append hex-msSuffix layers, so peel before prefix logic.
+        let stripped = DeterministicRecordID.stripCollisionExtension(marker)
+        let remainder: String
+        if DeterministicRecordID.isContributionRecord(stripped) {
+            remainder = String(stripped.dropFirst("contrib-".count))
+        } else if isDrawdownRecord(stripped) {
+            remainder = String(stripped.dropFirst(drawdownRoot.count))
+        } else {
+            return nil
+        }
+        guard !remainder.isEmpty else { return nil }
+        // WHY prefix search: goal names carry dashes (UUIDs), so the source start owns the split.
+        let sourcePrefixes = [
+            "period-", "payout-", "rt-", "transfer-", "manual-",
+            "deposit-", "withdrawal-", "interest-", "match-", "purchase-",
+            "import-", "contrib-", "drawdown-", "reward-"
+        ]
+        var bestIndex: String.Index?
+        for token in sourcePrefixes {
+            let needle = "-" + token
+            if let found = remainder.range(of: needle)?.lowerBound, bestIndex == nil || found < bestIndex! {
+                bestIndex = found
+            }
+        }
+        if let splitAt = bestIndex {
+            let goal = String(remainder[..<splitAt])
+            return goal.isEmpty ? nil : goal
+        }
+        // WHY UUID fallback: production goals mint UUIDs, so a 36-char prefix owns the split when sources lack known prefixes.
+        if remainder.count > 36 {
+            let candidate = String(remainder.prefix(36))
+            let isUUID = UUID(uuidString: candidate) != nil
+                && remainder[remainder.index(remainder.startIndex, offsetBy: 36)] == "-"
+            if isUUID {
+                return candidate
+            }
+        }
+        // WHY last-dash fallback: single-segment test sources leave the goal as everything before the final dash.
+        guard let lastDash = remainder.lastIndex(of: "-") else { return nil }
+        let goal = String(remainder[..<lastDash])
+        return goal.isEmpty ? nil : goal
+    }
+
     // MARK: - FIFO Allocator (pure, no side effects)
 
     /// FIFO allocation within a single bucket. Callers must filter to one

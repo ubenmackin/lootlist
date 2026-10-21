@@ -32,15 +32,18 @@ struct MyGoalsView: View {
     private let familyRecordName: String?
     private let profileRecordName: String?
     private let goalService: GoalService?
+    /// Highlighted goal from ledger tap navigation; nil shows no highlight.
+    private let highlightGoalRecordName: String?
 
     private var resolvedGoalService: GoalService? {
         goalService ?? envGoalService
     }
 
-    init(familyRecordName: String? = nil, profileRecordName: String? = nil, goalService: GoalService? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil, goalService: GoalService? = nil, highlightGoalRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
         self.goalService = goalService
+        self.highlightGoalRecordName = highlightGoalRecordName
 
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "MyGoalsView")
@@ -433,6 +436,8 @@ struct MyGoalsView: View {
         let progress = target > 0 ? min(max(Double(saved) / Double(target), 0), 1) : 0.0
         let percent = Int((progress * 100).rounded())
 
+        // WHY ledger highlight: tapped goals arrive via wishlist navigation so the target stands out.
+        let isHighlighted = highlightGoalRecordName == goal.recordName
         VStack(alignment: .leading, spacing: 10) {
             goalCardHeader(for: goal, pacing: pacing, isCompleted: isCompleted, validURL: validURL, validImageURL: validImageURL)
             goalCardStatusLine(saved: saved, target: target, pacing: pacing, isCompleted: isCompleted)
@@ -448,6 +453,13 @@ struct MyGoalsView: View {
             )
             .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                .strokeBorder(
+                    isHighlighted ? Color(DesignSystemConstants.Colors.accentBlue) : Color.clear,
+                    lineWidth: isHighlighted ? 2 : 0
+                )
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(for: goal, saved: saved, target: target))
         .accessibilityIdentifier("goals.card-\(goal.recordName)")

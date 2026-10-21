@@ -23,8 +23,10 @@ struct ChildLedgerView: View {
     @State private var selectedGroup: TransactionGroup?
     /// Nil shows All; non-nil filters the ledger list to that bucket's attribution.
     @State private var selectedBucketFilter: BucketKind?
+    @State private var wishlistRoute: GoalWishlistRoute?
 
     @Query private var allLedgers: [LedgerEntryCache]
+    @Query private var cachedGoals: [GoalCache]
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
@@ -39,6 +41,33 @@ struct ChildLedgerView: View {
             sort: \LedgerEntryCache.date,
             order: .reverse
         )
+        let goalFilter = GoalCache.profilePredicate(familyRecordName: targetFamily, profileRecordName: targetProfile)
+        _cachedGoals = Query(
+            filter: goalFilter,
+            sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
+        )
+    }
+
+    /// Display mapping from goal record name to GoalCache name for sheet wiring.
+    private var goalNames: [String: String] {
+        GoalWiring.goalNames(from: cachedGoals)
+    }
+
+    /// Archived goal identities stay non-tappable fail-closed.
+    private var archivedGoalIDs: Set<String> {
+        GoalWiring.archivedIDs(from: cachedGoals)
+    }
+
+    private func handleGoalTap(_ goalRecordName: String) {
+        let profile = profileRecordName ?? targetProfileName
+        guard let route = GoalWiring.wishlistRoute(
+            for: goalRecordName,
+            profileRecordName: profile,
+            goalNames: goalNames,
+            archivedGoalIDs: archivedGoalIDs
+        ) else { return }
+        selectedGroup = nil
+        wishlistRoute = route
     }
 
     // MARK: - Grouped Entries
@@ -154,10 +183,23 @@ struct ChildLedgerView: View {
                 )
             }
             .sheet(item: $selectedGroup) { group in
-                LedgerGroupDetailSheet(group: group, selectedBucketFilter: selectedBucketFilter)
+                LedgerGroupDetailSheet(
+                    group: group,
+                    selectedBucketFilter: selectedBucketFilter,
+                    goalNames: goalNames,
+                    archivedGoalIDs: archivedGoalIDs,
+                    onGoalTap: { handleGoalTap($0) }
+                )
             }
             .navigationTitle("MONEY")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $wishlistRoute) { route in
+                MyGoalsView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: route.profileRecordName,
+                    highlightGoalRecordName: route.highlightGoalRecordName
+                )
+            }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
             }
