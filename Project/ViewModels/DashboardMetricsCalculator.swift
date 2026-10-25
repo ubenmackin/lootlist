@@ -64,7 +64,8 @@ enum DashboardMetricsCalculator {
             let heroWeekRange = WeekMath.weekRange(starting: heroWeekOf)
 
             let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
-            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && (heroWeekRange.contains($0.weekOf) || heroWeekRange.contains($0.completedDate)) }
+            // WHY weekOf-only: matches fetchQuestLogs so counts and gold share one routing.
+            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
 
             let approvedLogs = heroLogs.filter {
                 $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
@@ -81,33 +82,35 @@ enum DashboardMetricsCalculator {
                 $0.profileRecordName == hero.recordName &&
                     WeekMath.startOfWeek(for: $0.weekOf, payoutDay: heroPayoutDay) == heroWeekOf
             }
-            let isPeriodPaid = heroPeriod?.statusEnum == .paid
 
-            let questGold: Int64
-            let bonusGold: Int64
-            if isPeriodPaid {
-                questGold = 0
-                bonusGold = 0
-            } else {
-                let effectivePolicy = hero.payoutPolicyEnum ?? familyContext.payoutPolicy ?? .perQuest
-                questGold = GoldCalculation.netWeeklyPennies(
-                    quests: quests,
-                    logs: logs,
-                    profileRecordName: hero.recordName,
-                    payoutPolicy: effectivePolicy,
-                    weekRange: heroWeekRange,
-                    templatesByID: templatesByID
-                )
-
-                let heroLedgers = ledgers.filter {
-                    $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
-                }
-                bonusGold = heroLedgers
-                    // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
-                    .filter { BucketService.isBonusCounted($0) }
-                    .reduce(0) { $0 + $1.amount }
+            let effectivePolicy = hero.payoutPolicyEnum ?? familyContext.payoutPolicy ?? .perQuest
+            // WHY single source: live quest gold rides the shared payout math so counts and gold cannot diverge.
+            let liveQuestGold = GoldCalculation.netWeeklyPennies(
+                quests: quests,
+                logs: logs,
+                profileRecordName: hero.recordName,
+                payoutPolicy: effectivePolicy,
+                weekRange: heroWeekRange,
+                templatesByID: templatesByID
+            )
+            let heroLedgers = ledgers.filter {
+                $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
             }
-            let earned = questGold + bonusGold
+            // WHY counted-only: quest payout rows reuse settled funds so only new bonus stays pending.
+            let liveBonusGold = heroLedgers
+                .filter { BucketService.isBonusCounted($0) }
+                .reduce(0) { $0 + $1.amount }
+            let settledPaid = heroPeriod?.paidAmount ?? 0
+            let isPaid = heroPeriod?.statusEnum == .paid
+            // WHY single source: quest and bonus remainders share payout math so totals cannot diverge.
+            let questGold = GoldCalculation.pendingQuestRemainder(liveQuestGold: liveQuestGold, settledPaid: settledPaid)
+            let earned = GoldCalculation.pendingRemainder(
+                liveQuestGold: liveQuestGold,
+                liveBonusGold: liveBonusGold,
+                settledPaid: settledPaid,
+                totalEarnedSnapshot: heroPeriod?.totalEarned ?? 0,
+                isPaid: isPaid
+            )
 
             let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
             let streak = StreakCalculator.computeStreak(from: streakLogs)

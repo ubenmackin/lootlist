@@ -225,16 +225,12 @@ final class HeroDashboardViewModel {
         // Compare normalized week starts rather than isDate(inSameDayAs:) to
         // avoid daylight-boundary mismatches when stored weekOf values straddle
         // a DST transition in a non-UTC calendar.
-        let isPaid = allowancePeriods.contains {
+        let settledPaid = allowancePeriods.first {
             $0.profileRecordName == profileRecordName &&
-                $0.statusEnum == .paid &&
                 WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
-        }
-        if isPaid {
-            return 0
-        }
+        }?.paidAmount ?? 0
         let weekRange = WeekMath.weekRange(starting: weekOf)
-        return GoldCalculation.netWeeklyPennies(
+        let liveQuestGold = GoldCalculation.netWeeklyPennies(
             quests: quests,
             logs: logs,
             profileRecordName: profileRecordName,
@@ -242,6 +238,8 @@ final class HeroDashboardViewModel {
             weekRange: weekRange,
             templatesByID: templatesByID
         )
+        // WHY quest-only remainder: paid weeks keep the supplemental slice so live progress never reads zero.
+        return GoldCalculation.pendingQuestRemainder(liveQuestGold: liveQuestGold, settledPaid: settledPaid)
     }
 
     func questsForSelectedDay() -> [QuestCache] {

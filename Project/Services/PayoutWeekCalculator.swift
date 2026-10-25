@@ -14,16 +14,21 @@ import Foundation
 /// `weekBucketEntries` filtering (`WeekMath.weekRange`), `goalContributions`
 /// mapping, and `BucketKind` totals. `WeekMath` owns week boundaries per
 /// ARCHITECTURE.md — this type owns interpreting those buckets for payout
-/// display so history and sheet cannot diverge.
+/// display so history and sheet cannot diverge. Profile-scoping is canonical
+/// here: every week/payout lookup re-applies `period.profileRecordName`, so
+/// family-wide arrays stay fail-closed and caller pre-filtering is an
+/// idempotent fast path, not a second source of truth.
 enum PayoutWeekCalculator {
     /// Filters `ledgerEntries` to the half-open week `[weekOf, weekOf+7d)` that
-    /// contains `period.weekOf`. Delegates boundary math exclusively to `WeekMath`.
+    /// contains `period.weekOf` for `period.profileRecordName`. Delegates boundary math exclusively to `WeekMath`.
+    /// Profile-scoping is canonical: callers may pre-filter by profile, but this filter remains the single source so week math alone never mixes heroes.
     static func weekBucketEntries(
         for period: AllowancePeriodCache,
         from ledgerEntries: [LedgerEntryCache]
     ) -> [LedgerEntryCache] {
         let range = WeekMath.weekRange(starting: period.weekOf)
-        return ledgerEntries.filter { range.contains($0.date) }
+        // WHY profile scope: callers pass family-wide arrays, so week math alone would mix heroes.
+        return ledgerEntries.filter { $0.profileRecordName == period.profileRecordName && range.contains($0.date) }
     }
 
     /// Goal contributions derived from deterministic `contrib-*` records within
@@ -84,6 +89,38 @@ enum PayoutWeekCalculator {
         from ledgers: [LedgerEntryCache]
     ) -> [LedgerEntryCache] {
         weekBucketEntries(for: period, from: ledgers)
-            .filter { $0.profileRecordName == period.profileRecordName }
+    }
+
+    /// Manual-vs-weekly classification per shared contract: a paid period counts
+    /// as early only when its stored `paidDate` precedes the week's exclusive upper bound.
+    /// WHY paidDate: wall-clock `now` cannot classify history — only the stamp distinguishes a mid-week manual payout from a week-close settlement.
+    static func isEarlyPayout(for period: AllowancePeriodCache) -> Bool {
+        guard let paidDate = period.paidDate else { return false }
+        return isWeekOpen(weekOf: period.weekOf, now: paidDate)
+    }
+
+    /// WHY single gate: week-open plus new-earnings plus quest-gold floor travel together so runPayout and settleCurrentWeek cannot drift.
+    static func shouldSupplement(weekOf: Date, now: Date, totalEarned: Int64, settledPaid: Int64, goldFromQuests: Int64) -> Bool {
+        guard isWeekOpen(weekOf: weekOf, now: now),
+              totalEarned > settledPaid else { return false }
+        return max(Int64(0), goldFromQuests - settledPaid) > 0
+    }
+
+    /// WHY one helper: the still-open comparison lives here so `isEarlyPayout(for:)` and `shouldSupplement` cannot drift.
+    private static func isWeekOpen(weekOf: Date, now: Date) -> Bool {
+        now < WeekMath.weekRange(starting: weekOf).upperBound
+    }
+
+    /// WHY payout scope: deterministic base plus bucket suffix isolates the split from week activity.
+    static func payoutLinkedEntries(
+        for period: AllowancePeriodCache,
+        from ledgers: [LedgerEntryCache]
+    ) -> [LedgerEntryCache] {
+        let base = DeterministicRecordID.payout(periodRecordName: period.recordName)
+        let prefix = "\(base)-"
+        // WHY profile scope: deterministic IDs are unique, but a profile check keeps cross-hero collisions fail-closed.
+        return ledgers.filter {
+            ($0.recordName == base || $0.recordName.hasPrefix(prefix)) && $0.profileRecordName == period.profileRecordName
+        }
     }
 }

@@ -326,16 +326,14 @@ final class TreasuryService {
         )
 
         let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
-        let (startOfWeek, weekRange) = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay)
-        let logs = try await fetchQuestLogs(profile: profile,
-                                            weekStarting: startOfWeek,
-                                            weekEnding: weekRange.upperBound)
-        let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
+        let (startOfWeek, _) = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay)
+        let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: startOfWeek)
+        // WHY assigned scope: questsTotal mirrors assigned quests; completions track in questsCompleted.
 
         let period = AllowancePeriod(
             weekOf: startOfWeek,
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            questsTotal: completedCount,
+            questsTotal: assigned.count,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(
                 recordName: DeterministicRecordID.allowancePeriod(familyRecordName: family.id.recordName, profileRecordName: profile.id.recordName, weekStart: startOfWeek),
@@ -376,6 +374,11 @@ final class TreasuryService {
                                                       weekOf: period.weekOf)
             updated.totalEarned = totalEarned ?? breakdown.totalEarned
             updated.questsCompleted = questsCompleted ?? breakdown.questsCount
+            if questsTotal == nil {
+                let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: period.weekOf)
+                // WHY assigned scope: questsTotal mirrors assigned quests; completions track in questsCompleted.
+                updated.questsTotal = assigned.count
+            }
         } catch {
             logger.warning("Could not resolve payout context for period update: \(error, privacy: .private)")
             toastManager?.show(message: "Could not refresh wallet totals. Pull to retry.", type: .warning)
@@ -397,7 +400,7 @@ final class TreasuryService {
 
     // MARK: - Payout & Settlement
 
-    func runPayout(period: AllowancePeriod) async throws {
+    func runPayout(period: AllowancePeriod, now: Date = Date()) async throws {
         // WHY single gate: parent-only payout plus scope share one helper so unauthorized versus scope-violation never drifts.
         _ = try ActiveFamilyScopeGuard.requireMutationContext(
             appState: appState,
@@ -415,10 +418,7 @@ final class TreasuryService {
         }
         defer { inFlightSettlements.withLock { _ = $0.remove(periodRecordName) } }
 
-        guard period.status != .paid else {
-            logger.debug("Period already paid, skipping payout.")
-            return
-        }
+        let isSupplemental = period.status == .paid
 
         var updated = period
 
@@ -431,12 +431,30 @@ final class TreasuryService {
             resolvedProfile = profile
             resolvedFamily = family
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
-            guard breakdown.totalEarned > 0 else {
-                // WHY open stays open: closing an empty week poisons rollover with paid-zero.
-                return
+            let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: period.weekOf)
+            if isSupplemental {
+                let settledPaid = period.paidAmount ?? 0
+                // WHY single gate: week-open plus new-earnings plus quest-gold floor share one helper so settlement paths cannot drift.
+                guard PayoutWeekCalculator.shouldSupplement(
+                    weekOf: period.weekOf,
+                    now: now,
+                    totalEarned: breakdown.totalEarned,
+                    settledPaid: settledPaid,
+                    goldFromQuests: breakdown.goldFromQuests
+                ) else {
+                    logger.debug("Supplemental payout skipped: week closed or no pending quest gold for \(periodRecordName, privacy: .private).")
+                    return
+                }
+            } else {
+                guard breakdown.totalEarned > 0 else {
+                    // WHY open stays open: closing an empty week poisons rollover with paid-zero.
+                    return
+                }
             }
             updated.totalEarned = breakdown.totalEarned
             updated.questsCompleted = breakdown.questsCount
+            // WHY assigned scope: questsTotal mirrors assigned quests; completions track in questsCompleted.
+            updated.questsTotal = assigned.count
             questGoldToPayout = breakdown.goldFromQuests
         } catch {
             logger.warning("Could not resolve payout context for period payout: \(error, privacy: .private)")
@@ -444,7 +462,10 @@ final class TreasuryService {
         }
 
         updated.status = .paid
-        updated.paidDate = Date()
+        // WHY stable stamp: supplemental re-settlement rewrites totals, never the original manual-vs-weekly classifier.
+        if !isSupplemental {
+            updated.paidDate = now
+        }
         updated.paidAmount = questGoldToPayout
 
         await cacheService.upsertAllowancePeriod(updated)
@@ -459,7 +480,7 @@ final class TreasuryService {
                 weekOf: period.weekOf,
                 profile: resolvedProfile,
                 family: period.family,
-                date: updated.paidDate ?? Date(),
+                date: updated.paidDate ?? now,
                 isOwner: mintIsOwner
             )
         }

@@ -88,26 +88,27 @@ final class HeroLedgerViewModel {
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let effectivePolicy = heroProfile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
-        // WHY bucket-only: nil-bucket rows are wiped residue, never paid quest gold.
-        let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }
-            .contains { $0.sourceEnum == .quest && BucketService.isCounted($0) && weekRange.contains($0.date) }
         let currentAllowance = allowancePeriods.first {
             $0.profileRecordName == heroProfile.recordName &&
                 WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
         }
-        let payoutStatus = currentAllowance?.statusEnum
-        if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
+        if effectivePolicy == .realTime {
             pendingQuestGold = 0
         } else {
             // WHY day count wins: stale targetCount under-counts specific-days split rewards.
             let templatesByID = SpecificDaysHelper.templatesByID(templates)
-            pendingQuestGold = GoldCalculation.netWeeklyPennies(
+            let liveQuestGold = GoldCalculation.netWeeklyPennies(
                 quests: quests,
                 logs: completions,
                 profileRecordName: heroProfile.recordName,
                 payoutPolicy: effectivePolicy,
                 weekRange: weekRange,
                 templatesByID: templatesByID
+            )
+            // WHY quest-only remainder: paid weeks keep the supplemental slice so late completions stay pending.
+            pendingQuestGold = GoldCalculation.pendingQuestRemainder(
+                liveQuestGold: liveQuestGold,
+                settledPaid: currentAllowance?.paidAmount ?? 0
             )
         }
 

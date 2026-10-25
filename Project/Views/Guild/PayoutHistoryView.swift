@@ -466,7 +466,6 @@ struct PayoutHistoryView: View {
                 heroName: heroName(for: period),
                 ledgerEntries: cachedLedgers.filter { $0.profileRecordName == period.profileRecordName },
                 goals: cachedGoals.filter { $0.profileRecordName == period.profileRecordName },
-                cachedLedgers: cachedLedgers,
                 chartData: chartData(for: period),
                 aggregatedChartData: aggregatedChartData
             )

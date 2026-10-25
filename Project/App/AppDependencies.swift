@@ -479,7 +479,18 @@ final class AppDependencies {
             appState: appState
         ))
         migrations.register(DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator, appState: appState))
-        migrations.register(DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator, appState: appState))
+        migrations.register(DataMigrationsCoordinator.allowancePeriodQuestsTotalBackfillV1(
+            cacheService: cache,
+            cloudKit: cloudKit,
+            syncCoordinator: syncCoordinator,
+            appState: appState
+        ))
+        migrations.register(DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(
+            cloudKit: cloudKit,
+            cacheService: cache,
+            syncCoordinator: syncCoordinator,
+            appState: appState
+        ))
         migrations.register(DataMigrationsCoordinator.currencyToPenniesV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator, appState: appState))
         migrations.register(DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit, appState: appState, syncCoordinator: syncCoordinator))
         migrations.register(DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: cloudKit, cacheService: cache, appState: appState, syncCoordinator: syncCoordinator))
