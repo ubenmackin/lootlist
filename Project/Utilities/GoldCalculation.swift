@@ -142,9 +142,10 @@ enum GoldCalculation: Sendable {
         templatesByID: [String: QuestTemplateCache] = [:]
     ) -> Int64 {
         let heroLogs = logs.filter { $0.completerRecordName == profileRecordName }
+        // WHY weekOf-only: matches fetchQuestLogs so counts and gold never diverge.
         let approvedLogs = heroLogs.filter {
             ($0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified) &&
-                (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
+                weekRange.contains($0.weekOf)
         }
 
         var totalEarned = totalPennies(for: quests, approvedLogs: approvedLogs, templatesByID: templatesByID)
@@ -168,6 +169,34 @@ enum GoldCalculation: Sendable {
         }
 
         return totalEarned
+    }
+
+    /// WHY separate pools: the quest share caps at the snapshot so merge skew in paidAmount
+    /// can never eat into the bonus remainder drawn from the same total.
+    static func settledBonusSnapshot(totalEarned: Int64, questPaid: Int64) -> Int64 {
+        let questShare = min(max(Int64(0), questPaid), max(Int64(0), totalEarned))
+        return max(Int64(0), totalEarned - questShare)
+    }
+
+    /// WHY quest-only pending: payout amount is live quest gold minus settled paidAmount floored at zero.
+    static func pendingQuestRemainder(liveQuestGold: Int64, settledPaid: Int64) -> Int64 {
+        max(Int64(0), liveQuestGold - settledPaid)
+    }
+
+    /// WHY total display: quest remainder plus bonus remainder for weekly breakdown totals; pending payout uses pendingQuestRemainder quest-only.
+    static func pendingRemainder(liveQuestGold: Int64,
+                                 liveBonusGold: Int64,
+                                 settledPaid: Int64,
+                                 totalEarnedSnapshot: Int64,
+                                 isPaid: Bool) -> Int64
+    {
+        let questGold = pendingQuestRemainder(liveQuestGold: liveQuestGold, settledPaid: settledPaid)
+        let bonusGold: Int64 = if isPaid {
+            max(Int64(0), liveBonusGold - settledBonusSnapshot(totalEarned: totalEarnedSnapshot, questPaid: settledPaid))
+        } else {
+            liveBonusGold
+        }
+        return questGold + bonusGold
     }
 
     // MARK: - Pure Domain Gold Aggregation

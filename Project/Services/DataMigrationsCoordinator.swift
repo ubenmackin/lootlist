@@ -87,7 +87,8 @@ final class DataMigrationsCoordinator {
     private static func fetchRecordOrNil<T: CloudKitRecord>(
         _ type: T.Type,
         id: CKRecord.ID,
-        cloudKit: any CloudKitServiceProtocol
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)
     ) async throws -> T? {
         do {
             return try await cloudKit.fetch(type, id: id, using: nil)
@@ -110,7 +111,8 @@ final class DataMigrationsCoordinator {
 
 extension DataMigrationsCoordinator {
     @MainActor
-    private static func migrationScope(appState: AppState?, cloudKit: any CloudKitServiceProtocol) -> CKDatabase.Scope? {
+    // swiftformat:disable:next redundantParens
+    private static func migrationScope(appState: AppState?, cloudKit: (any CloudKitServiceProtocol)) -> CKDatabase.Scope? {
         if let scope = DatabaseScopeResolver.resolvedScope(appState: appState) {
             return scope
         }
@@ -125,7 +127,8 @@ extension DataMigrationsCoordinator {
     }
 
     static func questNameBackfillV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         appState: AppState? = nil,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil
@@ -227,7 +230,8 @@ extension DataMigrationsCoordinator {
     }
 
     static func achievementMigrationV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         cacheService _: CacheService? = nil,
         appState: AppState? = nil,
         // swiftformat:disable:next redundantParens
@@ -280,7 +284,8 @@ extension DataMigrationsCoordinator {
     }
 
     static func heroNotificationPreferenceBackfillV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         cacheService _: CacheService? = nil,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil,
@@ -344,7 +349,8 @@ extension DataMigrationsCoordinator {
     }
 
     static func allowancePeriodSeedV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         cacheService: CacheService?,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil,
@@ -414,7 +420,10 @@ extension DataMigrationsCoordinator {
 
     /// Marker step for the V8 cache-schema bump. The schema change itself (GoalCache plus
     /// savings-config/claim/bucket fields) is an incompatible SwiftData change, so the destructive store
-    static func schemaV8SavingsResetMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
+    static func schemaV8SavingsResetMarker(
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)
+    ) -> MigrationStep {
         MigrationStep(id: "SchemaV8SavingsResetMarker", version: 8) {
             let logger = Logger(category: "DataMigrations")
             guard cloudKit.activeFamilyZoneID != nil else {
@@ -428,7 +437,10 @@ extension DataMigrationsCoordinator {
     /// WHY index-only: V10 adds ledger composite indexes with no property changes, so lightweight migration applies without reset.
     /// Retains base `familyRecordName+recordName` and adds `family+profile+date` plus `family+profile+source+date`
     /// for month and source-range history; no new models, no property changes, sparse optionals stay out of predicates.
-    static func schemaV10LedgerIndexMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
+    static func schemaV10LedgerIndexMarker(
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)
+    ) -> MigrationStep {
         MigrationStep(id: "SchemaV10LedgerIndexMarker", version: 10) {
             let logger = Logger(category: "DataMigrations")
             guard cloudKit.activeFamilyZoneID != nil else {
@@ -441,7 +453,8 @@ extension DataMigrationsCoordinator {
 
     /// Cleans up any legacy allowance periods mistakenly seeded for parent profiles.
     static func purgeParentAllowancePeriodsV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         cacheService: CacheService?,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil,
@@ -488,7 +501,8 @@ extension DataMigrationsCoordinator {
     }
 
     static func questLedgerBackfillV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         cacheService _: CacheService? = nil,
         appState: AppState? = nil,
         // swiftformat:disable:next redundantParens
@@ -576,7 +590,8 @@ extension DataMigrationsCoordinator {
     }
 
     static func currencyToPenniesV1(
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         cacheService _: CacheService? = nil,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil,
@@ -662,7 +677,8 @@ extension DataMigrationsCoordinator {
 
     static func allowancePeriodQuestsTotalBackfillV1(
         cacheService: CacheService?,
-        cloudKit: any CloudKitServiceProtocol? = nil,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)? = nil,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil,
         appState: AppState? = nil
@@ -684,7 +700,8 @@ extension DataMigrationsCoordinator {
     @MainActor
     private static func repairZeroQuestsTotal(
         cacheService: CacheService,
-        cloudKit: any CloudKitServiceProtocol? = nil,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol)? = nil,
         // swiftformat:disable:next redundantParens
         syncCoordinator: (any SyncEnqueuing)? = nil,
         appState: AppState? = nil
@@ -737,8 +754,8 @@ extension DataMigrationsCoordinator {
             let periods = cacheService.fetchAllowancePeriods(family: family)
             guard !periods.isEmpty else { continue }
             for period in periods {
-                // WHY narrow scope: only zero-total paid weeks with completions lost the denominator; active and non-zero rows keep theirs.
-                guard period.questsTotal == 0, period.questsCompleted > 0, period.status == PayoutStatus.paid.rawValue else { continue }
+                // WHY paid-zero scope: all paid weeks with zero total lost the denominator, including manual payouts with no completions yet.
+                guard period.questsTotal == 0, period.status == PayoutStatus.paid.rawValue else { continue }
                 let assignedCount = assignedActiveQuestsCount(
                     cacheService: cacheService,
                     familyName: family,
@@ -777,11 +794,13 @@ extension DataMigrationsCoordinator {
     @MainActor
     private static func persistRepairedQuestsTotals(
         cacheService: CacheService,
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         zoneID: CKRecordZone.ID,
         scope: CKDatabase.Scope,
         isOwner: Bool,
-        syncCoordinator: any SyncEnqueuing?,
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)?,
         expectedByRecordName: [String: Int],
         cachesByName: [String: AllowancePeriodCache]
     ) async throws {
@@ -831,16 +850,18 @@ extension DataMigrationsCoordinator {
     private static func persistServerPeriod(
         server: AllowancePeriod,
         cacheService: CacheService,
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         zoneID: CKRecordZone.ID,
         scope: CKDatabase.Scope,
         isOwner: Bool,
-        syncCoordinator: any SyncEnqueuing?,
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)?,
         expectedByRecordName: [String: Int]
     ) async -> String? {
         let logger = Logger(category: "DataMigrations")
-        // WHY narrow scope: only zero-total paid weeks with completions lost the denominator; active and non-zero rows keep theirs.
-        guard server.questsTotal == 0, server.questsCompleted > 0, server.status == .paid else { return nil }
+        // WHY paid-zero scope: all paid weeks with zero total lost the denominator, including manual payouts with no completions yet.
+        guard server.questsTotal == 0, server.status == .paid else { return nil }
         let familyName = server.family.recordID.recordName
         let assignedCount = assignedActiveQuestsCount(
             cacheService: cacheService,
@@ -868,11 +889,13 @@ extension DataMigrationsCoordinator {
     @MainActor
     private static func persistOrphanPeriod(
         cachePeriod: AllowancePeriodCache,
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         zoneID: CKRecordZone.ID,
         scope: CKDatabase.Scope,
         isOwner: Bool,
-        syncCoordinator: any SyncEnqueuing?
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)?
     ) async -> String? {
         let logger = Logger(category: "DataMigrations")
         guard cachePeriod.questsTotal > 0 else { return nil }
@@ -906,7 +929,8 @@ extension DataMigrationsCoordinator {
     @discardableResult
     private static func convertRecords<T: CloudKitRecord>(
         _ type: T.Type,
-        cloudKit: any CloudKitServiceProtocol,
+        // swiftformat:disable:next redundantParens
+        cloudKit: (any CloudKitServiceProtocol),
         zoneID: CKRecordZone.ID,
         scope: CKDatabase.Scope,
         isOwner: Bool,

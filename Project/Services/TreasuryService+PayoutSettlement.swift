@@ -109,10 +109,8 @@ extension TreasuryService {
         }
         if let existing = try await fetchAllowancePeriod(profile: hero, weekOf: weekOf) {
             if existing.status == .paid {
-                let breakdown = try await weeklyBreakdown(profile: hero, family: family, weekOf: weekOf)
-                guard guardSupplementOrReturn(period: existing, breakdown: breakdown, now: now) else { return false }
-                try await runPayout(period: existing, now: now)
-                return true
+                // WHY closed stays closed: previous week window has elapsed, so supplemental cannot reopen it.
+                return false
             }
             // WHY empty stays open: settling zero earnings would close the period with paid-zero.
             let breakdown = try await weeklyBreakdown(profile: hero, family: family, weekOf: weekOf)

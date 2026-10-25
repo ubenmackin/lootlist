@@ -462,7 +462,10 @@ final class TreasuryService {
         }
 
         updated.status = .paid
-        updated.paidDate = now
+        // WHY stable stamp: supplemental re-settlement rewrites totals, never the original manual-vs-weekly classifier.
+        if !isSupplemental {
+            updated.paidDate = now
+        }
         updated.paidAmount = questGoldToPayout
 
         await cacheService.upsertAllowancePeriod(updated)

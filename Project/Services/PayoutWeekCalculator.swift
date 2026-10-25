@@ -96,13 +96,7 @@ enum PayoutWeekCalculator {
     /// WHY paidDate: wall-clock `now` cannot classify history — only the stamp distinguishes a mid-week manual payout from a week-close settlement.
     static func isEarlyPayout(for period: AllowancePeriodCache) -> Bool {
         guard let paidDate = period.paidDate else { return false }
-        return paidDate < WeekMath.weekRange(starting: period.weekOf).upperBound
-    }
-
-    /// Still-open probe for settlement: true while `now` precedes the week's exclusive upper bound.
-    /// WHY delegate: still-open comparison lives in `isWeekOpen` so this probe and `shouldSupplement` cannot drift.
-    static func isEarlyPayout(weekOf: Date, now: Date) -> Bool {
-        isWeekOpen(weekOf: weekOf, now: now)
+        return isWeekOpen(weekOf: period.weekOf, now: paidDate)
     }
 
     /// WHY single gate: week-open plus new-earnings plus quest-gold floor travel together so runPayout and settleCurrentWeek cannot drift.
@@ -112,7 +106,7 @@ enum PayoutWeekCalculator {
         return max(Int64(0), goldFromQuests - settledPaid) > 0
     }
 
-    /// WHY one helper: the still-open comparison lives here so `isEarlyPayout(weekOf:now:)` and `shouldSupplement` cannot drift.
+    /// WHY one helper: the still-open comparison lives here so `isEarlyPayout(for:)` and `shouldSupplement` cannot drift.
     private static func isWeekOpen(weekOf: Date, now: Date) -> Bool {
         now < WeekMath.weekRange(starting: weekOf).upperBound
     }

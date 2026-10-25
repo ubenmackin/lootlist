@@ -152,8 +152,6 @@ final class TreasuryViewModel {
         let paidAmount = currentAllowance?.paidAmount
 
         let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
-        // WHY bucket-only: nil-bucket rows are wiped residue, never paid quest gold.
-        let hasPaidQuestThisWeek = weekLedgers.contains { $0.sourceEnum == .quest && BucketService.isCounted($0) }
         // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
         let weekBonusGold = weekLedgers
             .filter { BucketService.isBonusCounted($0) }
@@ -167,7 +165,8 @@ final class TreasuryViewModel {
         let approvedLogs = profileLogs.filter {
             $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
         }
-        let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate) }
+        // WHY weekOf-only: matches fetchQuestLogs so counts and gold share one routing.
+        let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) }
 
         // WHY row-first: payout policy must mirror @Query rows so pending math never disagrees with gating.
         let effectivePolicy: PayoutPolicy = if viewerRow != nil || familyRow != nil {
@@ -188,10 +187,14 @@ final class TreasuryViewModel {
 
         let totalEarned = weekQuestsGold + weekBonusGold
 
-        if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
+        // WHY quest-only remainder: paid weeks keep the supplemental slice so late completions stay pending.
+        if effectivePolicy == .realTime {
             pendingQuestGold = 0
         } else {
-            pendingQuestGold = weekQuestsGold
+            pendingQuestGold = GoldCalculation.pendingQuestRemainder(
+                liveQuestGold: weekQuestsGold,
+                settledPaid: currentAllowance?.paidAmount ?? 0
+            )
         }
 
         weeklyBreakdown = TreasuryService.WeeklyBreakdown(
