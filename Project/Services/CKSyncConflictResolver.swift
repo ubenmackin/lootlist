@@ -16,7 +16,7 @@ import SwiftData
 /// Quest banked XP: max(server,client) capped at xpReward. Profile XP: max(server+max(client-lastSynced,0),
 /// max(server,client)) with lastSyncedXP advance on isServerSync (see ProfileCache.update). QuestCompletion
 /// xpCredited: non-nil preserve (once credited never re-minted). AllowancePeriod: monotonic rank
-/// paid > payoutPending > active plus max(totalEarned/questsCompleted/paidAmount) and server-preferred paidDate
+/// paid > payoutPending > active plus max(totalEarned/questsCompleted/questsTotal/paidAmount) and server-preferred paidDate
 /// with client fallback. Quest/Profile display fields use client-wins overlay; Hero Board claim races resolve
 /// via standard server-wins (loser's ingest reveals the other claimer). All merges carry post-merge
 /// changeTag/encodedSystemFields via a single background batch.
@@ -571,7 +571,7 @@ final class CKSyncConflictResolver {
     /// FROZEN — AllowancePeriod monotonic merge per ARCHITECTURE.md §2. Two devices settling the same
     /// period (deterministic `period-{family}-{profile}-{week}` recordName) race through
     /// `getOrCreateAllowancePeriod →` monotonic rank paid(2) > payoutPending(1) > active(0), max amounts
-    /// (totalEarned/questsCompleted/paidAmount) plus server-preferred paidDate (server ?? client),
+    /// (totalEarned/questsCompleted/questsTotal/paidAmount) plus server-preferred paidDate (server ?? client),
     private func resolveAllowancePeriodConflict(
         serverRecord: CKRecord,
         originalRecord: CKRecord,
@@ -594,6 +594,10 @@ final class CKSyncConflictResolver {
         let clientQuestsCompleted = originalRecord["questsCompleted"] as? Int ?? 0
         let mergedQuestsCompleted = max(serverQuestsCompleted, clientQuestsCompleted)
 
+        let serverQuestsTotal = serverRecord["questsTotal"] as? Int ?? 0
+        let clientQuestsTotal = originalRecord["questsTotal"] as? Int ?? 0
+        let mergedQuestsTotal = max(serverQuestsTotal, clientQuestsTotal)
+
         let serverStatusRaw = serverRecord["status"] as? String ?? PayoutStatus.active.rawValue
         let clientStatusRaw = originalRecord["status"] as? String ?? PayoutStatus.active.rawValue
         let serverStatus = PayoutStatus(rawValue: serverStatusRaw) ?? .active
@@ -615,6 +619,7 @@ final class CKSyncConflictResolver {
         merged.paidAmount = mergedPaidAmount
         merged.totalEarned = mergedTotalEarned
         merged.questsCompleted = mergedQuestsCompleted
+        merged.questsTotal = mergedQuestsTotal
         merged.status = mergedStatus
         merged.paidDate = mergedPaidDate
         merged.changeTag = serverRecord.recordChangeTag

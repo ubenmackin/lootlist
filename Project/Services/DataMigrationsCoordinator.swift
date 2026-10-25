@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import SwiftData
 
 @MainActor
 final class DataMigrationsCoordinator {
@@ -33,6 +34,12 @@ final class DataMigrationsCoordinator {
         let id: String
         let version: Int
         let run: () async throws -> Void
+    }
+
+    struct QuestsTotalRepair {
+        let repaired: Int
+        let expectedByRecordName: [String: Int]
+        let cachesByName: [String: AllowancePeriodCache]
     }
 
     private var steps: [MigrationStep] = []
@@ -650,6 +657,249 @@ extension DataMigrationsCoordinator {
                 throw MigrationError.incompleteBackfill("Currency to pennies had save errors; migration marked incomplete for retry")
             }
             logger.info("Currency to pennies migration converted \(converted) records.")
+        }
+    }
+
+    static func allowancePeriodQuestsTotalBackfillV1(
+        cacheService: CacheService?,
+        cloudKit: any CloudKitServiceProtocol? = nil,
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        appState: AppState? = nil
+    ) -> MigrationStep {
+        MigrationStep(id: "allowancePeriodQuestsTotalBackfillV1", version: 1) {
+            guard let cacheService else {
+                Logger(category: "DataMigrations").info("No cache service, skipping questsTotal backfill.")
+                return
+            }
+            try await repairZeroQuestsTotal(
+                cacheService: cacheService,
+                cloudKit: cloudKit,
+                syncCoordinator: syncCoordinator,
+                appState: appState
+            )
+        }
+    }
+
+    @MainActor
+    private static func repairZeroQuestsTotal(
+        cacheService: CacheService,
+        cloudKit: any CloudKitServiceProtocol? = nil,
+        // swiftformat:disable:next redundantParens
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        appState: AppState? = nil
+    ) async throws {
+        let logger = Logger(category: "DataMigrations")
+        // WHY root enumeration: FamilyCache is the partition root, so listing families is the scoped entry point; period and quest reads stay per-family predicates.
+        let familyNames = cacheService.fetch(FetchDescriptor<FamilyCache>()).map(\.recordName)
+        guard !familyNames.isEmpty else {
+            logger.info("No families cached, skipping questsTotal backfill.")
+            return
+        }
+        let repair = repairCachedQuestsTotals(cacheService: cacheService, familyNames: familyNames)
+        if repair.repaired > 0 {
+            cacheService.saveContext()
+            logger.info("Repaired questsTotal on \(repair.repaired) allowance periods.")
+        } else {
+            logger.info("No questsTotal allowance periods to repair.")
+        }
+        // WHY CloudKit persist: cache upsert and conflict merge retain max questsTotal, so persist the repaired total to converge the server copy.
+        guard let cloudKit, let zoneID = cloudKit.activeFamilyZoneID else {
+            logger.info("No active family zone, skipping CloudKit persist for questsTotal repair.")
+            return
+        }
+        guard let scope = migrationScope(appState: appState, cloudKit: cloudKit) else {
+            logger.info("Unknown database scope, skipping CloudKit persist for questsTotal repair.")
+            return
+        }
+        let isOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "DataMigrations.allowancePeriodQuestsTotalBackfillV1")
+        try await persistRepairedQuestsTotals(
+            cacheService: cacheService,
+            cloudKit: cloudKit,
+            zoneID: zoneID,
+            scope: scope,
+            isOwner: isOwner,
+            syncCoordinator: syncCoordinator,
+            expectedByRecordName: repair.expectedByRecordName,
+            cachesByName: repair.cachesByName
+        )
+    }
+
+    @MainActor
+    private static func repairCachedQuestsTotals(
+        cacheService: CacheService,
+        familyNames: [String]
+    ) -> QuestsTotalRepair {
+        var repaired = 0
+        var expectedByRecordName: [String: Int] = [:]
+        var cachesByName: [String: AllowancePeriodCache] = [:]
+        for family in familyNames {
+            let periods = cacheService.fetchAllowancePeriods(family: family)
+            guard !periods.isEmpty else { continue }
+            for period in periods {
+                // WHY narrow scope: only zero-total paid weeks with completions lost the denominator; active and non-zero rows keep theirs.
+                guard period.questsTotal == 0, period.questsCompleted > 0, period.status == PayoutStatus.paid.rawValue else { continue }
+                let assignedCount = assignedActiveQuestsCount(
+                    cacheService: cacheService,
+                    familyName: family,
+                    profileRecordName: period.profileRecordName,
+                    weekOf: period.weekOf
+                )
+                // WHY zero-inclusive max: paid manual weeks with no completions yet still need assigned count,
+                // and purged weeks keep completed count so progress never divides by zero.
+                let expected = max(assignedCount, period.questsCompleted)
+                let prior = expectedByRecordName[period.recordName] ?? 0
+                expectedByRecordName[period.recordName] = max(prior, expected)
+                cachesByName[period.recordName] = period
+                guard expected > period.questsTotal else { continue }
+                period.questsTotal = expected
+                repaired += 1
+            }
+        }
+        return QuestsTotalRepair(repaired: repaired, expectedByRecordName: expectedByRecordName, cachesByName: cachesByName)
+    }
+
+    @MainActor
+    private static func assignedActiveQuestsCount(
+        cacheService: CacheService,
+        familyName: String,
+        profileRecordName: String,
+        weekOf: Date
+    ) -> Int {
+        // WHY canonical start: period.weekOf is already the payout-anchored start, so the range derives directly without payout-day recompute.
+        let range = WeekMath.weekRange(starting: weekOf)
+        // WHY active parity: mirrors fetchAssignedQuests so inactive quests never inflate questsTotal.
+        return cacheService.fetchQuests(family: familyName, weekInRange: range)
+            .filter { $0.assigneeRecordName == profileRecordName && $0.isActive }
+            .count
+    }
+
+    @MainActor
+    private static func persistRepairedQuestsTotals(
+        cacheService: CacheService,
+        cloudKit: any CloudKitServiceProtocol,
+        zoneID: CKRecordZone.ID,
+        scope: CKDatabase.Scope,
+        isOwner: Bool,
+        syncCoordinator: any SyncEnqueuing?,
+        expectedByRecordName: [String: Int],
+        cachesByName: [String: AllowancePeriodCache]
+    ) async throws {
+        let logger = Logger(category: "DataMigrations")
+        var failedRecordNames: [String] = []
+        do {
+            let serverPeriods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
+            let serverByName = Dictionary(serverPeriods.map { ($0.id.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+            for server in serverPeriods {
+                if let failed = await persistServerPeriod(
+                    server: server,
+                    cacheService: cacheService,
+                    cloudKit: cloudKit,
+                    zoneID: zoneID,
+                    scope: scope,
+                    isOwner: isOwner,
+                    syncCoordinator: syncCoordinator,
+                    expectedByRecordName: expectedByRecordName
+                ) {
+                    failedRecordNames.append(failed)
+                }
+            }
+            // WHY orphan push: cache rows with no server counterpart still need a server record so the next snapshot does not resurrect zero.
+            for cachePeriod in cachesByName.values {
+                guard serverByName[cachePeriod.recordName] == nil else { continue }
+                if let failed = await persistOrphanPeriod(
+                    cachePeriod: cachePeriod,
+                    cloudKit: cloudKit,
+                    zoneID: zoneID,
+                    scope: scope,
+                    isOwner: isOwner,
+                    syncCoordinator: syncCoordinator
+                ) {
+                    failedRecordNames.append(failed)
+                }
+            }
+        } catch {
+            logger.error("questsTotal repair server query failed: \(error, privacy: .private)")
+            throw MigrationError.incompleteBackfill("questsTotal repair server query failed; migration marked incomplete for retry")
+        }
+        if !failedRecordNames.isEmpty {
+            throw MigrationError.incompleteBackfill("questsTotal repair had save errors; migration marked incomplete for retry")
+        }
+    }
+
+    @MainActor
+    private static func persistServerPeriod(
+        server: AllowancePeriod,
+        cacheService: CacheService,
+        cloudKit: any CloudKitServiceProtocol,
+        zoneID: CKRecordZone.ID,
+        scope: CKDatabase.Scope,
+        isOwner: Bool,
+        syncCoordinator: any SyncEnqueuing?,
+        expectedByRecordName: [String: Int]
+    ) async -> String? {
+        let logger = Logger(category: "DataMigrations")
+        // WHY narrow scope: only zero-total paid weeks with completions lost the denominator; active and non-zero rows keep theirs.
+        guard server.questsTotal == 0, server.questsCompleted > 0, server.status == .paid else { return nil }
+        let familyName = server.family.recordID.recordName
+        let assignedCount = assignedActiveQuestsCount(
+            cacheService: cacheService,
+            familyName: familyName,
+            profileRecordName: server.profile.recordID.recordName,
+            weekOf: server.weekOf
+        )
+        let cachedExpected = expectedByRecordName[server.id.recordName] ?? 0
+        // WHY max-merge: server may have advanced since the cache snapshot, so never regress a larger server total.
+        let target = max(max(assignedCount, server.questsCompleted), max(cachedExpected, server.questsTotal))
+        guard target > server.questsTotal else { return nil }
+        var updated = server
+        updated.questsTotal = target
+        do {
+            let saved = try await cloudKit.save(updated, in: zoneID, using: nil)
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: scope, zoneID: zoneID)
+            syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
+            return nil
+        } catch {
+            logger.error("Failed to persist repaired questsTotal \(server.id.recordName, privacy: .private): \(error, privacy: .private)")
+            return server.id.recordName
+        }
+    }
+
+    @MainActor
+    private static func persistOrphanPeriod(
+        cachePeriod: AllowancePeriodCache,
+        cloudKit: any CloudKitServiceProtocol,
+        zoneID: CKRecordZone.ID,
+        scope: CKDatabase.Scope,
+        isOwner: Bool,
+        syncCoordinator: any SyncEnqueuing?
+    ) async -> String? {
+        let logger = Logger(category: "DataMigrations")
+        guard cachePeriod.questsTotal > 0 else { return nil }
+        let recordID = CKRecord.ID(recordName: cachePeriod.recordName, zoneID: zoneID)
+        let profileRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: cachePeriod.profileRecordName, zoneID: zoneID), action: .none)
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: cachePeriod.familyRecordName, zoneID: zoneID), action: .none)
+        let status = PayoutStatus(rawValue: cachePeriod.status) ?? .active
+        let synthesized = AllowancePeriod(
+            weekOf: cachePeriod.weekOf,
+            profile: profileRef,
+            status: status,
+            totalEarned: cachePeriod.totalEarned,
+            questsCompleted: cachePeriod.questsCompleted,
+            questsTotal: cachePeriod.questsTotal,
+            paidDate: cachePeriod.paidDate,
+            paidAmount: cachePeriod.paidAmount,
+            family: familyRef,
+            id: recordID
+        )
+        do {
+            let saved = try await cloudKit.save(synthesized, in: zoneID, using: nil)
+            await syncCoordinator?.hydrationHandler.hydrateFromQuery(models: [saved], databaseScope: scope, zoneID: zoneID)
+            syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
+            return nil
+        } catch {
+            logger.error("Failed to persist orphan repaired questsTotal \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
+            return recordID.recordName
         }
     }
 

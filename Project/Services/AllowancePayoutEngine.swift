@@ -36,12 +36,6 @@ extension TreasuryService {
             profileRecordName: profile.id.recordName,
             family: family.recordID.recordName
         )
-        // Symmetric twin of the real-time guard: either settlement already credited
-        // this week, so the other must not double-count it. Suffix-aware so split
-        // shares (`-{bucket}`) also trip the guard when the payout policy flips mid-week.
-        if cachedEntries.contains(where: { $0.recordName == baseRecordName || $0.recordName.hasPrefix("\(baseRecordName)-") }) {
-            return
-        }
         if cachedEntries.contains(where: { $0.recordName == rtRecordName || $0.recordName.hasPrefix("\(rtRecordName)-") }) {
             // Defense-in-depth twin of the legacy payout guard: a real-time
             // settlement already credited this week, so the batch split
@@ -50,10 +44,73 @@ extension TreasuryService {
         }
 
         if let cachedPeriod = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName) {
-            guard cachedPeriod.statusEnum == .paid, (cachedPeriod.paidAmount ?? 0) == amount else {
-                logger.warning("Skipping bucket payout split: period \(periodRecordName) status is not paid or amount mismatch")
+            if cachedPeriod.statusEnum != .paid || (cachedPeriod.paidAmount ?? 0) != amount {
+                logger.warning("Bucket payout split mismatch for \(periodRecordName): re-reading before abort")
+                // WHY re-read: cache write may lag the runPayout upsert, so retry once before aborting.
+                let retried = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName)
+                guard let retried, retried.statusEnum == .paid, (retried.paidAmount ?? 0) == amount else {
+                    logger.error("Bucket payout split aborted for \(periodRecordName): period not paid or amount mismatch after retry")
+                    return
+                }
+            }
+        } else {
+            logger.warning("Bucket payout split period missing for \(periodRecordName): re-reading before abort")
+            // WHY re-read: family-scoped fetch may miss on first read, so retry once before aborting.
+            guard let retried = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName),
+                  retried.statusEnum == .paid, (retried.paidAmount ?? 0) == amount
+            else {
+                logger.error("Bucket payout split aborted for \(periodRecordName): period missing or mismatched after retry")
                 return
             }
+        }
+
+        let existing = cachedEntries.filter {
+            $0.recordName == baseRecordName || $0.recordName.hasPrefix("\(baseRecordName)-")
+        }
+        if !existing.isEmpty {
+            // WHY deduped total: duplicate twins would otherwise double-count and suppress the delta.
+            let settledTotal = accumulateBucket(existing, baseRecordName: baseRecordName).totals.values.reduce(Int64(0), +)
+            let zoneID = family.recordID.zoneID
+            // WHY single source: week labels ride WeekMath so minting plus parsing never drift.
+            let weekLabel = WeekMath.payoutWeekLabel(for: weekOf)
+            guard amount > settledTotal else {
+                // WHY converge without mint: zero-delta re-runs still collapse twins so later deltas measure clean totals.
+                await convergeDuplicateTwins(
+                    SplitMintContext(
+                        baseRecordName: baseRecordName,
+                        periodRecordName: periodRecordName,
+                        amount: amount,
+                        weekOf: weekOf,
+                        profile: profile,
+                        family: family,
+                        date: date,
+                        isOwner: isOwner,
+                        isRealTime: false
+                    ),
+                    existing: existing,
+                    zoneID: zoneID,
+                    weekLabel: weekLabel
+                )
+                return
+            }
+            let delta = amount - settledTotal
+            await mintBatchSupplemental(
+                SplitMintContext(
+                    baseRecordName: baseRecordName,
+                    periodRecordName: periodRecordName,
+                    amount: delta,
+                    weekOf: weekOf,
+                    profile: profile,
+                    family: family,
+                    date: date,
+                    isOwner: isOwner,
+                    isRealTime: false
+                ),
+                existing: existing,
+                zoneID: zoneID,
+                weekLabel: weekLabel
+            )
+            return
         }
 
         await mintSplitLedgerEntries(
@@ -161,6 +218,43 @@ extension TreasuryService {
                 $0.recordName == context.baseRecordName
                     || $0.recordName.hasPrefix("\(context.baseRecordName)-")
             }
+        await mintCumulativeSupplemental(
+            context,
+            receiving: receiving,
+            existing: existing,
+            zoneID: zoneID,
+            weekLabel: weekLabel
+        )
+    }
+
+    /// WHY cumulative batch: supplemental earnings add to stable IDs so retries converge.
+    private func mintBatchSupplemental(
+        _ context: SplitMintContext,
+        existing: [LedgerEntryCache],
+        zoneID: CKRecordZone.ID,
+        weekLabel: String
+    ) async {
+        let receiving = BucketService.splitPennies(context.amount, profile: context.profile)
+            .filter { $0.pennies > 0 }
+        guard !receiving.isEmpty else { return }
+        await mintCumulativeSupplemental(
+            context,
+            receiving: receiving,
+            existing: existing,
+            zoneID: zoneID,
+            weekLabel: weekLabel
+        )
+    }
+
+    /// WHY single converge path: batch supplemental and real-time deltas share one cumulative
+    /// apply-merge-prune-cascade so attribution never drifts between entry points.
+    private func mintCumulativeSupplemental(
+        _ context: SplitMintContext,
+        receiving: [BucketService.BucketShare],
+        existing: [LedgerEntryCache],
+        zoneID: CKRecordZone.ID,
+        weekLabel: String
+    ) async {
         let accumulated = accumulateBucket(existing, baseRecordName: context.baseRecordName)
         var primary = expectedShareNames(accumulated.names, baseRecordName: context.baseRecordName)
         var totals = accumulated.totals
@@ -169,7 +263,7 @@ extension TreasuryService {
         await applyCumulativeShares(
             context,
             receiving: receiving,
-            existingIsEmpty: existing.isEmpty,
+            existing: existing,
             primary: &primary,
             totals: &totals,
             expected: &expected,
@@ -188,23 +282,52 @@ extension TreasuryService {
         await pruneStaleTwins(
             existing,
             expected: expected,
-            familyName: familyName,
+            familyName: context.family.recordID.recordName,
             zoneID: zoneID
         )
         await cascadeDelta(context, shares: receiving, zoneID: zoneID)
+    }
+
+    /// WHY converge without mint: zero-delta re-runs still collapse twins so later deltas measure clean totals.
+    private func convergeDuplicateTwins(
+        _ context: SplitMintContext,
+        existing: [LedgerEntryCache],
+        zoneID: CKRecordZone.ID,
+        weekLabel: String
+    ) async {
+        let accumulated = accumulateBucket(existing, baseRecordName: context.baseRecordName)
+        let primary = expectedShareNames(accumulated.names, baseRecordName: context.baseRecordName)
+        let expected = Set(primary.values)
+        await mergeDuplicateTwins(
+            context,
+            allNames: accumulated.names,
+            primary: primary,
+            totals: accumulated.totals,
+            deltaKinds: [],
+            zoneID: zoneID,
+            weekLabel: weekLabel
+        )
+        await pruneStaleTwins(
+            existing,
+            expected: expected,
+            familyName: context.family.recordID.recordName,
+            zoneID: zoneID
+        )
     }
 
     /// WHY cumulative write: prior total plus delta keeps mid-week split changes additive.
     private func applyCumulativeShares(
         _ context: SplitMintContext,
         receiving: [BucketService.BucketShare],
-        existingIsEmpty: Bool,
+        existing: [LedgerEntryCache],
         primary: inout [String: String],
         totals: inout [String: Int64],
         expected: inout Set<String>,
         zoneID: CKRecordZone.ID,
         weekLabel: String
     ) async {
+        // WHY derive emptiness: caller snapshot is the source so single-bucket base naming never drifts.
+        let isExistingEmpty = existing.isEmpty
         for share in receiving {
             let key = share.kind.rawValue
             let target: String
@@ -212,7 +335,7 @@ extension TreasuryService {
             if let current = primary[key] {
                 target = current
                 newTotal = (totals[key] ?? 0) + share.pennies
-            } else if existingIsEmpty, receiving.count == 1 {
+            } else if isExistingEmpty, receiving.count == 1 {
                 target = context.baseRecordName
                 newTotal = share.pennies
             } else {
@@ -229,7 +352,7 @@ extension TreasuryService {
                 kind: share.kind,
                 weekLabel: weekLabel,
                 zoneID: zoneID,
-                isRealTime: true
+                isRealTime: context.isRealTime
             )
         }
     }
@@ -253,7 +376,7 @@ extension TreasuryService {
                 kind: kind,
                 weekLabel: weekLabel,
                 zoneID: zoneID,
-                isRealTime: true
+                isRealTime: context.isRealTime
             )
         }
     }

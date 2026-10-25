@@ -64,7 +64,8 @@ enum DashboardMetricsCalculator {
             let heroWeekRange = WeekMath.weekRange(starting: heroWeekOf)
 
             let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
-            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && (heroWeekRange.contains($0.weekOf) || heroWeekRange.contains($0.completedDate)) }
+            // WHY weekOf-only routing: matches fetchQuestLogs and weeklyBreakdown so counts and gold cannot diverge.
+            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
 
             let approvedLogs = heroLogs.filter {
                 $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
@@ -81,31 +82,36 @@ enum DashboardMetricsCalculator {
                 $0.profileRecordName == hero.recordName &&
                     WeekMath.startOfWeek(for: $0.weekOf, payoutDay: heroPayoutDay) == heroWeekOf
             }
-            let isPeriodPaid = heroPeriod?.statusEnum == .paid
 
-            let questGold: Int64
+            let effectivePolicy = hero.payoutPolicyEnum ?? familyContext.payoutPolicy ?? .perQuest
+            let liveQuestGold = Self.settlementQuestGold(
+                quests: quests,
+                logs: logs,
+                profileRecordName: hero.recordName,
+                payoutPolicy: effectivePolicy,
+                weekRange: heroWeekRange,
+                templatesByID: templatesByID
+            )
+            let heroLedgers = ledgers.filter {
+                $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
+            }
+            // WHY counted-only: quest payout rows reuse settled funds so only new bonus stays pending.
+            let liveBonusGold = heroLedgers
+                .filter { BucketService.isBonusCounted($0) }
+                .reduce(0) { $0 + $1.amount }
+            let settledPaid = heroPeriod?.paidAmount ?? 0
+            let questGold = max(Int64(0), liveQuestGold - settledPaid)
             let bonusGold: Int64
-            if isPeriodPaid {
-                questGold = 0
-                bonusGold = 0
-            } else {
-                let effectivePolicy = hero.payoutPolicyEnum ?? familyContext.payoutPolicy ?? .perQuest
-                questGold = GoldCalculation.netWeeklyPennies(
-                    quests: quests,
-                    logs: logs,
-                    profileRecordName: hero.recordName,
-                    payoutPolicy: effectivePolicy,
-                    weekRange: heroWeekRange,
-                    templatesByID: templatesByID
+            if heroPeriod?.statusEnum == .paid {
+                // WHY bonus-only remainder: paidAmount settles quest gold only while totalEarned
+                // snapshots quest + bonus, so the reflected slice is the snapshot bonus remainder.
+                let bonusSnapshot = Self.settledBonusSnapshot(
+                    totalEarned: heroPeriod?.totalEarned ?? 0,
+                    questPaid: settledPaid
                 )
-
-                let heroLedgers = ledgers.filter {
-                    $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
-                }
-                bonusGold = heroLedgers
-                    // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
-                    .filter { BucketService.isBonusCounted($0) }
-                    .reduce(0) { $0 + $1.amount }
+                bonusGold = max(Int64(0), liveBonusGold - bonusSnapshot)
+            } else {
+                bonusGold = liveBonusGold
             }
             let earned = questGold + bonusGold
 
@@ -193,6 +199,32 @@ enum DashboardMetricsCalculator {
     /// WHY one helper: bucket sum is the total on every surface.
     private static func heroTotalBalance(heroEntries: [LedgerEntryCache], profileRecordName: String) -> Int64 {
         BucketService.totalBalance(for: heroEntries, profileRecordName: profileRecordName)
+    }
+
+    /// WHY single source: live quest gold rides the shared payout math so counts and gold cannot diverge.
+    private static func settlementQuestGold(
+        quests: [QuestCache],
+        logs: [QuestCompletionCache],
+        profileRecordName: String,
+        payoutPolicy: PayoutPolicy,
+        weekRange: Range<Date>,
+        templatesByID: [String: QuestTemplateCache]
+    ) -> Int64 {
+        GoldCalculation.netWeeklyPennies(
+            quests: quests,
+            logs: logs,
+            profileRecordName: profileRecordName,
+            payoutPolicy: payoutPolicy,
+            weekRange: weekRange,
+            templatesByID: templatesByID
+        )
+    }
+
+    /// WHY separate pools: the quest share caps at the snapshot so merge skew in paidAmount
+    /// can never eat into the bonus remainder drawn from the same total.
+    private static func settledBonusSnapshot(totalEarned: Int64, questPaid: Int64) -> Int64 {
+        let questShare = min(max(Int64(0), questPaid), max(Int64(0), totalEarned))
+        return max(Int64(0), totalEarned - questShare)
     }
 }
 

@@ -70,7 +70,7 @@ extension TreasuryService {
         var failedName: String?
         for slot in slots {
             do {
-                if try await settleWeek(hero: hero, family: family, weekOf: slot.weekOf, isCurrent: slot.isCurrent) {
+                if try await settleWeek(hero: hero, family: family, weekOf: slot.weekOf, isCurrent: slot.isCurrent, now: now) {
                     settled += 1
                 }
             } catch {
@@ -91,27 +91,48 @@ extension TreasuryService {
         }
     }
 
-    private func settleWeek(hero: Profile, family: Family, weekOf: Date, isCurrent: Bool) async throws -> Bool {
+    private func guardSupplementOrReturn(period: AllowancePeriod, breakdown: WeeklyBreakdown, now: Date) -> Bool {
+        let settledPaid = period.paidAmount ?? 0
+        // WHY reopen window: early payouts stay adjustable until the week closes.
+        return PayoutWeekCalculator.shouldSupplement(
+            weekOf: period.weekOf,
+            now: now,
+            totalEarned: breakdown.totalEarned,
+            settledPaid: settledPaid,
+            goldFromQuests: breakdown.goldFromQuests
+        )
+    }
+
+    private func settleWeek(hero: Profile, family: Family, weekOf: Date, isCurrent: Bool, now: Date) async throws -> Bool {
         if isCurrent {
-            return try await settleCurrentWeek(hero: hero, family: family, weekOf: weekOf)
+            return try await settleCurrentWeek(hero: hero, family: family, weekOf: weekOf, now: now)
         }
         if let existing = try await fetchAllowancePeriod(profile: hero, weekOf: weekOf) {
-            guard existing.status != .paid else { return false }
+            if existing.status == .paid {
+                let breakdown = try await weeklyBreakdown(profile: hero, family: family, weekOf: weekOf)
+                guard guardSupplementOrReturn(period: existing, breakdown: breakdown, now: now) else { return false }
+                try await runPayout(period: existing, now: now)
+                return true
+            }
             // WHY empty stays open: settling zero earnings would close the period with paid-zero.
             let breakdown = try await weeklyBreakdown(profile: hero, family: family, weekOf: weekOf)
             guard breakdown.totalEarned > 0 else { return false }
-            try await runPayout(period: existing)
+            try await runPayout(period: existing, now: now)
             return true
         }
-        return try await settleCurrentWeek(hero: hero, family: family, weekOf: weekOf)
+        return try await settleCurrentWeek(hero: hero, family: family, weekOf: weekOf, now: now)
     }
 
-    private func settleCurrentWeek(hero: Profile, family: Family, weekOf: Date) async throws -> Bool {
+    private func settleCurrentWeek(hero: Profile, family: Family, weekOf: Date, now: Date) async throws -> Bool {
         let breakdown = try await weeklyBreakdown(profile: hero, family: family, weekOf: weekOf)
         guard breakdown.totalEarned > 0 else { return false }
         let period = try await getOrCreateAllowancePeriod(profile: hero, weekOf: weekOf, family: family)
-        guard period.status != .paid else { return false }
-        try await runPayout(period: period)
+        if period.status == .paid {
+            guard guardSupplementOrReturn(period: period, breakdown: breakdown, now: now) else { return false }
+            try await runPayout(period: period, now: now)
+            return true
+        }
+        try await runPayout(period: period, now: now)
         return true
     }
 }

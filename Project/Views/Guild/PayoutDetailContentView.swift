@@ -12,7 +12,6 @@ struct PayoutDetailContent: View {
     let heroName: String
     var ledgerEntries: [LedgerEntryCache] = []
     var goals: [GoalCache] = []
-    var cachedLedgers: [LedgerEntryCache] = []
     var chartData: [WeeklyEarningPoint] = []
     var aggregatedChartData: [WeeklyEarningPoint]?
 
@@ -23,18 +22,23 @@ struct PayoutDetailContent: View {
         PayoutWeekCalculator.weekBucketEntries(for: period, from: ledgerEntries)
     }
 
+    private var payoutLinkedEntries: [LedgerEntryCache] {
+        PayoutWeekCalculator.payoutLinkedEntries(for: period, from: ledgerEntries)
+    }
+
     private var weekLedgerEntries: [LedgerEntryCache] {
-        // WHY single source: goal markers reuse counted funds so history shows new money only.
-        PayoutWeekCalculator.weekLedgerEntries(for: period, from: cachedLedgers)
+        // WHY single source: every derivation reads the same profile-scoped array; goal markers reuse counted funds so history shows new money only.
+        PayoutWeekCalculator.weekLedgerEntries(for: period, from: ledgerEntries)
             .filter { BucketService.isLedgerVisible($0) }
     }
 
     private var goalContributions: [(goal: GoalCache, amount: Int64)] {
+        // WHY week-wide goals: Bucket Split shows the payout-linked split only, while goal fills ride week-wide contrib records including real-time settlements.
         PayoutWeekCalculator.goalContributions(for: goals, in: weekBucketEntries)
     }
 
     private var ledgerRows: [LedgerDisplayRow] {
-        weekLedgerEntries.filter { BucketService.isLedgerVisible($0) }.map { entry in
+        weekLedgerEntries.map { entry in
             LedgerDisplayRow(
                 id: entry.recordName,
                 date: entry.date,
@@ -93,7 +97,7 @@ struct PayoutDetailContent: View {
                 Divider().padding(.leading, 16)
                 detailRow(label: "Status", value: (period.statusEnum ?? .payoutPending).displayName)
                 Divider().padding(.leading, 16)
-                detailRow(label: "Quests Completed", value: "\(period.questsCompleted) of \(period.questsTotal)")
+                detailRow(label: "Quests Completed", value: period.questsTotal == 0 ? "\(period.questsCompleted) completed" : "\(period.questsCompleted) of \(period.questsTotal)")
                 Divider().padding(.leading, 16)
                 detailRow(label: "Total Earned", value: CurrencyFormatter.string(period.totalEarned))
                 if let paidDate = period.paidDate {
@@ -125,14 +129,14 @@ struct PayoutDetailContent: View {
 
     @ViewBuilder
     private var bucketSection: some View {
-        if !weekBucketEntries.isEmpty {
+        if !payoutLinkedEntries.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Bucket Split")
                     .font(.headline)
                     .padding(.horizontal)
                 VStack(spacing: 0) {
                     ForEach(BucketKind.allCases, id: \.self) { kind in
-                        let kindTotal = PayoutWeekCalculator.bucketTotal(for: kind, in: weekBucketEntries)
+                        let kindTotal = PayoutWeekCalculator.bucketTotal(for: kind, in: payoutLinkedEntries)
                         if kindTotal != 0 {
                             HStack {
                                 Label(kind.displayName, systemImage: kind.iconSystemName)
