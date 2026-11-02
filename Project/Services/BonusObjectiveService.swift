@@ -215,13 +215,10 @@ final class BonusObjectiveService {
         }
 
         let currentUser = try await cloudKitService.currentUserRecordID()
-        guard let cachedProfile = cacheService.fetchProfile(
-            recordName: activeProfile.id.recordName,
-            family: activeProfile.family.recordID.recordName
-        ),
-            cachedProfile.isActive,
-            cachedProfile.iCloudUserRecordName == currentUser.recordName,
-            cachedProfile.familyRecordName == activeProfile.family.recordID.recordName
+        guard let cachedProfile = cacheService.fetchProfile(recordName: activeProfile.id.recordName, family: activeProfile.family.recordID.recordName),
+              cachedProfile.isActive,
+              cachedProfile.iCloudUserRecordName == currentUser.recordName,
+              cachedProfile.familyRecordName == activeProfile.family.recordID.recordName
         else {
             throw BonusObjectiveServiceError.unauthorizedProfile
         }

@@ -85,7 +85,8 @@ extension TreasuryService {
                         family: family,
                         date: date,
                         isOwner: isOwner,
-                        isRealTime: false
+                        isRealTime: false,
+                        cascadeSourceEventID: periodRecordName
                     ),
                     existing: existing,
                     zoneID: zoneID,
@@ -104,7 +105,8 @@ extension TreasuryService {
                     family: family,
                     date: date,
                     isOwner: isOwner,
-                    isRealTime: false
+                    isRealTime: false,
+                    cascadeSourceEventID: periodRecordName
                 ),
                 existing: existing,
                 zoneID: zoneID,
@@ -123,7 +125,8 @@ extension TreasuryService {
                 family: family,
                 date: date,
                 isOwner: isOwner,
-                isRealTime: false
+                isRealTime: false,
+                cascadeSourceEventID: periodRecordName
             )
         )
     }
@@ -140,6 +143,9 @@ extension TreasuryService {
         let date: Date
         let isOwner: Bool
         let isRealTime: Bool
+        /// Event anchor for goal-cascade contributions: batch payouts attach to the period,
+        /// per-event real-time payouts attach to their own record group.
+        let cascadeSourceEventID: String
     }
 
     /// WHY single helper: batch and real-time splits share one splitPennies mint plus FIFO cascade.
@@ -153,7 +159,7 @@ extension TreasuryService {
         // WHY single source: week labels ride WeekMath so minting plus parsing never drift.
         let weekLabel = WeekMath.payoutWeekLabel(for: context.weekOf)
         if context.isRealTime {
-            await mintRealTimeDelta(context, receiving: receiving, zoneID: zoneID, weekLabel: weekLabel)
+            await mintPerEventShares(context, receiving: receiving, zoneID: zoneID, weekLabel: weekLabel)
         } else {
             await mintBatchShares(context, receiving: receiving, zoneID: zoneID, weekLabel: weekLabel)
         }
@@ -204,27 +210,29 @@ extension TreasuryService {
         return primary
     }
 
-    /// WHY incremental delta: new money only so current split never rebases prior attribution.
-    private func mintRealTimeDelta(
+    /// WHY per-event mint: each real-time settlement appends its own record group exactly once —
+    /// the caller decides presence, so a re-run settle for a fully settled event mints nothing here.
+    private func mintPerEventShares(
         _ context: SplitMintContext,
         receiving: [BucketService.BucketShare],
         zoneID: CKRecordZone.ID,
         weekLabel: String
     ) async {
-        let familyName = context.family.recordID.recordName
-        let profileName = context.profile.id.recordName
-        let existing = cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-            .filter {
-                $0.recordName == context.baseRecordName
-                    || $0.recordName.hasPrefix("\(context.baseRecordName)-")
-            }
-        await mintCumulativeSupplemental(
-            context,
-            receiving: receiving,
-            existing: existing,
-            zoneID: zoneID,
-            weekLabel: weekLabel
-        )
+        for share in receiving {
+            let recordName = receiving.count == 1
+                ? context.baseRecordName
+                : "\(context.baseRecordName)-\(share.kind.rawValue)"
+            await upsertPayoutEntry(
+                context,
+                recordName: recordName,
+                totalPennies: share.pennies,
+                kind: share.kind,
+                weekLabel: weekLabel,
+                zoneID: zoneID,
+                isRealTime: context.isRealTime
+            )
+        }
+        await cascadeDelta(context, shares: receiving, zoneID: zoneID)
     }
 
     /// WHY cumulative batch: supplemental earnings add to stable IDs so retries converge.
@@ -489,7 +497,7 @@ extension TreasuryService {
                     profile: context.profile,
                     family: familyDomain,
                     bucketKind: share.kind,
-                    sourceEventID: context.periodRecordName,
+                    sourceEventID: context.cascadeSourceEventID,
                     contributionDate: context.date
                 )
             } catch {

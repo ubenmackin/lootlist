@@ -112,7 +112,7 @@ final class QuestRewardService {
                 return earlyReturn
             }
         }
-        try await settleRealTimeIfNeeded(hero: hero, creditedGold: creditedGold, questFamilyID: quest.family.recordID)
+        try await settleRealTimeIfNeeded(hero: hero, creditedGold, questFamilyID: quest.family.recordID)
         return creditedGold
     }
 
@@ -352,14 +352,15 @@ final class QuestRewardService {
         )
     }
 
-    private func settleRealTimeIfNeeded(hero: Profile, creditedGold: Int64, questFamilyID: CKRecord.ID) async throws {
+    private func settleRealTimeIfNeeded(hero: Profile, _: Int64, questFamilyID: CKRecord.ID) async throws {
         let resolvedFamily: Family? = cacheService.fetchFamily(recordName: questFamilyID.recordName)?
             .toFamily(zoneID: questFamilyID.zoneID)
         let effectivePolicy = treasuryService?.effectivePayoutPolicy(for: hero, family: resolvedFamily)
             ?? hero.payoutPolicy
             ?? resolvedFamily?.payoutPolicy
             ?? .perQuest
-        if effectivePolicy == .realTime, creditedGold > 0, let treasuryService, let resolvedFamily {
+        // WHY zero-gold still settles: zero-credit completions must still trigger the per-event heal pass.
+        if effectivePolicy == .realTime, let treasuryService, let resolvedFamily {
             do {
                 _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: resolvedFamily)
             } catch {

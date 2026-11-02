@@ -456,6 +456,7 @@
 		E9E073D550ECBC70491ABE89 /* FamilyInvitationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF1098F4E47B87A8FB7472D /* FamilyInvitationCoordinator.swift */; };
 		EB45A8E342AA96949B776384 /* CacheServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 749D406B4D6BBEE27417C140 /* CacheServiceTests.swift */; };
 		EBB716E455F08E766989F944 /* BackgroundCacheActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909BF38F9945D5CE59C56BD8 /* BackgroundCacheActorTests.swift */; };
+		EBD0D51FE00EF45175ACA573 /* DeterministicRecordIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6015CB69A256534630FF2F /* DeterministicRecordIDTests.swift */; };
 		EC94E2CDB261FFEB865D2E7C /* HeroDashboardViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 074925C44334B4631E02476F /* HeroDashboardViewModelTests.swift */; };
 		ECBE50449BDEE41B363ADCBC /* CelebrationOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D6A7111F94AD58750003CD6 /* CelebrationOverlay.swift */; };
 		ED673CFD1A44E8581AA95715 /* QuestServiceTests+Concurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3ABA527CBF69A8599AED80 /* QuestServiceTests+Concurrency.swift */; };
@@ -951,6 +952,7 @@
 		DC969A154514821895033EF1 /* BalanceCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceCardView.swift; sourceTree = "<group>"; };
 		DE3EFE5263E8210E2659D41D /* FamilyDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDiscoveryService.swift; sourceTree = "<group>"; };
 		DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Fetches.swift"; sourceTree = "<group>"; };
+		DF6015CB69A256534630FF2F /* DeterministicRecordIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicRecordIDTests.swift; sourceTree = "<group>"; };
 		E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutStatus.swift; sourceTree = "<group>"; };
 		E2116AC4A8D9A7A6EEAE90FD /* FamilyShareReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyShareReconciler.swift; sourceTree = "<group>"; };
 		E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormatter.swift; sourceTree = "<group>"; };
@@ -1722,6 +1724,7 @@
 			children = (
 				0A9FD98BAD9A663A62C68DCF /* CalendarUtilsTests.swift */,
 				6664830D31F939A69D25F6FE /* CurrencyFormatterPenniesTests.swift */,
+				DF6015CB69A256534630FF2F /* DeterministicRecordIDTests.swift */,
 				931E127FC9659B8520BB240A /* GoldCalculationTests.swift */,
 				1D51CE0E0061F9333E8079DC /* StreakCalculatorTests.swift */,
 				D10D967D58B94519F61D2420 /* TestUserDefaults.swift */,
@@ -2431,6 +2434,7 @@
 				870E9E6EFB7529B1DCFD8EF4 /* DailyLoginServiceTests.swift in Sources */,
 				687EAF56A742538888710B60 /* DashboardMetricsCalculatorTests.swift in Sources */,
 				1395E5CF34AB87611C36E1E6 /* DataMigrationsCoordinatorTests.swift in Sources */,
+				EBD0D51FE00EF45175ACA573 /* DeterministicRecordIDTests.swift in Sources */,
 				BD59CEE0FC95B320EAA83DBD /* EquipmentServiceTests.swift in Sources */,
 				B452E5A9F490DC081947921A /* ExhaustiveCacheFixtures.swift in Sources */,
 				2D37658CD0E4C76D4116B754 /* FamilyDashboardViewModelTests+Invitations.swift in Sources */,
