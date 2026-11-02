@@ -304,6 +304,79 @@ struct DataMigrationsCoordinatorTests {
         #expect(cache.fetchAllowancePeriod(recordName: heroPeriod.id.recordName, family: "fam1") != nil)
     }
 
+    @Test
+    func `questLedgerBackfillV1 skips periods holding per-event real-time rows while legacy fixtures still backfill`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "fam1", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let profileRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none)
+
+        func period(_ name: String, status: PayoutStatus, pennies: Int64) -> AllowancePeriod {
+            AllowancePeriod(
+                weekOf: Date(),
+                profile: profileRef,
+                status: status,
+                totalEarned: pennies,
+                questsCompleted: 1,
+                questsTotal: 2,
+                paidDate: status == .paid ? Date() : nil,
+                paidAmount: pennies,
+                family: familyRef,
+                id: CKRecord.ID(recordName: name, zoneID: zoneID)
+            )
+        }
+
+        func perEventLedger(periodRecordName: String, pennies: Int64) -> LedgerEntry {
+            LedgerEntry(
+                profile: profileRef,
+                amount: pennies,
+                description: "Quest earnings — real-time",
+                date: Date(),
+                source: "quest",
+                family: familyRef,
+                id: CKRecord.ID(
+                    recordName: DeterministicRecordID.realtimePayoutCompletion(
+                        periodRecordName: periodRecordName,
+                        completionRecordName: "logA"
+                    ),
+                    zoneID: zoneID
+                )
+            )
+        }
+
+        // Per-event rows credit these weeks already, so the cumulative backfill must skip them in both branches.
+        let guardedOpen = period("period-guarded-open", status: .active, pennies: 2500)
+        let guardedPaid = period("period-guarded-paid", status: .paid, pennies: 3000)
+        let guardedOpenRow = perEventLedger(periodRecordName: "period-guarded-open", pennies: 1250)
+        let guardedPaidRow = perEventLedger(periodRecordName: "period-guarded-paid", pennies: 1500)
+        // Pre-change fixtures keep the legacy cumulative backfill path.
+        let legacyOpen = period("period-legacy-open", status: .active, pennies: 1500)
+        let legacyPaid = period("period-legacy-paid", status: .paid, pennies: 2200)
+
+        cloudKit.seedMockRecords([guardedOpen, guardedPaid, guardedOpenRow, guardedPaidRow, legacyOpen, legacyPaid])
+
+        let step = DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: cloudKit)
+        try await step.run()
+
+        let rows = try await cloudKit.query(LedgerEntry.self, predicate: NSPredicate(value: true), in: zoneID)
+        let names = Set(rows.map(\.id.recordName))
+        // Guarded periods mint nothing: no bare rt- row on the open branch, no payout- row on the paid branch.
+        #expect(!names.contains(DeterministicRecordID.realtimePayout(periodRecordName: "period-guarded-open")))
+        #expect(!names.contains(DeterministicRecordID.payout(periodRecordName: "period-guarded-open")))
+        #expect(!names.contains(DeterministicRecordID.realtimePayout(periodRecordName: "period-guarded-paid")))
+        #expect(!names.contains(DeterministicRecordID.payout(periodRecordName: "period-guarded-paid")))
+        // Legacy fixtures backfill exactly as before per-event records existed.
+        #expect(names.contains(DeterministicRecordID.realtimePayout(periodRecordName: "period-legacy-open")))
+        #expect(names.contains(DeterministicRecordID.payout(periodRecordName: "period-legacy-paid")))
+        // Seeded per-event rows stay untouched.
+        for periodName in ["period-guarded-open", "period-guarded-paid"] {
+            let prefix = DeterministicRecordID.realtimePayoutCompletionPrefix(periodRecordName: periodName)
+            #expect(rows.filter { $0.id.recordName.hasPrefix(prefix) }.count == 1)
+        }
+    }
+
     // MARK: - Schema V8 transition
 
     @Test

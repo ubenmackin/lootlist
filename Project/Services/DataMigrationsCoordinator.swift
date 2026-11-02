@@ -529,6 +529,11 @@ extension DataMigrationsCoordinator {
             for period in periods {
                 var paidAmount = period.paidAmount ?? period.totalEarned
                 guard paidAmount > 0 else { continue }
+                let perEventRealTimeRows = existingLedgers.contains {
+                    $0.id.recordName.hasPrefix(DeterministicRecordID.realtimePayoutCompletionPrefix(periodRecordName: period.id.recordName))
+                }
+                // WHY double-count guard: per-event rows already credit this week, so a cumulative backfill row would double-count.
+                guard !perEventRealTimeRows else { continue }
                 let entryRecordName: String
                 let descriptionPrefix: String
                 if period.status == .paid {

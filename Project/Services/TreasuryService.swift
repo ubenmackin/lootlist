@@ -78,6 +78,9 @@ final class TreasuryService {
     /// Guards against concurrent settlement of the same period.
     private let inFlightSettlements = Mutex<Set<String>>([])
 
+    /// Serializes overlapping real-time settlements per period so holders queue rather than skip.
+    private let settlementLock = KeyedAsyncLock()
+
     // MARK: - Period Creation Serialization
 
     /// Serializes concurrent allowance period lookups per profile and week.
@@ -530,63 +533,79 @@ final class TreasuryService {
         guard effectivePolicy == .realTime else { return nil }
         let (weekOf, weekRange) = WeekMath.range(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
         let periodRecordName = DeterministicRecordID.allowancePeriod(familyRecordName: family.id.recordName, profileRecordName: profile.id.recordName, weekStart: weekOf)
-        let inserted = inFlightSettlements.withLock { $0.insert(periodRecordName).inserted }
-        guard inserted else {
-            return nil
+
+        // WHY lock-not-skip: overlapping settles for one period queue on the deterministic key so
+        // every completion lands; the body may network-hydrate via QuestLogFetchHelper when the
+        // completion cache is stale, and queued holders simply wait rather than fail.
+        return try await settlementLock.withLock(key: periodRecordName) {
+            let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
+
+            // Single snapshot for quest logs and gold — prevents divergence
+            // between quest count and earned amount if the SwiftData cache
+            // changes between separate async fetches.
+            let logs = try await fetchQuestLogs(profile: profile,
+                                                weekStarting: weekOf,
+                                                weekEnding: weekRange.upperBound)
+            let quests = try await fetchQuestsForGold(family: family, logs: logs)
+            // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
+            let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
+            let questGold = GoldCalculation.totalCreditPennies(for: quests, logs: logs, templatesByID: templatesByID)
+            let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
+
+            var updated = period
+            let priorPaid = period.paidAmount ?? 0
+            updated.paidAmount = max(priorPaid, questGold)
+            updated.paidDate = Date()
+            // Single persistence point — totalEarned / questsCompleted are always
+            // reconciled from the live quest snapshot regardless of whether
+            // paidAmount moved, so one call covers both cases.
+            let saved = try await updateAllowance(period: updated,
+                                                  totalEarned: questGold,
+                                                  questsCompleted: questsCount)
+
+            // WHY future-only: splits credit new money at current percentages, never rebase prior attribution.
+            let cachedLedgerRows = resolvedLedgerService.cachedLedgerEntries(
+                profileRecordName: profile.id.recordName,
+                familyRecordName: family.id.recordName
+            )
+            let attributions = GoldCalculation.realTimeAttributions(quests: quests, logs: logs, templatesByID: templatesByID)
+            // WHY per-event prefix only: legacy `rt-{period}` / `rt-{period}-{bucket}` rows from
+            // prior versions stay frozen — just the per-event namespace counts as settled, and
+            // the legacy bare name is never read as one of the event rows.
+            let perEventPrefix = DeterministicRecordID.realtimePayoutCompletionPrefix(periodRecordName: period.id.recordName)
+            let settledNames = Set(cachedLedgerRows.filter { $0.recordName.hasPrefix(perEventPrefix) }.map(\.recordName))
+            let rtIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.processRealTimeSettlement")
+            for attribution in attributions where attribution.pennies > 0 {
+                let baseRecordName = DeterministicRecordID.realtimePayoutCompletion(
+                    periodRecordName: period.id.recordName,
+                    completionRecordName: attribution.completionRecordName
+                )
+                // WHY suffix-wide match: multi-bucket events append -{bucketKind} under the same base.
+                if settledNames.contains(baseRecordName) || settledNames.contains(where: { $0.hasPrefix("\(baseRecordName)-") }) {
+                    continue
+                }
+                // WHY heal missing: absent rows re-mint under their deterministic name; existing rows are never rewritten.
+                await mintRealTimeLedgerEntry(
+                    periodRecordName: period.id.recordName,
+                    baseRecordName: baseRecordName,
+                    amount: attribution.pennies,
+                    weekOf: weekOf,
+                    profile: profile,
+                    family: CKRecord.Reference(recordID: family.id, action: .none),
+                    date: Date(),
+                    isOwner: rtIsOwner
+                )
+            }
+
+            return saved
         }
-        defer { inFlightSettlements.withLock { _ = $0.remove(periodRecordName) } }
-
-        let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
-
-        // Single snapshot for quest logs and gold — prevents divergence
-        // between quest count and earned amount if the SwiftData cache
-        // changes between separate async fetches.
-        let logs = try await fetchQuestLogs(profile: profile,
-                                            weekStarting: weekOf,
-                                            weekEnding: weekRange.upperBound)
-        let quests = try await fetchQuestsForGold(family: family, logs: logs)
-        // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
-        let questGold = GoldCalculation.totalCreditPennies(
-            for: quests,
-            logs: logs,
-            templatesByID: SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
-        )
-        let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
-
-        var updated = period
-        let priorPaid = period.paidAmount ?? 0
-        updated.paidAmount = max(priorPaid, questGold)
-        updated.paidDate = Date()
-        // Single persistence point — totalEarned / questsCompleted are always
-        // reconciled from the live quest snapshot regardless of whether
-        // paidAmount moved, so one call covers both cases.
-        let saved = try await updateAllowance(period: updated,
-                                              totalEarned: questGold,
-                                              questsCompleted: questsCount)
-
-        // WHY future-only: splits credit new money at current percentages, never rebase prior attribution.
-        let totalPennies = Int(questGold)
-        let priorPennies = Int(priorPaid)
-        let deltaPennies = totalPennies - priorPennies
-        guard deltaPennies > 0 else { return saved }
-        let rtIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.processRealTimeSettlement")
-        await mintRealTimeLedgerEntry(
-            periodRecordName: period.id.recordName,
-            amount: Int64(deltaPennies),
-            weekOf: weekOf,
-            profile: profile,
-            family: CKRecord.Reference(recordID: family.id, action: .none),
-            date: Date(),
-            isOwner: rtIsOwner
-        )
-
-        return saved
     }
 
     // MARK: - Ledger Minting
 
     private func mintRealTimeLedgerEntry(
         periodRecordName: String,
+        baseRecordName: String,
         amount: Int64,
         weekOf: Date,
         profile: Profile?,
@@ -601,7 +620,6 @@ final class TreasuryService {
             logger.warning("Skipping real-time bucket split for \(periodRecordName, privacy: .private): hero profile unresolved")
             return
         }
-        let baseRecordName = DeterministicRecordID.realtimePayout(periodRecordName: periodRecordName)
         let payoutRecordName = DeterministicRecordID.payout(periodRecordName: periodRecordName)
 
         let cachedEntries = resolvedLedgerService.cachedLedgerEntries(
@@ -624,7 +642,8 @@ final class TreasuryService {
                 family: family,
                 date: date,
                 isOwner: isOwner,
-                isRealTime: true
+                isRealTime: true,
+                cascadeSourceEventID: baseRecordName
             )
         )
     }

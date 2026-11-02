@@ -452,12 +452,12 @@ struct iCloudStatusView: View {
 
     private func accountStatusColor(_ status: CloudAccountStatus) -> Color {
         switch status {
-        case .available: return Color(DesignSystemConstants.Colors.primaryGreen)
-        case .noAccount: return Color(DesignSystemConstants.Colors.pendingAmber)
-        case .restricted: return Color(DesignSystemConstants.Colors.dangerRed)
-        case .temporarilyUnavailable: return Color(DesignSystemConstants.Colors.pendingAmber)
-        case .couldNotDetermine: return .secondary
-        @unknown default: return .secondary
+        case .available: Color(DesignSystemConstants.Colors.primaryGreen)
+        case .noAccount: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .restricted: Color(DesignSystemConstants.Colors.dangerRed)
+        case .temporarilyUnavailable: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .couldNotDetermine: .secondary
+        @unknown default: .secondary
         }
     }
 

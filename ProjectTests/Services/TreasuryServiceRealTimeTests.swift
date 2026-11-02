@@ -237,8 +237,12 @@ struct TreasuryServiceRealTimeTests {
         )
         let ledgerTotal = entries.reduce(Int64(0)) { $0 + $1.amount }
         #expect(ledgerTotal == 4000)
-        #expect(entries.count == 1)
-        #expect(entries.first?.recordName == DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName))
+        #expect(entries.count == 2)
+        let expectedFirst = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log1")
+        let expectedSecond = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log2")
+        #expect(entries.contains(where: { $0.recordName == expectedFirst && $0.amount == 2500 }))
+        #expect(entries.contains(where: { $0.recordName == expectedSecond && $0.amount == 1500 }))
+        #expect(!entries.contains(where: { $0.recordName == DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName) }))
     }
 
     @Test
@@ -415,7 +419,11 @@ struct TreasuryServiceRealTimeTests {
             family: scaffold.family.id.recordName
         )
         #expect(entries.count == 1, "Real-time period must have exactly one ledger entry")
-        #expect(entries.first?.recordName == "rt-\(settled.id.recordName)")
+        let logs = scaffold.cache.fetchQuestCompletions(family: scaffold.family.id.recordName)
+        let logName = logs.first?.recordName ?? ""
+        let expected = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: settled.id.recordName, completionRecordName: logName)
+        #expect(entries.first?.recordName == expected)
+        #expect(!entries.contains(where: { $0.recordName == "rt-\(settled.id.recordName)" }))
     }
 
     @Test
@@ -471,8 +479,12 @@ struct TreasuryServiceRealTimeTests {
             family: scaffold.family.id.recordName
         )
         #expect(entries.count == 1, "Parent-verified settlement must mint exactly one ledger entry")
-        #expect(entries.first?.recordName == "rt-\(period.id.recordName)")
+        let verifiedLogs = scaffold.cache.fetchQuestCompletions(family: scaffold.family.id.recordName)
+        let verifiedLogName = verifiedLogs.first?.recordName ?? ""
+        let expectedRow = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: period.id.recordName, completionRecordName: verifiedLogName)
+        #expect(entries.first?.recordName == expectedRow)
         #expect(entries.first?.amount == 2500)
+        #expect(!entries.contains(where: { $0.recordName == "rt-\(period.id.recordName)" }))
     }
 
     // MARK: - Concurrency Stress Harness: real-time settlement serialization
@@ -498,7 +510,8 @@ struct TreasuryServiceRealTimeTests {
         }
 
         let nonNil = results.compactMap(\.self)
-        #expect(!nonNil.isEmpty, "At least one settlement must succeed")
+        #expect(results.count == 10)
+        #expect(nonNil.count == 10, "All concurrent settlements must return a period")
 
         let periods = scaffold.cache.fetchAllowancePeriods(family: scaffold.family.id.recordName)
         #expect(periods.count == 1, "Concurrent settlements must collapse to a single AllowancePeriod row")
@@ -512,8 +525,11 @@ struct TreasuryServiceRealTimeTests {
             profileRecordName: scaffold.profile.id.recordName,
             family: scaffold.family.id.recordName
         )
+        let expectedRow = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: period.id.recordName, completionRecordName: "log1")
         #expect(ledgerEntries.count == 1, "Concurrent settlements must mint exactly one real-time ledger entry")
+        #expect(ledgerEntries.first?.recordName == expectedRow)
         #expect(ledgerEntries.first?.amount == 2500)
+        #expect(!ledgerEntries.contains(where: { $0.recordName == DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName) }))
     }
 
     @Test
@@ -544,9 +560,13 @@ struct TreasuryServiceRealTimeTests {
         scaffold.appState.currentProfile = multi
         scaffold.seedEarned(goldReward: 2500)
         let first = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: multi, family: scaffold.family, date: scaffold.weekOf))
-        let base = DeterministicRecordID.realtimePayout(periodRecordName: first.id.recordName)
+        let firstBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: first.id.recordName, completionRecordName: "log1")
         var entries = scaffold.cache.fetchLedgerEntries(profileRecordName: multi.id.recordName, family: scaffold.family.id.recordName)
         #expect(entries.count == 3)
+        let firstByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
+        #expect(firstByName["\(firstBase)-spend"]?.amount == 1500)
+        #expect(firstByName["\(firstBase)-shortTermSave"]?.amount == 625)
+        #expect(firstByName["\(firstBase)-longTermSave"]?.amount == 375)
         var single = multi
         single.splitPercentSpend = 100
         single.splitPercentShort = 0
@@ -582,10 +602,15 @@ struct TreasuryServiceRealTimeTests {
         let second = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: single, family: scaffold.family, date: scaffold.weekOf))
         #expect(second.paidAmount == 4000)
         entries = scaffold.cache.fetchLedgerEntries(profileRecordName: single.id.recordName, family: scaffold.family.id.recordName)
-        let twins = entries.filter { $0.recordName == base || $0.recordName.hasPrefix("\(base)-") }
-        #expect(twins.count == 3)
-        #expect(!twins.contains(where: { $0.recordName == base }))
-        #expect(twins.reduce(Int64(0)) { $0 + $1.amount } == 4000)
+        let secondBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log2")
+        #expect(entries.count == 4)
+        let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
+        #expect(byName["\(firstBase)-spend"]?.amount == 1500)
+        #expect(byName["\(firstBase)-shortTermSave"]?.amount == 625)
+        #expect(byName["\(firstBase)-longTermSave"]?.amount == 375)
+        #expect(byName[secondBase]?.amount == 1500)
+        #expect(!entries.contains(where: { $0.recordName == DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName) }))
+        #expect(entries.reduce(Int64(0)) { $0 + $1.amount } == 4000)
     }
 
     @Test
@@ -643,6 +668,12 @@ struct TreasuryServiceRealTimeTests {
         let contribs = scaffold.cache.fetchLedgerEntries(profileRecordName: saver.id.recordName, family: scaffold.family.id.recordName, recordNamePrefix: prefix)
         let totalPennies = contribs.reduce(into: Int64(0)) { $0 += $1.amount }
         #expect(totalPennies == 3000)
+        #expect(contribs.count == 2)
+        let firstSuffix = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log1")
+        let secondSuffix = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log2")
+        #expect(firstSuffix != secondSuffix)
+        #expect(contribs.contains(where: { $0.recordName.hasSuffix(firstSuffix) }))
+        #expect(contribs.contains(where: { $0.recordName.hasSuffix(secondSuffix) }))
     }
 
     @Test
@@ -655,7 +686,7 @@ struct TreasuryServiceRealTimeTests {
         await scaffold.cache.upsertProfile(multi)
         scaffold.appState.currentProfile = multi
         scaffold.seedEarned(goldReward: 2500)
-        _ = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: multi, family: scaffold.family, date: scaffold.weekOf))
+        let first = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: multi, family: scaffold.family, date: scaffold.weekOf))
         var single = multi
         single.splitPercentSpend = 100
         single.splitPercentShort = 0
@@ -691,10 +722,191 @@ struct TreasuryServiceRealTimeTests {
         let second = try #require(try await scaffold.treasury.processRealTimeSettlement(profile: single, family: scaffold.family, date: scaffold.weekOf))
         #expect(second.paidAmount == 4000)
         let entries = scaffold.cache.fetchLedgerEntries(profileRecordName: single.id.recordName, family: scaffold.family.id.recordName)
-        let base = DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName)
-        let byName = Dictionary(uniqueKeysWithValues: entries.filter { $0.recordName.hasPrefix(base) }.map { ($0.recordName, $0) })
-        #expect(byName["\(base)-spend"]?.amount == 3000)
-        #expect(byName["\(base)-shortTermSave"]?.amount == 625)
-        #expect(byName["\(base)-longTermSave"]?.amount == 375)
+        let firstBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: first.id.recordName, completionRecordName: "log1")
+        let secondBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log2")
+        #expect(entries.count == 4)
+        let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
+        #expect(byName["\(firstBase)-spend"]?.amount == 1500)
+        #expect(byName["\(firstBase)-shortTermSave"]?.amount == 625)
+        #expect(byName["\(firstBase)-longTermSave"]?.amount == 375)
+        #expect(byName[secondBase]?.amount == 1500)
+        #expect(!entries.contains(where: { $0.recordName == DeterministicRecordID.realtimePayout(periodRecordName: second.id.recordName) }))
+        #expect(entries.reduce(Int64(0)) { $0 + $1.amount } == 4000)
+    }
+
+    @Test
+    func `rapid sequential completions mint one row per completion`() async throws {
+        let scaffold = try SettlementScaffold()
+        scaffold.seedEarned(goldReward: 2500)
+        struct ExtraSpec {
+            let questName: String
+            let logName: String
+            let reward: Int64
+        }
+        let extraSpecs: [ExtraSpec] = [
+            ExtraSpec(questName: "quest2", logName: "log2", reward: 1500),
+            ExtraSpec(questName: "quest3", logName: "log3", reward: 1000)
+        ]
+        for spec in extraSpecs {
+            let quest = Quest(
+                template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none),
+                assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+                goldReward: spec.reward,
+                xpReward: 50,
+                scheduleType: .weeklyFlexible,
+                targetCount: 1,
+                isAllOrNothing: false,
+                approvalMode: .autoApprove,
+                weekOf: scaffold.weekOf,
+                createdBy: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+                family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+                name: spec.questName,
+                id: CKRecord.ID(recordName: spec.questName, zoneID: scaffold.zoneID)
+            )
+            let completion = QuestCompletion(
+                quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: spec.questName, zoneID: scaffold.zoneID), action: .none),
+                completedBy: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+                approvalMode: .autoApprove,
+                weekOf: scaffold.weekOf,
+                family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+                id: CKRecord.ID(recordName: spec.logName, zoneID: scaffold.zoneID)
+            )
+            scaffold.cache.context?.insert(QuestCache(from: quest))
+            scaffold.cache.context?.insert(QuestCompletionCache(from: completion))
+        }
+        _ = scaffold.cache.saveContext()
+        let first = try #require(try await scaffold.settle())
+        let second = try #require(try await scaffold.settle())
+        let third = try #require(try await scaffold.settle())
+        #expect(third.totalEarned == 5000)
+        #expect(third.questsCompleted == 3)
+        #expect(third.paidAmount == 5000)
+        #expect(second.paidAmount == 5000)
+        #expect(first.paidAmount == 5000)
+        let entries = scaffold.cache.fetchLedgerEntries(profileRecordName: scaffold.profile.id.recordName, family: scaffold.family.id.recordName)
+        #expect(entries.count == 3)
+        let base1 = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: third.id.recordName, completionRecordName: "log1")
+        let base2 = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: third.id.recordName, completionRecordName: "log2")
+        let base3 = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: third.id.recordName, completionRecordName: "log3")
+        #expect(entries.contains(where: { $0.recordName == base1 && $0.amount == 2500 }))
+        #expect(entries.contains(where: { $0.recordName == base2 && $0.amount == 1500 }))
+        #expect(entries.contains(where: { $0.recordName == base3 && $0.amount == 1000 }))
+        #expect(!entries.contains(where: { $0.recordName == DeterministicRecordID.realtimePayout(periodRecordName: third.id.recordName) }))
+        let balance = try await scaffold.treasury.currentBalance(for: scaffold.profile)
+        #expect(balance == 5000)
+    }
+}
+
+@MainActor
+extension TreasuryServiceRealTimeTests {
+    @Test
+    func `settlement heal re-mints a lost per-event row`() async throws {
+        let scaffold = try SettlementScaffold()
+        scaffold.seedEarned(goldReward: 2500)
+        let first = try #require(try await scaffold.settle())
+        let firstBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: first.id.recordName, completionRecordName: "log1")
+        var entries = scaffold.cache.fetchLedgerEntries(profileRecordName: scaffold.profile.id.recordName, family: scaffold.family.id.recordName)
+        #expect(entries.count == 1)
+        await scaffold.cache.invalidate(recordName: firstBase, family: scaffold.family.id.recordName, type: .ledgerEntry)
+        entries = scaffold.cache.fetchLedgerEntries(profileRecordName: scaffold.profile.id.recordName, family: scaffold.family.id.recordName)
+        #expect(entries.isEmpty)
+        let secondQuest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+            goldReward: 1500,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: scaffold.weekOf,
+            createdBy: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+            family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+            name: "Settle Quest 2",
+            id: CKRecord.ID(recordName: "quest2", zoneID: scaffold.zoneID)
+        )
+        let secondCompletion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest2", zoneID: scaffold.zoneID), action: .none),
+            completedBy: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: scaffold.weekOf,
+            family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+            id: CKRecord.ID(recordName: "log2", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.context?.insert(QuestCache(from: secondQuest))
+        scaffold.cache.context?.insert(QuestCompletionCache(from: secondCompletion))
+        _ = scaffold.cache.saveContext()
+        let second = try #require(try await scaffold.settle())
+        #expect((second.paidAmount ?? 0) >= (first.paidAmount ?? 0))
+        #expect(second.paidAmount == 4000)
+        entries = scaffold.cache.fetchLedgerEntries(profileRecordName: scaffold.profile.id.recordName, family: scaffold.family.id.recordName)
+        #expect(entries.count == 2)
+        let secondBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: second.id.recordName, completionRecordName: "log2")
+        #expect(entries.contains(where: { $0.recordName == firstBase && $0.amount == 2500 }))
+        #expect(entries.contains(where: { $0.recordName == secondBase && $0.amount == 1500 }))
+        let balance = try await scaffold.treasury.currentBalance(for: scaffold.profile)
+        #expect(balance == 4000)
+    }
+
+    @Test
+    func `zero-gold completion still triggers heal`() async throws {
+        let scaffold = try SettlementScaffold()
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: scaffold.zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+            goldReward: 3000,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 3,
+            isAllOrNothing: true,
+            approvalMode: .autoApprove,
+            weekOf: scaffold.weekOf,
+            createdBy: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+            family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+            name: "All or Nothing Quest",
+            id: CKRecord.ID(recordName: "quest1", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.context?.insert(QuestCache(from: quest))
+        for (index, logName) in ["log1", "log2"].enumerated() {
+            let completion = QuestCompletion(
+                quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: scaffold.zoneID), action: .none),
+                completedBy: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+                approvalMode: .autoApprove,
+                completedDate: scaffold.weekOf.addingTimeInterval(TimeInterval(index)),
+                weekOf: scaffold.weekOf,
+                family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+                id: CKRecord.ID(recordName: logName, zoneID: scaffold.zoneID)
+            )
+            scaffold.cache.context?.insert(QuestCompletionCache(from: completion))
+        }
+        _ = scaffold.cache.saveContext()
+        scaffold.cache.markCacheFreshForTests(familyRecordName: scaffold.family.id.recordName, type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: scaffold.family.id.recordName, type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: scaffold.family.id.recordName, type: .allowancePeriod)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: scaffold.family.id.recordName, type: .ledgerEntry)
+        let partial = try #require(try await scaffold.settle())
+        #expect(partial.totalEarned == 0)
+        let partialEntries = scaffold.cache.fetchLedgerEntries(profileRecordName: scaffold.profile.id.recordName, family: scaffold.family.id.recordName)
+        #expect(partialEntries.isEmpty)
+        let finalCompletion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: scaffold.zoneID), action: .none),
+            completedBy: CKRecord.Reference(recordID: scaffold.profile.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: scaffold.weekOf.addingTimeInterval(2),
+            weekOf: scaffold.weekOf,
+            family: CKRecord.Reference(recordID: scaffold.family.id, action: .none),
+            id: CKRecord.ID(recordName: "log3", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.context?.insert(QuestCompletionCache(from: finalCompletion))
+        _ = scaffold.cache.saveContext()
+        let settled = try #require(try await scaffold.settle())
+        #expect(settled.totalEarned == 3000)
+        #expect(settled.paidAmount == 3000)
+        let entries = scaffold.cache.fetchLedgerEntries(profileRecordName: scaffold.profile.id.recordName, family: scaffold.family.id.recordName)
+        #expect(entries.count == 1)
+        let expectedBase = DeterministicRecordID.realtimePayoutCompletion(periodRecordName: settled.id.recordName, completionRecordName: "log3")
+        #expect(entries.first?.recordName == expectedBase)
+        #expect(entries.first?.amount == 3000)
+        #expect(!entries.contains(where: { $0.recordName == DeterministicRecordID.realtimePayout(periodRecordName: settled.id.recordName) }))
     }
 }

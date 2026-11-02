@@ -92,6 +92,16 @@ enum DeterministicRecordID {
         "rt-\(periodRecordName)"
     }
 
+    /// WHY per-event suffix: each completion settles append-only into its own record group,
+    /// leaving the bare legacy name reserved for pre-change rows and migration backfills.
+    static func realtimePayoutCompletion(periodRecordName: String, completionRecordName: String) -> String {
+        "rt-\(periodRecordName)-\(completionRecordName)"
+    }
+
+    static func realtimePayoutCompletionPrefix(periodRecordName: String) -> String {
+        "rt-\(periodRecordName)-"
+    }
+
     /// WHY single source: CloudKit/cache round-trips quantize dates so exact equality forks deterministic names.
     static func isSameMillisecond(_ lhs: Date, _ rhs: Date) -> Bool {
         abs(lhs.timeIntervalSince1970 - rhs.timeIntervalSince1970) < 0.001

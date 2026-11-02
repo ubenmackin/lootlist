@@ -228,4 +228,62 @@ enum GoldCalculation: Sendable {
         }
         return total
     }
+
+    // MARK: - Real-Time Settlement
+
+    /// One approved event's marginal gold slice for real-time settlement.
+    struct RealTimeAttribution: Sendable {
+        let completionRecordName: String
+        let questRecordName: String
+        let pennies: Int64
+    }
+
+    /// WHY cumulative deltas: slice k is `credit(k) - credit(k-1)` so the slices always sum to
+    /// the same weekly total and each event settles append-only. Zero-marginal slices
+    /// (all-or-nothing quests before the target) are dropped; the completing
+    /// event carries the full reward.
+    static func realTimeAttributions(
+        quests: [Quest],
+        logs: [QuestCompletion],
+        templatesByID: [String: QuestTemplate]
+    ) -> [RealTimeAttribution] {
+        let approved = logs.filter {
+            $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
+        }
+        guard !approved.isEmpty else { return [] }
+
+        var logsByQuest: [String: [QuestCompletion]] = [:]
+        for log in approved {
+            logsByQuest[log.quest.recordID.recordName, default: []].append(log)
+        }
+
+        var attributions: [RealTimeAttribution] = []
+        for quest in quests {
+            let name = quest.id.recordName
+            guard var group = logsByQuest[name] else { continue }
+            // WHY recordName tie-break: same-instant completions must settle one stable order across devices.
+            group.sort {
+                ($0.completedDate, $0.id.recordName) < ($1.completedDate, $1.id.recordName)
+            }
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            for (index, log) in group.enumerated() {
+                let current = creditPennies(for: quest, approvedCount: index + 1, effectiveTarget: target)
+                let previous = creditPennies(for: quest, approvedCount: index, effectiveTarget: target)
+                let pennies = current - previous
+                guard pennies > 0 else { continue }
+                attributions.append(RealTimeAttribution(
+                    completionRecordName: log.id.recordName,
+                    questRecordName: name,
+                    pennies: pennies
+                ))
+            }
+        }
+
+        let questNames = Set(quests.map(\.id.recordName))
+        for name in logsByQuest.keys.sorted() where !questNames.contains(name) {
+            logger.warning("Missing quest \(name, privacy: .private) for gold proration")
+        }
+
+        return attributions
+    }
 }
