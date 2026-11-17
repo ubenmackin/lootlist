@@ -136,6 +136,11 @@ class CloudKitService: CloudKitServiceProtocol {
 
     var activeFamilyZoneID: CKRecordZone.ID?
     var activeIsOwner: Bool = true
+    @ObservationIgnored var claimedRewardSnapshots: [CKRecord.ID: RewardEvent] = [:]
+
+    func consumeClaimedRewardEvent(for recordID: CKRecord.ID) -> RewardEvent? {
+        claimedRewardSnapshots.removeValue(forKey: recordID)
+    }
 
     var activeFamilyDatabase: CKDatabase? {
         database(isOwner: activeIsOwner)
@@ -167,7 +172,8 @@ class CloudKitService: CloudKitServiceProtocol {
                     .serviceUnavailable,
                     .requestRateLimited,
                     .networkUnavailable,
-                    .networkFailure
+                    .networkFailure,
+                    .batchRequestFailed
                 ]
 
                 guard retryableCodes.contains(error.code) else {
@@ -244,7 +250,7 @@ class CloudKitService: CloudKitServiceProtocol {
             .accountUnavailable
         case .networkUnavailable, .networkFailure:
             .networkUnavailable
-        case .zoneBusy, .serviceUnavailable, .requestRateLimited:
+        case .zoneBusy, .serviceUnavailable, .requestRateLimited, .batchRequestFailed:
             .retryable(attempt: 1, code: error.code.rawValue)
         case .invalidArguments:
             .invalidArguments(error.localizedDescription)

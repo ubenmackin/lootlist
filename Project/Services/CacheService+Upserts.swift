@@ -92,6 +92,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? quest.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertQuestOnMainActor(quest, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -126,6 +127,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? profile.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertProfileOnMainActor(profile, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -160,6 +162,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? completion.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertQuestCompletionOnMainActor(completion, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -194,6 +197,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? template.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertQuestTemplateOnMainActor(template, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -223,6 +227,7 @@ extension CacheService {
     func upsertFamily(_ family: Family, isServerSync: Bool = false) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModel(family, type: FamilyCache.self, familyRecordName: nil, isServerSync: isServerSync)
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertFamilyOnMainActor(family, isServerSync: isServerSync)
         }
@@ -240,6 +245,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? entry.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertLedgerEntryOnMainActor(entry, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -274,6 +280,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? period.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertAllowancePeriodOnMainActor(period, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -308,6 +315,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? achievement.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertAchievementOnMainActor(achievement, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -342,6 +350,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? pref.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertNotificationPreferenceOnMainActor(pref, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -376,6 +385,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? entry.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertGemLedgerOnMainActor(entry, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -410,6 +420,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? event.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertRewardEventOnMainActor(event, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -444,6 +455,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? goal.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertGoalOnMainActor(goal, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -483,6 +495,7 @@ extension CacheService {
                 goals: goals,
                 familyRecordName: familyRecordName
             )
+            await flushBackgroundChangesToMainContext()
             return
         }
         withBatch {
@@ -539,6 +552,7 @@ extension CacheService {
                 familyRecordName: familyRecordName ?? pa.family.recordID.recordName,
                 isServerSync: isServerSync
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             upsertProfileAchievementOnMainActor(pa, family: familyRecordName, isServerSync: isServerSync)
         }
@@ -572,6 +586,7 @@ extension CacheService {
                 recordName: recordName,
                 familyRecordName: family
             )
+            await flushBackgroundChangesToMainContext()
         } else {
             removePhantomRewardEventOnMainActor(recordName: recordName, family: family)
         }
@@ -587,6 +602,7 @@ extension CacheService {
     func applyGemDebit(profile: Profile, ledger: GemLedger) async {
         if let backgroundWriter {
             await backgroundWriter.applyGemDebit(profile: profile, ledger: ledger)
+            await flushBackgroundChangesToMainContext()
         } else {
             applyGemDebitOnMainActor(profile: profile, ledger: ledger)
         }
@@ -601,7 +617,9 @@ extension CacheService {
 
     func atomicallyApplyGemCredit(ledger: GemLedger, to profile: Profile) async -> Bool {
         if let backgroundWriter {
-            return await backgroundWriter.atomicallyApplyGemCredit(ledger: ledger, to: profile)
+            let applied = await backgroundWriter.atomicallyApplyGemCredit(ledger: ledger, to: profile)
+            await flushBackgroundChangesToMainContext()
+            return applied
         }
         return atomicallyApplyGemCreditOnMainActor(ledger: ledger, profile: profile)
     }

@@ -27,6 +27,9 @@ final class QuestCompletionService {
 
     /// Guards against double-submit completions while a save is pending.
     let inFlightCompletions: Mutex<Set<String>>
+    /// Serializes quest completions per hero so rapid taps across distinct quests execute their
+    /// reward and real-time settlement read-modify-writes in deterministic order without racing.
+    private let heroCompletionLock = KeyedAsyncLock()
     /// Record names of quest completions with a verify/reject action currently in flight.
     let inFlightVerifications: Mutex<Set<String>>
     /// Record names of quest completions with a withdrawal action currently in flight.
@@ -105,43 +108,46 @@ final class QuestCompletionService {
         }
         defer { inFlightCompletions.withLock { _ = $0.remove(questName) } }
 
-        try await validateCanCompleteQuest(quest, questName: questName)
+        let completedLog = try await heroCompletionLock.withLock(key: profile.id.recordName) {
+            try await self.validateCanCompleteQuest(quest, questName: questName)
 
-        let resolvedZoneID: CKRecordZone.ID = {
-            guard let activeZone = appState.familyZoneID else { return quest.id.zoneID }
-            if quest.id.zoneID != activeZone {
-                let qZone = quest.id.zoneID.zoneName
-                let aZone = activeZone.zoneName
-                logger.warning("markComplete zone mismatch: quest \(qZone, privacy: .private) != active \(aZone, privacy: .private) — using activeZone")
+            let resolvedZoneID: CKRecordZone.ID = {
+                guard let activeZone = self.appState.familyZoneID else { return quest.id.zoneID }
+                if quest.id.zoneID != activeZone {
+                    let qZone = quest.id.zoneID.zoneName
+                    let aZone = activeZone.zoneName
+                    self.logger.warning("markComplete zone mismatch: quest \(qZone, privacy: .private) != active \(aZone, privacy: .private) — using activeZone")
+                }
+                return activeZone
+            }()
+            // WHY random UUID: each tap is a distinct event; repeats collapse via inFlight + target validation while rewards stay idempotent on reward-{completionID}.
+            var log = QuestCompletion(
+                quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.id.recordName, zoneID: resolvedZoneID), action: .none),
+                completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: profile.id.recordName, zoneID: resolvedZoneID), action: .none),
+                approvalMode: quest.approvalMode,
+                weekOf: quest.weekOf,
+                family: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: resolvedZoneID), action: .none),
+                id: CKRecord.ID(recordName: UUID().uuidString, zoneID: resolvedZoneID)
+            )
+            log.completedDate = completedDate
+
+            let existingLogs = self.cachedQuestLogs(forQuest: quest)
+            let priorCount = existingLogs.filter(\.verificationStatus.countsTowardCompletion).count
+            // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+            let templatesByID = SpecificDaysHelper.templatesByID(cache: self.cacheService, familyName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
+            let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            let isFinalSubPart = GoldCalculation.isFullyCompleted(quest: quest, approvedCount: priorCount + 1, effectiveTarget: effectiveTarget)
+
+            switch quest.approvalMode {
+            case .autoApprove:
+                log = try await self.completeAutoApprove(log: log, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
+            case .parentVerify:
+                log = try await self.completeParentVerify(log: log, quest: quest, isFinalSubPart: isFinalSubPart, resolvedZoneID: resolvedZoneID)
             }
-            return activeZone
-        }()
-        // WHY random UUID: each tap is a distinct event; repeats collapse via inFlight + target validation while rewards stay idempotent on reward-{completionID}.
-        var log = QuestCompletion(
-            quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.id.recordName, zoneID: resolvedZoneID), action: .none),
-            completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: profile.id.recordName, zoneID: resolvedZoneID), action: .none),
-            approvalMode: quest.approvalMode,
-            weekOf: quest.weekOf,
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: resolvedZoneID), action: .none),
-            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: resolvedZoneID)
-        )
-        log.completedDate = completedDate
-
-        let existingLogs = cachedQuestLogs(forQuest: quest)
-        let priorCount = existingLogs.filter(\.verificationStatus.countsTowardCompletion).count
-        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
-        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
-        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
-        let isFinalSubPart = GoldCalculation.isFullyCompleted(quest: quest, approvedCount: priorCount + 1, effectiveTarget: effectiveTarget)
-
-        switch quest.approvalMode {
-        case .autoApprove:
-            log = try await completeAutoApprove(log: log, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
-        case .parentVerify:
-            log = try await completeParentVerify(log: log, quest: quest, isFinalSubPart: isFinalSubPart, resolvedZoneID: resolvedZoneID)
+            return log
         }
         Task { [weak self] in await self?.syncCoordinator.sendPendingChanges() }
-        return log
+        return completedLog
     }
 
     // MARK: - Completion Mode Helpers
@@ -152,13 +158,6 @@ final class QuestCompletionService {
         var mutableLog = log
         mutableLog.verificationStatus = .autoApproved
         await cacheService.upsertQuestCompletion(mutableLog)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-            syncCoordinator,
-            id: mutableLog.id,
-            appState: appState,
-            logger: logger,
-            context: "QuestCompletionService.completeQuest.autoApproved"
-        )
         let baselineXP = cacheService.fetchProfile(recordName: profile.id.recordName, family: quest.family.recordID.recordName)?
             .xpTotal ?? profile.xp
         var awardApplied = false
@@ -170,6 +169,15 @@ final class QuestCompletionService {
                 awardedXPCredited = cached.xpCredited
                 awardApplied = true
             }
+            // WHY post-reward enqueue: stampCompletionCredit already enqueues stamped completions;
+            // enqueue here as well so single-pass completions never send a premature nil-xpCredited record first.
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                syncCoordinator,
+                id: mutableLog.id,
+                appState: appState,
+                logger: logger,
+                context: "QuestCompletionService.completeQuest.autoApproved"
+            )
         } catch {
             if CKSyncConflictResolver.isTransient(error) {
                 return try await handleAutoApproveTransient(

@@ -220,9 +220,14 @@ final class QuestRewardService {
                 syncCoordinator.dequeueSave(recordID: rewardID)
                 throw error
             }
-            // Successful claim: now persist reward and credit XP atomically.
-            await cacheService.upsertRewardEvent(rewardEvent)
-            enqueueRewardEvent(rewardEvent)
+            // Successful claim: persist reward with server system fields when available so CKSyncEngine
+            // does not re-upload an already-saved RewardEvent with nil changeTag and trigger serverRecordChanged.
+            if let serverClaimed = cloudKit.consumeClaimedRewardEvent(for: rewardID) {
+                await cacheService.upsertRewardEvent(serverClaimed, isServerSync: true)
+            } else {
+                await cacheService.upsertRewardEvent(rewardEvent)
+                enqueueRewardEvent(rewardEvent)
+            }
             do {
                 try await xpService.addXP(totalXP, to: hero)
             } catch {
@@ -243,8 +248,10 @@ final class QuestRewardService {
             }
             // WHY inside lock: concurrent same-hero completions share one bank
             // row, so the read-modify-write must serialize or one credit is lost.
-            let freshBanked = cacheService.fetchQuest(recordName: currentQuest.id.recordName, family: quest.family.recordID.recordName)?.xpBanked ?? baselineBanked
-            var updatedQuest = currentQuest
+            let freshQuest = cacheService.fetchQuest(recordName: currentQuest.id.recordName, family: quest.family.recordID.recordName)?
+                .toQuest(zoneID: quest.id.zoneID) ?? currentQuest
+            let freshBanked = freshQuest.xpBanked
+            var updatedQuest = freshQuest
             updatedQuest.xpBanked = freshBanked + remaining
             await cacheService.upsertQuest(updatedQuest)
             ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(

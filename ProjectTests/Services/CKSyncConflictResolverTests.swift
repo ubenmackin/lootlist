@@ -26,7 +26,8 @@ struct CKSyncConflictResolverTests {
             .requestRateLimited,
             .operationCancelled,
             .zoneBusy,
-            .notAuthenticated
+            .notAuthenticated,
+            .batchRequestFailed
         ]
         for code in transientCodes {
             #expect(CKSyncConflictResolver.disposition(for: CKError(code)) == .retry, "expected retry for \(code)")
@@ -340,5 +341,72 @@ struct CKSyncConflictResolverTests {
         #endif
         #expect(harness.toastManager.toasts.count == 1)
         #expect(harness.toastManager.toasts.first?.type == .warning)
+    }
+
+    @Test
+    func `delegate retries batchRequestFailed without toast or freshness loss`() async throws {
+        let harness = try makeFailedSaveHarness(suiteName: "cksync-batch-request-failed-\(UUID().uuidString)")
+        let record = transferRecord(recordName: "completion_batch_bystander", amount: 15)
+        harness.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .ledgerEntry)
+
+        await harness.delegate.simulateFailedRecordSaves(
+            [(record: record, error: CKError(.batchRequestFailed))],
+            syncEngine: harness.engine
+        )
+
+        #expect(harness.engine.state.pendingRecordZoneChanges.contains(.saveRecord(record.recordID)))
+        #expect(harness.toastManager.toasts.isEmpty)
+        #expect(harness.cache.isCacheAuthoritative(familyRecordName: "fam1", type: .ledgerEntry, scope: .private))
+    }
+
+    @Test
+    func `secondary serverRecordChanged with millisecond quantized identical date does not toast or invalidate freshness`() async throws {
+        let cache = try CacheService(inMemory: true)
+        let toastManager = ToastManager()
+        let appState = AppState()
+        let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        appState.family = Family(name: "Guild", creatorUserRecordName: "gm1", id: familyID)
+        let resolver = CKSyncConflictResolver(cacheService: cache, toastManager: toastManager, appState: appState)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .rewardEvent)
+
+        let baseTime = Date(timeIntervalSince1970: 1_750_000_000.123456)
+        let quantizedTime = Date(timeIntervalSince1970: 1_750_000_000.123000)
+        let rewardID = CKRecord.ID(recordName: "reward-comp-1", zoneID: zoneID)
+        let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
+        let heroRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none)
+        let compRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "comp-1", zoneID: zoneID), action: .none)
+
+        let clientEvent = RewardEvent(
+            profile: heroRef,
+            questCompletion: compRef,
+            xpAmount: 50,
+            goldAmount: 2500,
+            timestamp: baseTime,
+            family: familyRef,
+            id: rewardID
+        )
+        let serverEvent = RewardEvent(
+            profile: heroRef,
+            questCompletion: compRef,
+            xpAmount: 50,
+            goldAmount: 2500,
+            timestamp: quantizedTime,
+            family: familyRef,
+            id: rewardID
+        )
+        let clientRecord = clientEvent.toRecord()
+        let serverRecord = serverEvent.toRecord()
+        let error = CKError(
+            .serverRecordChanged,
+            userInfo: [
+                CKRecordChangedErrorServerRecordKey: serverRecord,
+                CKRecordChangedErrorClientRecordKey: clientRecord
+            ]
+        )
+
+        let resolved = await resolver.resolveFailedSave(record: clientRecord, error: error, databaseScope: .shared)
+        #expect(resolved == nil)
+        #expect(toastManager.toasts.isEmpty)
+        #expect(cache.isCacheAuthoritative(familyRecordName: "fam1", type: .rewardEvent, scope: .shared))
     }
 }

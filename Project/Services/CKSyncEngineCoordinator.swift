@@ -29,38 +29,14 @@ struct BufferOverflowIdentity: Sendable, Hashable {
 @MainActor
 @Observable
 final class CKSyncEngineCoordinator: SyncEnqueuing {
-    private let logger = Logger(category: "CKSyncEngineCoordinator")
-
-    // MARK: - State Key Resolution
-
-    /// Resolves stable family identifier scoping engine state.
-    private func stableFamilyRecordName() -> String? {
-        // WHY family-first: zone names can collide across families.
-        if let familyRecordName = appState?.family?.id.recordName, !familyRecordName.isEmpty {
-            return familyRecordName
-        }
-        if let zoneName = cloudKitService.activeFamilyZoneID?.zoneName, !zoneName.isEmpty {
-            return zoneName
-        }
-        return nil
-    }
-
-    /// Builds UserDefaults state key per family and database scope.
-    private func stateKey(for scope: CKDatabase.Scope) -> String? {
-        guard let familyRecordName = stableFamilyRecordName() else {
-            return nil
-        }
-        return (scope == .private)
-            ? "ck_sync_engine_state.\(familyRecordName).private"
-            : "ck_sync_engine_state.\(familyRecordName).shared"
-    }
+    let logger = Logger(category: "CKSyncEngineCoordinator")
 
     let cloudKitService: any CloudKitServiceProtocol
     let delegateHandler: CKSyncEngineDelegateHandler
     let defaults: UserDefaults
 
     /// Weak session reference used to resolve active family for freshness stamping.
-    private weak var appState: AppState?
+    weak var appState: AppState?
 
     @ObservationIgnored var privateSyncEngine: CKSyncEngine?
     @ObservationIgnored var sharedSyncEngine: CKSyncEngine?
@@ -96,6 +72,8 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     @ObservationIgnored private var droppedBufferEntries: [CKRecord.ID: PendingBufferOperation] = [:]
 
     @ObservationIgnored private var lastSendCompletedAt: Date?
+    @ObservationIgnored private var needsTrailingSend = false
+    @ObservationIgnored private nonisolated let deferredSendTask = Mutex<Task<Void, Never>?>(nil)
     private static let sendCoalescingInterval: TimeInterval = 2
     /// WHY bounded buffers: offline days with large ledgers must not grow pending queues without limit.
     private static let maxBufferedIdentities = 2000
@@ -131,6 +109,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         for task in tasks {
             task.cancel()
         }
+        deferredSendTask.withLock { $0?.cancel() }
     }
 
     // MARK: - Engine Setup
@@ -630,7 +609,13 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         currentPassHadParseFailures = false
         currentPassHadCacheWriteFailures = false
         passProducedChanges = false
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            if needsTrailingSend {
+                needsTrailingSend = false
+                scheduleDeferredSend(after: 0.35)
+            }
+        }
         do {
             if let privateSyncEngine {
                 activeFetchPassScopes.insert(.private)
@@ -655,15 +640,23 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     /// Manually triggers a push pass for all queued saves and deletes.
     func sendPendingChanges() async {
         if isSyncing {
-            // WHY: optimistic bursts enqueue mid-pass; pendingRecordZoneChanges auto-sends so coalesce quietly.
-            logger.debug("Send changes coalesced: sync pass already in progress")
+            // WHY trailing flush: optimistic bursts arriving mid-pass must flush once the active pass finishes.
+            needsTrailingSend = true
+            logger.debug("Send changes coalesced: sync pass already in progress — trailing send scheduled")
             return
         }
-        if let lastSendCompletedAt, Date().timeIntervalSince(lastSendCompletedAt) < Self.sendCoalescingInterval {
-            // WHY: back-to-back optimistic sends follow one completed pass; engine auto-sends so skip redundant pass.
-            logger.debug("Send changes coalesced: within coalescing window")
-            return
+        if let lastSendCompletedAt {
+            let elapsed = Date().timeIntervalSince(lastSendCompletedAt)
+            if elapsed < Self.sendCoalescingInterval {
+                // WHY trailing flush: rapid-tap bursts within the coalescing window must still send once the window expires.
+                let remaining = max(0.05, Self.sendCoalescingInterval - elapsed)
+                scheduleDeferredSend(after: remaining)
+                logger.debug("Send changes coalesced: within coalescing window — scheduled trailing send")
+                return
+            }
         }
+        cancelDeferredSendTask()
+        needsTrailingSend = false
         if privateSyncEngine == nil && sharedSyncEngine == nil {
             initializeEngines()
         }
@@ -680,6 +673,10 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         defer {
             isSyncing = false
             lastSendCompletedAt = Date()
+            if needsTrailingSend {
+                needsTrailingSend = false
+                scheduleDeferredSend(after: 0.35)
+            }
         }
         do {
             if let privateSyncEngine {
@@ -698,6 +695,37 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         }
         // WHY terminated retry: jetsam before upload still reaches CloudKit via BG task.
         AppDelegate.scheduleSyncProcessingTask()
+    }
+
+    private func cancelDeferredSendTask() {
+        deferredSendTask.withLock { task in
+            task?.cancel()
+            task = nil
+        }
+    }
+
+    private func scheduleDeferredSend(after delay: TimeInterval) {
+        let nanos = UInt64(max(0.05, delay) * 1_000_000_000)
+        deferredSendTask.withLock { existing in
+            if existing != nil {
+                return
+            }
+            existing = Task { [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: nanos)
+                } catch {
+                    return
+                }
+                if Task.isCancelled {
+                    return
+                }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.deferredSendTask.withLock { $0 = nil }
+                    Task { await self.sendPendingChanges() }
+                }
+            }
+        }
     }
 
     // MARK: - Sync Pass Settlement
@@ -821,109 +849,10 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         )
     }
 
-    // MARK: - State Serialization Persistence
-
-    func saveState(_ serialization: CKSyncEngine.State.Serialization, for scope: CKDatabase.Scope) {
-        guard let key = stateKey(for: scope) else {
-            logger.info("saveState skipped: no active family identity to scope CKSyncEngine state")
-            return
-        }
-        do {
-            let data = try PropertyListEncoder().encode(serialization)
-            defaults.set(data, forKey: key)
-        } catch {
-            logger.error("Failed to encode CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
-        }
-    }
-
-    func loadState(for scope: CKDatabase.Scope) -> CKSyncEngine.State.Serialization? {
-        if let key = stateKey(for: scope), let data = defaults.data(forKey: key) {
-            do {
-                return try PropertyListDecoder().decode(
-                    CKSyncEngine.State.Serialization.self,
-                    from: data
-                )
-            } catch {
-                logger.error(
-                    "Failed to decode CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)"
-                )
-            }
-        }
-        if let profileName = appState?.currentProfile?.id.recordName {
-            let legacyKey = "ck_sync_engine_state.\(profileName).\(scope == .private ? "private" : "shared")"
-            if let data = defaults.data(forKey: legacyKey) {
-                do {
-                    let decoded = try PropertyListDecoder().decode(
-                        CKSyncEngine.State.Serialization.self,
-                        from: data
-                    )
-                    if let stableKey = stateKey(for: scope) {
-                        defaults.set(data, forKey: stableKey)
-                    }
-                    return decoded
-                } catch {
-                    logger.error(
-                        "Failed to decode legacy profile CKSyncEngine state for \(String(describing: scope)): \(error, privacy: .private)"
-                    )
-                }
-            }
-        }
-        let unscopedKey = scope == .private ? "ck_sync_engine_state_private" : "ck_sync_engine_state_shared"
-        if let data = defaults.data(forKey: unscopedKey) {
-            do {
-                let decoded = try PropertyListDecoder().decode(
-                    CKSyncEngine.State.Serialization.self,
-                    from: data
-                )
-                if let stableKey = stateKey(for: scope) {
-                    defaults.set(data, forKey: stableKey)
-                }
-                return decoded
-            } catch {
-                logger.error(
-                    "Failed to decode unscoped CKSyncEngine state for \(String(describing: scope)): \(error, privacy: .private)"
-                )
-            }
-        }
-        return nil
-    }
-
-    func resetState(forAccountID explicitAccountID: String? = nil) {
-        if let explicitAccountID {
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).private")
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).shared")
-            defaults.removeObject(forKey: "ck_sync_engine_state_private")
-            defaults.removeObject(forKey: "ck_sync_engine_state_shared")
-            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache_fresh_\(explicitAccountID)_") {
-                defaults.removeObject(forKey: key)
-            }
-            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_buffer_overflow.") {
-                defaults.removeObject(forKey: key)
-            }
-            privateSyncEngine = nil
-            sharedSyncEngine = nil
-            lastSyncedAt = nil
-            syncError = nil
-            lastPushReceivedAt = nil
-            lastChangeReceivedAt = nil
-            clearBufferOverflow()
-            logger.info("CKSyncEngine state reset for both private and shared databases (account: \(explicitAccountID, privacy: .private))")
-            return
-        }
-
-        if let stableName = stableFamilyRecordName() {
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).private")
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).shared")
-            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache_fresh_\(stableName)_") {
-                defaults.removeObject(forKey: key)
-            }
-        }
-        defaults.removeObject(forKey: "ck_sync_engine_state_private")
-        defaults.removeObject(forKey: "ck_sync_engine_state_shared")
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") || key.hasPrefix("cache_fresh_") || key.hasPrefix("ck_buffer_overflow.") {
-            defaults.removeObject(forKey: key)
-        }
-
+    func clearEngineTrackingForReset() {
+        cancelDeferredSendTask()
+        needsTrailingSend = false
+        lastSendCompletedAt = nil
         privateSyncEngine = nil
         sharedSyncEngine = nil
         lastSyncedAt = nil
@@ -931,8 +860,6 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         lastPushReceivedAt = nil
         lastChangeReceivedAt = nil
         clearBufferOverflow()
-        let logID = stableFamilyRecordName() ?? appState?.currentProfile?.id.recordName ?? "none"
-        logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID, privacy: .private))")
     }
 
     // MARK: - Push Tracking

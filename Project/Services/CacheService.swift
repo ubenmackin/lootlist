@@ -162,6 +162,18 @@ final class CacheService: CacheServicing {
         _ = await createAndAttachWriterIfNeeded()
     }
 
+    /// Drains pending main-queue CoreData didSave merges posted by `BackgroundCacheActor.saveContext()`
+    /// so immediate `@MainActor` fetches and `RecordBridge` synthesis observe up-to-date fields and system tags.
+    func flushBackgroundChangesToMainContext() async {
+        guard let context else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+        context.processPendingChanges()
+    }
+
     /// Consolidated test-and-set bootstrap: guards, lock, writer creation and attach.
     /// Returns true when a new writer was attached, false when bootstrap was skipped.
     private func createAndAttachWriterIfNeeded() async -> Bool {

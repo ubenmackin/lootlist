@@ -15,6 +15,7 @@ struct SystemFieldRefresh: Sendable {
     let type: CachedRecordType
     let changeTag: String?
     let encodedSystemFields: Data?
+    var lastSyncedXP: Int?
 }
 
 /// Result of a system-field refresh pass. A Bool return cannot separate "no cached row matched" (legal
@@ -41,12 +42,12 @@ extension BackgroundCacheActor {
         for refresh in refreshes {
             let updated: Bool = switch refresh.type {
             case .profile:
-                await updateSystemFields(
-                    ProfileCache.self,
+                await updateProfileSystemFields(
                     recordName: refresh.recordName,
                     familyRecordName: familyRecordName,
                     changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
+                    encodedSystemFields: refresh.encodedSystemFields,
+                    lastSyncedXP: refresh.lastSyncedXP
                 )
             case .family:
                 await updateSystemFields(
@@ -186,6 +187,139 @@ extension BackgroundCacheActor {
         match.changeTag = changeTag
         match.encodedSystemFields = encodedSystemFields
         return true
+    }
+
+    private func updateProfileSystemFields(
+        recordName: String,
+        familyRecordName: String,
+        changeTag: String?,
+        encodedSystemFields: Data?,
+        lastSyncedXP: Int?
+    ) async -> Bool {
+        let match: ProfileCache?
+        do {
+            match = try modelContext.fetch(
+                ProfileCache.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
+            ).first
+        } catch {
+            logger.error("Failed to fetch ProfileCache for system-field refresh (\(recordName, privacy: .private)): \(error, privacy: .private)")
+            match = nil
+        }
+        guard let match, match.familyRecordName == familyRecordName else {
+            return false
+        }
+        match.changeTag = changeTag
+        match.encodedSystemFields = encodedSystemFields
+        if let lastSyncedXP {
+            match.lastSyncedXP = lastSyncedXP
+        }
+        return true
+    }
+}
+
+@MainActor
+extension CacheService {
+    /// Main-context fallback for system-field refreshes when no `BackgroundCacheActor` is attached.
+    @discardableResult
+    func updateSystemFieldsOnMainActor(
+        _ refreshes: [SystemFieldRefresh],
+        familyRecordName: String
+    ) -> SystemFieldRefreshOutcome {
+        guard !refreshes.isEmpty, let context else { return .noMatches }
+        var didUpdate = false
+        for refresh in refreshes where applyMainActorSystemFieldRefresh(refresh, familyRecordName: familyRecordName, in: context) {
+            didUpdate = true
+        }
+        guard didUpdate else { return .noMatches }
+        return saveContext() ? .updated : .saveFailed
+    }
+
+    private func applyMainActorSystemFieldRefresh(
+        _ refresh: SystemFieldRefresh,
+        familyRecordName: String,
+        in context: ModelContext
+    ) -> Bool {
+        switch refresh.type {
+        case .profile:
+            guard let match = fetchMainActorSystemFieldMatch(
+                ProfileCache.self,
+                refresh: refresh,
+                familyRecordName: familyRecordName,
+                in: context
+            ) else {
+                return false
+            }
+            match.changeTag = refresh.changeTag
+            match.encodedSystemFields = refresh.encodedSystemFields
+            if let lastSyncedXP = refresh.lastSyncedXP {
+                match.lastSyncedXP = lastSyncedXP
+            }
+            return true
+        case .family:
+            return updateMainActorSystemFields(FamilyCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .quest:
+            return updateMainActorSystemFields(QuestCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .questTemplate:
+            return updateMainActorSystemFields(QuestTemplateCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .questCompletion:
+            return updateMainActorSystemFields(QuestCompletionCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .ledgerEntry:
+            return updateMainActorSystemFields(LedgerEntryCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .allowancePeriod:
+            return updateMainActorSystemFields(AllowancePeriodCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .achievement:
+            return updateMainActorSystemFields(AchievementCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .profileAchievement:
+            return updateMainActorSystemFields(ProfileAchievementCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .notificationPreference:
+            return updateMainActorSystemFields(NotificationPreferenceCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .gemLedger:
+            return updateMainActorSystemFields(GemLedgerCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .rewardEvent:
+            return updateMainActorSystemFields(RewardEventCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        case .goal:
+            return updateMainActorSystemFields(GoalCache.self, refresh: refresh, familyRecordName: familyRecordName, in: context)
+        }
+    }
+
+    private func updateMainActorSystemFields<T: SystemFieldUpdatable>(
+        _: T.Type,
+        refresh: SystemFieldRefresh,
+        familyRecordName: String,
+        in context: ModelContext
+    ) -> Bool {
+        guard let match = fetchMainActorSystemFieldMatch(
+            T.self,
+            refresh: refresh,
+            familyRecordName: familyRecordName,
+            in: context
+        ) else {
+            return false
+        }
+        match.changeTag = refresh.changeTag
+        match.encodedSystemFields = refresh.encodedSystemFields
+        return true
+    }
+
+    private func fetchMainActorSystemFieldMatch<T: SystemFieldUpdatable>(
+        _: T.Type,
+        refresh: SystemFieldRefresh,
+        familyRecordName: String,
+        in context: ModelContext
+    ) -> T? {
+        let match: T?
+        do {
+            match = try context.fetch(
+                T.fetchDescriptor(recordName: refresh.recordName, familyRecordName: familyRecordName)
+            ).first
+        } catch {
+            logger.error("Failed to fetch \(T.self, privacy: .private) for main-actor system-field refresh (\(refresh.recordName, privacy: .private)): \(error, privacy: .private)")
+            return nil
+        }
+        guard let match, match.familyRecordName == familyRecordName || T.self == FamilyCache.self else {
+            return nil
+        }
+        return match
     }
 }
 

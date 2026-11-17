@@ -119,6 +119,7 @@ extension CacheService {
     func upsertQuests(_ quests: [Quest], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(quests, type: QuestCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(QuestCache.self, items: quests, familyRecordName: family)
         }
@@ -127,6 +128,7 @@ extension CacheService {
     func upsertProfiles(_ profiles: [Profile], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(profiles, type: ProfileCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(ProfileCache.self, items: profiles, familyRecordName: family)
         }
@@ -135,6 +137,7 @@ extension CacheService {
     func upsertQuestCompletions(_ completions: [QuestCompletion], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(completions, type: QuestCompletionCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(QuestCompletionCache.self, items: completions, familyRecordName: family)
         }
@@ -143,6 +146,7 @@ extension CacheService {
     func upsertQuestTemplates(_ templates: [QuestTemplate], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(templates, type: QuestTemplateCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(QuestTemplateCache.self, items: templates, familyRecordName: family)
         }
@@ -151,6 +155,7 @@ extension CacheService {
     func upsertLedgerEntries(_ entries: [LedgerEntry], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(entries, type: LedgerEntryCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(LedgerEntryCache.self, items: entries, familyRecordName: family)
         }
@@ -159,6 +164,7 @@ extension CacheService {
     func upsertAllowancePeriods(_ periods: [AllowancePeriod], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(periods, type: AllowancePeriodCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(AllowancePeriodCache.self, items: periods, familyRecordName: family)
         }
@@ -167,6 +173,7 @@ extension CacheService {
     func upsertAchievements(_ achievements: [Achievement], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(achievements, type: AchievementCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(AchievementCache.self, items: achievements, familyRecordName: family)
         }
@@ -175,6 +182,7 @@ extension CacheService {
     func upsertProfileAchievements(_ pas: [ProfileAchievement], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(pas, type: ProfileAchievementCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(ProfileAchievementCache.self, items: pas, familyRecordName: family)
         }
@@ -183,6 +191,7 @@ extension CacheService {
     func upsertNotificationPreferences(_ prefs: [NotificationPreference], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(prefs, type: NotificationPreferenceCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(
                 NotificationPreferenceCache.self,
@@ -195,6 +204,7 @@ extension CacheService {
     func upsertGemLedgers(_ entries: [GemLedger], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(entries, type: GemLedgerCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(GemLedgerCache.self, items: entries, familyRecordName: family)
         }
@@ -203,6 +213,7 @@ extension CacheService {
     func upsertRewardEvents(_ events: [RewardEvent], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(events, type: RewardEventCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(RewardEventCache.self, items: events, familyRecordName: family)
         }
@@ -211,6 +222,7 @@ extension CacheService {
     func upsertGoals(_ goals: [Goal], family: String? = nil) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModels(goals, type: GoalCache.self, familyRecordName: family, isServerSync: false)
+            await flushBackgroundChangesToMainContext()
         } else {
             batchUpsert(GoalCache.self, items: goals, familyRecordName: family)
         }

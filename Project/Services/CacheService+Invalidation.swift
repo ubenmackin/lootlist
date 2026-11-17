@@ -27,6 +27,7 @@ extension CacheService {
     func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
         if let backgroundWriter {
             await backgroundWriter.deleteByIdentity(identity, type: type, expectedActiveZone: expectedActiveZone)
+            await flushBackgroundChangesToMainContext()
         } else {
             invalidateIdentityOnMainActor(identity: identity, type: type, expectedActiveZone: expectedActiveZone)
         }
@@ -47,6 +48,7 @@ extension CacheService {
     func invalidate(recordName: String, family: String, type: CachedRecordType) async {
         if let backgroundWriter {
             await backgroundWriter.deleteByNameAndFamily(type, recordName: recordName, familyRecordName: family)
+            await flushBackgroundChangesToMainContext()
         } else {
             invalidateByNameAndFamilyOnMainActor(recordName: recordName, family: family, type: type)
         }

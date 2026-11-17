@@ -39,7 +39,17 @@ extension CloudKitService {
             )
             if let result = saveResults[record.recordID] {
                 switch result {
-                case .success:
+                case let .success(savedRecord):
+                    do {
+                        var claimedEvent = try RewardEvent(record: savedRecord)
+                        if claimedEvent.changeTag == nil {
+                            claimedEvent.changeTag = savedRecord.recordChangeTag ?? "claimed"
+                        }
+                        claimedRewardSnapshots[record.recordID] = claimedEvent
+                        claimedRewardSnapshots[event.id] = claimedEvent
+                    } catch {
+                        logger.warning("Failed to decode claimed RewardEvent snapshot: \(error, privacy: .private)")
+                    }
                     return true
                 case let .failure(error):
                     if let ckError = error as? CKError,
