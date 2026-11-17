@@ -174,7 +174,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             return nil
         }
         let dbScope = syncEngine.database.databaseScope
-        return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [weak self] recordID in
+        var batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { [weak self] recordID in
             guard let self, let cacheService = self.cacheService else { return nil }
             let identity = ScopedRecordIdentity(
                 databaseScope: dbScope,
@@ -221,6 +221,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             // consecutive transient failures — the budget clears on send success instead.
             return record
         }
+        // WHY non-atomic zone batch: a transient conflict on a shared aggregate record (Profile or
+        // AllowancePeriod) must not abort independent QuestCompletion or per-event LedgerEntry saves.
+        batch?.atomicByZone = false
+        return batch
     }
 
     // MARK: - Private Helpers
@@ -229,6 +233,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         let zoneName = zoneID.zoneName
         logger.info("Zone deleted from server: \(zoneName, privacy: .private)")
         await backgroundCache?.purgeFamily(recordName: zoneName)
+        await cacheService?.flushBackgroundChangesToMainContext()
         cacheService?.invalidateFreshness(forFamilyRecordName: zoneName)
         coordinator?.noteChangesProcessed()
     }
@@ -338,6 +343,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             logger.error("Cache write failure during incoming zone changes: batch upsert failed")
             return IngestOutcome(failedTypes: failedTypes, didCommit: false, parseFailures: parseFailures, committedTypes: [])
         }
+        await cacheService?.flushBackgroundChangesToMainContext()
 
         coordinator?.noteChangesProcessed()
         if notifiesOnCompletion {
@@ -718,10 +724,19 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 recordName: savedRecord.recordID.recordName,
                 type: type,
                 changeTag: savedRecord.recordChangeTag,
-                encodedSystemFields: savedRecord.encodedSystemFields
+                encodedSystemFields: savedRecord.encodedSystemFields,
+                lastSyncedXP: type == .profile ? (savedRecord["xp"] as? Int) : nil
             )
         }
-        switch await backgroundCache?.updateSystemFields(refreshes, familyRecordName: activeFamily) ?? .noMatches {
+        let writer = backgroundCache ?? appState?.backgroundCacheActor ?? cacheService?.backgroundWriter
+        let outcome: SystemFieldRefreshOutcome
+        if let writer {
+            outcome = await writer.updateSystemFields(refreshes, familyRecordName: activeFamily)
+            await cacheService?.flushBackgroundChangesToMainContext()
+        } else {
+            outcome = cacheService?.updateSystemFieldsOnMainActor(refreshes, familyRecordName: activeFamily) ?? .noMatches
+        }
+        switch outcome {
         case .updated:
             coordinator?.noteChangesProcessed()
         case .noMatches:
@@ -841,6 +856,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             for type in CachedRecordType.allCases {
                 await backgroundCache?.deleteByIdentity(identity, type: type, expectedActiveZone: activeZone)
             }
+            await cacheService?.flushBackgroundChangesToMainContext()
             coordinator?.noteChangesProcessed()
         }
     }

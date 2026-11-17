@@ -195,6 +195,7 @@ protocol CloudKitServiceProtocol: AnyObject, Sendable {
 
     func save<T: CloudKitRecord>(_ entity: T, in zoneID: CKRecordZone.ID?, using db: CKDatabase?) async throws -> T
     func claimRewardEvent(_ event: RewardEvent, in zoneID: CKRecordZone.ID?, using db: CKDatabase?) async throws -> Bool
+    func consumeClaimedRewardEvent(for recordID: CKRecord.ID) -> RewardEvent?
     func fetch<T: CloudKitRecord>(_ type: T.Type, id: CKRecord.ID, using db: CKDatabase?) async throws -> T
     func query<T: CloudKitRecord>(_ type: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?, using db: CKDatabase?) async throws
         -> [T]
@@ -260,6 +261,10 @@ extension CloudKitServiceProtocol {
         using db: CKDatabase? = nil
     ) async throws -> Bool {
         try await claimRewardEvent(event, in: zoneID, using: db)
+    }
+
+    func consumeClaimedRewardEvent(for _: CKRecord.ID) -> RewardEvent? {
+        nil
     }
 
     func save<T: CloudKitRecord>(

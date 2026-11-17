@@ -246,7 +246,8 @@ final class TreasuryService {
 
     func getOrCreateAllowancePeriod(profile: Profile,
                                     weekOf: Date,
-                                    family: Family) async throws -> AllowancePeriod
+                                    family: Family,
+                                    enqueueOnCreate: Bool = true) async throws -> AllowancePeriod
     {
         guard let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent, profile.family.recordID == family.id,
@@ -312,10 +313,10 @@ final class TreasuryService {
             return existing
         }
 
-        return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek)
+        return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek, enqueueOnCreate: enqueueOnCreate)
     }
 
-    private func createPeriod(profile: Profile, family: Family, weekOf: Date) async throws -> AllowancePeriod {
+    private func createPeriod(profile: Profile, family: Family, weekOf: Date, enqueueOnCreate: Bool = true) async throws -> AllowancePeriod {
         guard let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent, profile.family.recordID == family.id,
               profile.id.zoneID == family.id.zoneID
@@ -345,7 +346,9 @@ final class TreasuryService {
         )
 
         await cacheService.upsertAllowancePeriod(period)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: period.id, appState: appState, logger: logger, context: "TreasuryService.createPeriod")
+        if enqueueOnCreate {
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: period.id, appState: appState, logger: logger, context: "TreasuryService.createPeriod")
+        }
         return period
     }
 
@@ -368,15 +371,20 @@ final class TreasuryService {
 
         var updated = period
 
-        // Resolve profile/family cache-first and compute breakdown.
+        // Resolve profile/family cache-first and compute breakdown only when caller omitted totals.
         do {
             let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
             let family = try await resolveFamily(recordID: period.family.recordID)
-            let breakdown = try await weeklyBreakdown(profile: profile,
-                                                      family: family,
-                                                      weekOf: period.weekOf)
-            updated.totalEarned = totalEarned ?? breakdown.totalEarned
-            updated.questsCompleted = questsCompleted ?? breakdown.questsCount
+            if let totalEarned, let questsCompleted {
+                updated.totalEarned = totalEarned
+                updated.questsCompleted = questsCompleted
+            } else {
+                let breakdown = try await weeklyBreakdown(profile: profile,
+                                                          family: family,
+                                                          weekOf: period.weekOf)
+                updated.totalEarned = totalEarned ?? breakdown.totalEarned
+                updated.questsCompleted = questsCompleted ?? breakdown.questsCount
+            }
             if questsTotal == nil {
                 let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: period.weekOf)
                 // WHY assigned scope: questsTotal mirrors assigned quests; completions track in questsCompleted.
@@ -538,7 +546,7 @@ final class TreasuryService {
         // every completion lands; the body may network-hydrate via QuestLogFetchHelper when the
         // completion cache is stale, and queued holders simply wait rather than fail.
         return try await settlementLock.withLock(key: periodRecordName) {
-            let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
+            let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family, enqueueOnCreate: false)
 
             // Single snapshot for quest logs and gold — prevents divergence
             // between quest count and earned amount if the SwiftData cache

@@ -81,7 +81,7 @@ final class CKSyncConflictResolver {
         case .partialFailure:
             partialFailureDisposition(error)
         case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
-             .operationCancelled, .zoneBusy, .notAuthenticated:
+             .operationCancelled, .zoneBusy, .notAuthenticated, .batchRequestFailed:
             .retry
         default:
             .discard
@@ -295,6 +295,7 @@ final class CKSyncConflictResolver {
     private func commitSecondaryParsedRecord(_ parsedRecord: ParsedRecord, databaseScope: CKDatabase.Scope?) async {
         if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedRecord], databaseScope: databaseScope)
+            await cacheService?.flushBackgroundChangesToMainContext()
             return
         }
         guard let cacheService else { return }
@@ -351,12 +352,13 @@ final class CKSyncConflictResolver {
         }
         let serverTag = serverRecord.recordChangeTag
         let shouldSurface: Bool = {
+            let fieldsDiffer = didLocalFieldsDiffer(serverRecord: serverRecord, clientRecord: originalRecord)
             if let cachedTagBeforeMerge, let serverTag {
-                // WHY: cached tag divergence proves an optimistic write was clobbered by server-wins.
-                return cachedTagBeforeMerge != serverTag
+                // WHY: cached tag divergence proves an optimistic write was clobbered by server-wins only when payload differs.
+                return cachedTagBeforeMerge != serverTag && fieldsDiffer
             }
             // Fallback when tags unavailable — compare local pending fields to server snapshot.
-            return didLocalFieldsDiffer(serverRecord: serverRecord, clientRecord: originalRecord)
+            return fieldsDiffer
         }()
         guard shouldSurface else { return }
         cacheService?.invalidateFreshness(familyRecordName: secondaryFamily, type: secondaryType)
@@ -402,6 +404,7 @@ final class CKSyncConflictResolver {
             await cacheService?.upsertQuest(mergedQuest, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
+            await cacheService?.flushBackgroundChangesToMainContext()
         } else {
             await cacheService?.upsertQuest(mergedQuest, isServerSync: true)
         }
@@ -504,6 +507,7 @@ final class CKSyncConflictResolver {
             await cacheService?.upsertProfile(mergedProfile, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
+            await cacheService?.flushBackgroundChangesToMainContext()
         } else {
             await cacheService?.upsertProfile(mergedProfile, isServerSync: true)
         }
@@ -559,6 +563,7 @@ final class CKSyncConflictResolver {
             await cacheService?.upsertQuestCompletion(merged, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
+            await cacheService?.flushBackgroundChangesToMainContext()
         } else {
             await cacheService?.upsertQuestCompletion(merged, isServerSync: true)
         }
@@ -632,6 +637,7 @@ final class CKSyncConflictResolver {
             await cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord], databaseScope: databaseScope)
+            await cacheService?.flushBackgroundChangesToMainContext()
         } else {
             await cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
         }
@@ -791,7 +797,7 @@ final class CKSyncConflictResolver {
 
     private func ckDateEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
         if let lDate = lhs as? Date, let rDate = rhs as? Date {
-            return lDate == rDate
+            return DeterministicRecordID.isSameMillisecond(lDate, rDate)
         }
         if (lhs is Date) || (rhs is Date) {
             return false
@@ -882,6 +888,7 @@ final class CKSyncConflictResolver {
                     type: cachedType,
                     expectedActiveZone: expectedActiveZone
                 )
+                await cacheService?.flushBackgroundChangesToMainContext()
             } else {
                 // No background writer (in-memory stores): fall back to the
                 // legacy main-actor invalidation so deletions still apply.

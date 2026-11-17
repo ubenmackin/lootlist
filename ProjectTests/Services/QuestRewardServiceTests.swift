@@ -356,4 +356,83 @@ struct QuestRewardServiceTests {
         #expect(heroBFinal.xpTotal == heroBBaseline + 50)
         #expect(stack.cache.fetchRewardEvents(family: stack.family.id.recordName).count == 2)
     }
+
+    @Test
+    func `rapid four quest completions on hero device settle all completions without toasts or dropped saves`() async throws {
+        let stack = try makeStack()
+        let familyRef = ExhaustiveCacheFixtures.sharedFamilyRef(zoneID: stack.zoneID)
+        var hero = stack.hero
+        hero.payoutPolicy = .realTime
+        hero.xp = 0
+        await stack.cache.upsertFamily(stack.family)
+        await stack.cache.upsertProfile(hero)
+        stack.mock.seedMockRecords([stack.family, hero])
+        stack.appState.currentProfile = hero
+        stack.appState.isZoneOwner = false
+        stack.mock.activeIsOwner = false
+
+        var quests: [Quest] = []
+        for idx in 1 ... 4 {
+            let quest = makeQuest(
+                familyRef: familyRef,
+                hero: hero,
+                name: "Rapid Quest \(idx)",
+                recordName: "quest-rapid-\(idx)",
+                zoneID: stack.zoneID
+            )
+            quests.append(quest)
+            await stack.cache.upsertQuest(quest)
+        }
+        stack.mock.seedMockRecords(quests)
+        for type in [CachedRecordType.quest, .questCompletion, .profile, .family, .allowancePeriod, .ledgerEntry] {
+            stack.cache.markCacheFreshForTests(familyRecordName: stack.family.id.recordName, type: type)
+        }
+
+        let toastManager = ToastManager()
+        let xpService = XPService(cloudKit: stack.cloudKit, cacheService: stack.cache, toastManager: toastManager, appState: stack.appState)
+        let treasuryService = TreasuryService(
+            cloudKit: stack.cloudKit,
+            cacheService: stack.cache,
+            toastManager: toastManager,
+            appState: stack.appState,
+            syncCoordinator: NoopSyncEnqueuing()
+        )
+        let questService = QuestService(
+            cloudKit: stack.cloudKit,
+            xpService: xpService,
+            cacheService: stack.cache,
+            treasuryService: treasuryService,
+            toastManager: toastManager,
+            appState: stack.appState,
+            syncCoordinator: NoopSyncEnqueuing()
+        )
+
+        var tasks: [Task<QuestCompletion, Error>] = []
+        for quest in quests {
+            tasks.append(Task { @MainActor in
+                try await questService.markComplete(quest: quest, by: hero)
+            })
+        }
+        var completions: [QuestCompletion] = []
+        for task in tasks {
+            try await completions.append(task.value)
+        }
+
+        #expect(completions.count == 4)
+        #expect(completions.allSatisfy { $0.verificationStatus == .autoApproved && $0.xpCredited == 50 })
+        #expect(toastManager.toasts.isEmpty)
+
+        let cachedCompletions = stack.cache.fetchQuestCompletions(family: stack.family.id.recordName)
+        #expect(cachedCompletions.count == 4)
+        let cachedRewards = stack.cache.fetchRewardEvents(family: stack.family.id.recordName)
+        #expect(cachedRewards.count == 4)
+        #expect(cachedRewards.allSatisfy { $0.changeTag != nil })
+
+        let updatedHero = try #require(stack.cache.fetchProfile(recordName: hero.id.recordName, family: stack.family.id.recordName))
+        #expect(updatedHero.xpTotal == 200)
+
+        let ledgerEntries = stack.cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: stack.family.id.recordName)
+        #expect(ledgerEntries.count == 4)
+        #expect(ledgerEntries.reduce(Int64(0)) { $0 + $1.amount } == 40)
+    }
 }

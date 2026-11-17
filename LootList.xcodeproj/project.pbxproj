@@ -29,6 +29,7 @@
 		0B1529EEA1515B23848B6057 /* QuickCreateFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1A522EC782B6FC177DFBD4 /* QuickCreateFormView.swift */; };
 		0B88EDE3C487D4A6D398A8D9 /* CacheConversions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68346001171FD0C1F3D08B31 /* CacheConversions.swift */; };
 		0BBF4169B3F99A3EECF56BF2 /* QuestTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8FDD3E9D17F1355BDC2C8B /* QuestTemplate.swift */; };
+		0C52EA1716B5DC52549722FB /* CKSyncEngineCoordinator+State.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60EC5F0298C193331F561F4 /* CKSyncEngineCoordinator+State.swift */; };
 		0D53CA21F2F718B291163C9A /* MyChoresView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6190D7BD94613C76D46B13F /* MyChoresView.swift */; };
 		0D6FF1926A1D879EDE84A21B /* ProfileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27CD50815F7D1BF211D66DA /* ProfileCache.swift */; };
 		0E6C4DF8B74D3ADEC3A8609A /* NotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56074526FD4DE3AADA0F3DA /* NotificationServiceTests.swift */; };
@@ -858,6 +859,7 @@
 		A49B5A27C700FC780D0D78C1 /* FamilyShareReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyShareReconcilerTests.swift; sourceTree = "<group>"; };
 		A57E62588DC0424AC3E8758D /* GoalEnhancementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalEnhancementTests.swift; sourceTree = "<group>"; };
 		A5B022BA457D619771F61673 /* ChildHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildHubView.swift; sourceTree = "<group>"; };
+		A60EC5F0298C193331F561F4 /* CKSyncEngineCoordinator+State.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKSyncEngineCoordinator+State.swift"; sourceTree = "<group>"; };
 		A678420802F60A989A37F555 /* JourneyMapCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyMapCardView.swift; sourceTree = "<group>"; };
 		A6CA16B7055C5AEAD8C8C14A /* ParentDashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentDashboardUITests.swift; sourceTree = "<group>"; };
 		A7184C143A9DE0C4CD59C97C /* QuestAssignmentModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestAssignmentModifiers.swift; sourceTree = "<group>"; };
@@ -1211,6 +1213,7 @@
 				DC47BB651069A93E615E07DB /* CelebrationManager.swift */,
 				6C0EF642175C65AA3CA23808 /* CKSyncConflictResolver.swift */,
 				8D6CA29BADC966FA94689CD7 /* CKSyncEngineCoordinator.swift */,
+				A60EC5F0298C193331F561F4 /* CKSyncEngineCoordinator+State.swift */,
 				9B6076B9096995404AD21385 /* CKSyncEngineDelegateHandler.swift */,
 				FA88E0D7A71024989CEC405C /* CKSyncEngineDelegateHandler+Hydration.swift */,
 				5C3ABA1D09005EC293F24135 /* CloudKitService.swift */,
@@ -2067,6 +2070,7 @@
 				15C5BDF7BA4627BE5B275478 /* BucketTransferView.swift in Sources */,
 				C304E6251241F303791BC7FB /* CKRecord+SystemFields.swift in Sources */,
 				F6B9BD5159EA2E224F01BC09 /* CKSyncConflictResolver.swift in Sources */,
+				0C52EA1716B5DC52549722FB /* CKSyncEngineCoordinator+State.swift in Sources */,
 				773530024D1B1E916C27170E /* CKSyncEngineCoordinator.swift in Sources */,
 				F9956331B011AFB9F0403F9B /* CKSyncEngineDelegateHandler+Hydration.swift in Sources */,
 				3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */,

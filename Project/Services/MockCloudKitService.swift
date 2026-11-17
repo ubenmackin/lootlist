@@ -146,6 +146,12 @@ class MockCloudKitService: CloudKitServiceProtocol {
         return decoded
     }
 
+    var claimedRewardSnapshots: [CKRecord.ID: RewardEvent] = [:]
+
+    func consumeClaimedRewardEvent(for recordID: CKRecord.ID) -> RewardEvent? {
+        claimedRewardSnapshots.removeValue(forKey: recordID)
+    }
+
     func claimRewardEvent(_ event: RewardEvent, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws -> Bool {
         if let saveError {
             throw saveError
@@ -170,6 +176,14 @@ class MockCloudKitService: CloudKitServiceProtocol {
         }
         mockStore.setRecord(record, databaseScope: scope)
         savedRecords.append(record)
+        do {
+            var claimedEvent = try RewardEvent(record: record)
+            claimedEvent.changeTag = record.recordChangeTag ?? "mock-claimed-\(targetID.recordName)"
+            claimedRewardSnapshots[targetID] = claimedEvent
+            claimedRewardSnapshots[event.id] = claimedEvent
+        } catch {
+            logger.debug("MockCloudKitService: failed to decode claimed RewardEvent snapshot: \(error, privacy: .private)")
+        }
         return true
     }
 
